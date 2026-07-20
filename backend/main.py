@@ -17,7 +17,10 @@ app = FastAPI(title="Jain Freight Carrier")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=[
+        "http://localhost:3000",
+        "https://your-exact-vercel-link.vercel.app" # <-- PASTE YOUR VERCEL LINK HERE
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
