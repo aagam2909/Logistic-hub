@@ -12,7 +12,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-const API_BASE = "http://127.0.0.1:8000";
+const API_BASE = `${import.meta.env.VITE_API_BASE}`;
 
 function Track() {
   const [trackingNumber, setTrackingNumber] = useState('');

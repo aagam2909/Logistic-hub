@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useReactToPrint } from 'react-to-print';
 
-const API_BASE = "http://127.0.0.1:8000";
+const API_BASE = `${import.meta.env.VITE_API_BASE}`;
 
 function Finances() {
   const [trips, setTrips] = useState([]);
