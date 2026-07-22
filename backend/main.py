@@ -161,7 +161,7 @@ def complete_trip(trip_id: int, data: TripCompleteUpdate):
 
 # --- MISSING TRACKING ENDPOINT RESTORED ---
 @app.get("/track/{trip_id}")
-def get_track_data(trip_id: int):
+def get_track_data(trip_id: str):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM trips WHERE trip_id = %s;", (trip_id,))
