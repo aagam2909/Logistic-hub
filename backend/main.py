@@ -110,18 +110,23 @@ async def create_asset(
 def create_trip(trip: TripCreate):
     conn = get_db_connection()
     cursor = conn.cursor()
-    current_month = datetime.now().strftime("%Y%m")
+    vehicle_number = trip.vehicle_number.upper().strip()
+    now = datetime.now()
+
+    # The monthly sequence is global across all vehicles and resets each month.
     cursor.execute("""
-        SELECT COUNT(*) FROM trips 
-        WHERE vehicle_number = %s AND TO_CHAR(trip_start_date, 'YYYYMM') = %s;
-    """, (trip.vehicle_number.upper().strip(), current_month))
+        SELECT COUNT(*)
+        FROM trips
+        WHERE created_at >= date_trunc('month', CURRENT_TIMESTAMP)
+          AND created_at < date_trunc('month', CURRENT_TIMESTAMP) + INTERVAL '1 month';
+    """)
     sequence = cursor.fetchone()[0] + 1
-    tracking_id = f"{trip.vehicle_number.upper().strip()}_{current_month}_{sequence}"
+    tracking_id = f"{vehicle_number[-4:]}_{now.strftime('%d%m%y')}_{sequence}"
     cursor.execute("""
         INSERT INTO trips (vehicle_number, tracking_number, source_city, destination_city, 
                            party_name, gta_name, lr_no, eway_bill, eway_bill_expiry, trip_start_date, lw) 
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
-    """, (trip.vehicle_number.upper().strip(), tracking_id, trip.source_city, trip.destination_city, 
+    """, (vehicle_number, tracking_id, trip.source_city, trip.destination_city,
           trip.party_name, trip.gta_name, trip.lr_no, trip.eway_bill, 
           trip.eway_bill_expiry, trip.trip_start_date, trip.lw))
     conn.commit()
