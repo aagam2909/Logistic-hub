@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useReactToPrint } from 'react-to-print';
 
-const API_BASE = `${import.meta.env.VITE_API_BASE}`;
+const API_BASE = import.meta.env.VITE_API_URL;
 
 function Finances() {
   const [trips, setTrips] = useState([]);
@@ -46,7 +46,7 @@ function Finances() {
       <h2 className="text-3xl font-bold">Automated Finance Ledger</h2>
       <select className="border p-3 w-full rounded" onChange={(e) => loadTripFinance(e.target.value)}>
         <option value="">Select a Trip to Generate Receipt</option>
-        {trips.map(t => <option key={t.trip_id} value={t.trip_id}>{t.tracking_number}</option>)}
+        {trips?.map?.(t => <option key={t.trip_id} value={t.trip_id}>{t.tracking_number}</option>)}
       </select>
 
       {selectedTrip && (

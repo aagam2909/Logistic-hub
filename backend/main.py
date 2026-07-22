@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from database import get_db_connection
 from datetime import date, datetime
 import os
+import psycopg2
 import requests
 import shutil
 from dotenv import load_dotenv
@@ -48,6 +49,21 @@ class PODUpdate(BaseModel):
     pod_status: str
     pod_arrived_office_date: Optional[date] = None
     pod_forwarded_client_date: Optional[date] = None
+
+class DriverCreate(BaseModel):
+    name: str
+    dl_number: str
+    aadhaar_number: str
+    mobile_number: Optional[str] = None
+    dl_expiry_date: Optional[date] = None
+
+class DriverUpdate(DriverCreate):
+    pass
+
+class AssetUpdate(BaseModel):
+    driver_name: str
+    per_km_rate: float
+    current_status: str
 
 # --- TELEMETRY ENGINE (PRESERVED) ---
 def get_taabi_live_data(vehicle_number):
@@ -105,6 +121,54 @@ async def create_asset(
     cursor.close(); conn.close()
     return {"status": "Success"}
 
+@app.put("/assets/{vehicle_no}")
+def update_asset(vehicle_no: str, asset: AssetUpdate):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE assets
+        SET driver_name = %s, per_km_rate = %s, current_status = %s
+        WHERE vehicle_number = %s
+        RETURNING vehicle_number;
+    """, (asset.driver_name, asset.per_km_rate, asset.current_status,
+          vehicle_no.upper().strip()))
+    updated_vehicle = cursor.fetchone()
+    conn.commit()
+    cursor.close(); conn.close()
+
+    if not updated_vehicle:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    return {"status": "Updated", "vehicle_number": updated_vehicle[0]}
+
+@app.delete("/assets/{vehicle_number}")
+def delete_asset(vehicle_number: str):
+    # We replaced the DELETE query with an UPDATE query for Soft Deleting (Archiving)
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE assets SET current_status = 'Archived' WHERE vehicle_number = %s RETURNING vehicle_number;",
+            (vehicle_number.upper().strip(),)
+        )
+        archived_vehicle = cursor.fetchone()
+        conn.commit()
+    except Exception as exc:
+        if conn:
+            conn.rollback()
+        print(f"Error archiving vehicle {vehicle_number}: {exc}")
+        raise HTTPException(status_code=500, detail="Unable to archive vehicle.")
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+    if not archived_vehicle:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    return {"status": "Archived", "vehicle_number": archived_vehicle[0]}
+
 # --- TRIP ENDPOINTS ---
 @app.post("/trips")
 def create_trip(trip: TripCreate):
@@ -148,6 +212,32 @@ def get_all_trips():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM trips ORDER BY trip_id DESC;")
+    res = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
+    cursor.close(); conn.close()
+    return res
+
+@app.get("/trips/history")
+def get_trip_history():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM trips
+        WHERE actual_delivery_date IS NOT NULL
+        ORDER BY actual_delivery_date DESC, trip_id DESC;
+    """)
+    res = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
+    cursor.close(); conn.close()
+    return res
+
+@app.get("/trips/truck/{vehicle_no}")
+def get_trips_by_truck(vehicle_no: str):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM trips
+        WHERE vehicle_number = %s
+        ORDER BY trip_start_date DESC, trip_id DESC;
+    """, (vehicle_no.upper().strip(),))
     res = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
     cursor.close(); conn.close()
     return res
@@ -230,13 +320,36 @@ def get_all_drivers():
     return res
 
 @app.post("/drivers")
-def add_driver(name: str = Form(...), dl_number: str = Form(...), aadhaar_number: str = Form(...)):
+def add_driver(driver: DriverCreate):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO drivers (name, dl_number, aadhaar_number) VALUES (%s, %s, %s);", (name, dl_number, aadhaar_number))
+    cursor.execute("""
+        INSERT INTO drivers (name, dl_number, aadhaar_number, mobile_number, dl_expiry_date)
+        VALUES (%s, %s, %s, %s, %s);
+    """, (driver.name, driver.dl_number, driver.aadhaar_number,
+          driver.mobile_number, driver.dl_expiry_date))
     conn.commit()
     cursor.close(); conn.close()
     return {"status": "Success"}
+
+@app.put("/drivers/{driver_id}")
+def update_driver(driver_id: int, driver: DriverUpdate):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE drivers
+        SET name = %s, dl_number = %s, aadhaar_number = %s,
+            mobile_number = %s, dl_expiry_date = %s
+        WHERE driver_id = %s
+        RETURNING driver_id;
+    """, (driver.name, driver.dl_number, driver.aadhaar_number,
+          driver.mobile_number, driver.dl_expiry_date, driver_id))
+    updated_driver = cursor.fetchone()
+    conn.commit()
+    cursor.close(); conn.close()
+    if not updated_driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    return {"status": "Updated", "driver_id": updated_driver[0]}
 
 @app.delete("/drivers/{driver_id}")
 def delete_driver(driver_id: int):

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const API_BASE = `${import.meta.env.VITE_API_BASE}`;
+const API_BASE = import.meta.env.VITE_API_URL;
 
 function PartyHistory() {
   const [parties, setParties] = useState([]);
@@ -65,7 +65,7 @@ function PartyHistory() {
             </div>
         )}
         <div className="overflow-y-auto max-h-[65vh]">
-          {parties.map(p => (
+          {parties?.map?.(p => (
             <div key={p} className="flex justify-between items-center mb-2 bg-white border rounded shadow-sm hover:border-blue-400">
                 <button onClick={() => fetchHistory(p)} className={`flex-1 text-left p-3 transition-all ${selected === p ? 'bg-blue-600 text-white' : 'hover:bg-blue-50 text-gray-700'}`}>{p}</button>
                 <button onClick={() => deleteParty(p)} className="px-3 text-red-400 font-bold hover:text-red-600">X</button>
@@ -81,7 +81,7 @@ function PartyHistory() {
           <table className="w-full text-left border-collapse">
             <thead className="bg-gray-100"><tr><th className="p-3 border-b">Trip ID</th><th className="p-3 border-b">Vehicle</th><th className="p-3 border-b">Date</th><th className="p-3 border-b">Status</th></tr></thead>
             <tbody>
-              {history.length > 0 ? history.map(h => (
+              {history?.length > 0 ? history?.map?.(h => (
                 <tr key={h.trip_id} className="border-b hover:bg-gray-50">
                   <td className="p-3">{h.tracking_number}</td>
                   <td className="p-3">{h.vehicle_number}</td>

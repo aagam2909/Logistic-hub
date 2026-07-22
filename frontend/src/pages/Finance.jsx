@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useReactToPrint } from 'react-to-print';
 
-const API_BASE = `${import.meta.env.VITE_API_BASE}`;
+const API_BASE = import.meta.env.VITE_API_URL;
 
 function Finances() {
   const [trips, setTrips] = useState([]);
@@ -16,7 +16,12 @@ function Finances() {
   const handlePrint = useReactToPrint({ content: () => componentRef.current });
 
   useEffect(() => {
-    axios.get(`${API_BASE}/trips/all`).then(res => setTrips(res.data));
+    axios.get(`${API_BASE}/trips/all`)
+      .then((res) => setTrips(Array.isArray(res.data) ? res.data : []))
+      .catch((err) => {
+        console.error("Error fetching trips:", err);
+        setTrips([]);
+      });
   }, []);
 
   const loadTripFinance = async () => {
@@ -55,7 +60,7 @@ function Finances() {
           placeholder="Enter tracking number"
         />
         <datalist id="tracking-numbers">
-          {trips.map((trip) => (
+          {trips?.map?.((trip) => (
             <option key={trip.trip_id} value={trip.tracking_number} />
           ))}
         </datalist>

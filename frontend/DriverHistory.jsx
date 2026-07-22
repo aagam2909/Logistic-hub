@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const API_BASE = `${import.meta.env.VITE_API_BASE}`;
+const API_BASE = import.meta.env.VITE_API_URL;
 
 function DriverHistory() {
   const [drivers, setDrivers] = useState([]);
@@ -59,7 +59,7 @@ function DriverHistory() {
                 <button onClick={addDriver} className="w-full bg-green-600 text-white p-1 rounded font-bold">Save Driver</button>
             </div>
         )}
-        {drivers.map(d => (
+        {drivers?.map?.(d => (
           <div key={d.driver_id} className="flex justify-between items-center mb-2 bg-white border rounded shadow-sm">
             <button onClick={() => fetchDriverHistory(d.name)} className={`flex-1 text-left p-3 ${selectedDriver === d.name ? 'bg-green-600 text-white' : 'hover:bg-green-100'}`}>
               {d.name}
@@ -73,7 +73,7 @@ function DriverHistory() {
         <table className="w-full bg-white shadow rounded">
           <thead className="bg-gray-100"><tr className="text-left"><th className="p-3">Trip ID</th><th className="p-3">Vehicle</th><th className="p-3">Start Date</th><th className="p-3">Status</th></tr></thead>
           <tbody>
-            {history.map(h => (
+            {history?.map?.(h => (
               <tr key={h.trip_id} className="border-t">
                 <td className="p-3">{h.tracking_number}</td>
                 <td className="p-3">{h.vehicle_number}</td>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const API_BASE = `${import.meta.env.VITE_API_BASE}`;
+const API_BASE = import.meta.env.VITE_API_URL;
 
 function FleetRegistry() {
   const [assets, setAssets] = useState([]);
@@ -65,7 +65,7 @@ function FleetRegistry() {
         {/* Dropdown for Drivers */}
         <select className="border p-2 rounded" onChange={e => setFormData({...formData, driver_name: e.target.value})}>
             <option value="">Select Driver</option>
-            {drivers.map(d => <option key={d.driver_id} value={d.name}>{d.name}</option>)}
+            {drivers?.map?.(d => <option key={d.driver_id} value={d.name}>{d.name}</option>)}
         </select>
         
         <input className="border p-2 rounded" type="number" placeholder="Rate/KM *" value={formData.per_km_rate} onChange={e => setFormData({...formData, per_km_rate: e.target.value})} />
@@ -81,7 +81,7 @@ function FleetRegistry() {
               <tr><th className="p-4">Vehicle</th><th className="p-4">Driver</th><th className="p-4">Rate/KM</th><th className="p-4">Status</th><th className="p-4">Action</th></tr>
             </thead>
             <tbody>
-              {assets.map(a => (
+              {assets?.map?.(a => (
                 <tr key={a.vehicle_number} className="border-b">
                   <td className="p-4 font-medium">{a.vehicle_number}</td>
                   <td className="p-4">{a.driver_name}</td>

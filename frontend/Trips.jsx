@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-const API_BASE = `${import.meta.env.VITE_API_BASE}`;
+const API_BASE = import.meta.env.VITE_API_URL;
 
 function Trips() {
   const [activeTrips, setActiveTrips] = useState([]);
@@ -82,7 +82,7 @@ function Trips() {
         <div className="grid grid-cols-3 gap-3">
           <select className="border p-2 rounded" onChange={e => setTripData({...tripData, vehicle_number: e.target.value})}>
              <option value="">Select Truck</option>
-             {availableTrucks.map(t => <option key={t.vehicle_number} value={t.vehicle_number}>{t.vehicle_number}</option>)}
+             {availableTrucks?.map?.(t => <option key={t.vehicle_number} value={t.vehicle_number}>{t.vehicle_number}</option>)}
           </select>
           <input className="border p-2 rounded" placeholder="Source" onChange={e => setTripData({...tripData, source_city: e.target.value})} />
           <input className="border p-2 rounded" placeholder="Destination" onChange={e => setTripData({...tripData, destination_city: e.target.value})} />
@@ -92,7 +92,7 @@ function Trips() {
             else { setIsOther(false); setTripData({...tripData, party_name: e.target.value}); }
           }}>
             <option value="">Select Party</option>
-            {parties.map(p => <option key={p} value={p}>{p}</option>)}
+            {parties?.map?.(p => <option key={p} value={p}>{p}</option>)}
             <option value="Other">Other (New Party)</option>
           </select>
 
@@ -113,7 +113,7 @@ function Trips() {
         <div className="space-y-4">
           <select className="w-full border p-2" onChange={(e) => setPodUpdate({...podUpdate, trip_id: e.target.value})}>
             <option>-- Choose a Trip --</option>
-            {activeTrips.map(t => <option key={t.trip_id} value={t.trip_id}>{t.tracking_number || t.trip_id}</option>)}
+            {activeTrips?.map?.(t => <option key={t.trip_id} value={t.trip_id}>{t.tracking_number || t.trip_id}</option>)}
           </select>
           <div className="grid grid-cols-3 gap-4">
             <select className="border p-2" onChange={(e) => setPodUpdate({...podUpdate, pod_status: e.target.value})}>
@@ -129,7 +129,7 @@ function Trips() {
           <table className="w-full text-sm">
             <thead className="bg-gray-100"><tr><th className="p-2 text-left">Trip</th><th className="p-2 text-left">Status</th><th className="p-2 text-left">Office Arrival</th><th className="p-2 text-left">Forwarded</th><th className="p-2 text-left">Action</th></tr></thead>
             <tbody>
-              {activeTrips.map(trip => (
+              {activeTrips?.map?.(trip => (
                 <tr key={trip.trip_id} className="border-t">
                   <td className="p-2">
                     <a href={`/trip-details/${trip.trip_id}`} className="text-blue-600 underline font-bold">

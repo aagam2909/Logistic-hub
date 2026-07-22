@@ -12,7 +12,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
 
-const API_BASE = `${import.meta.env.VITE_API_BASE}`;
+const API_BASE = import.meta.env.VITE_API_URL;
 
 function Track() {
   const [trackingNumber, setTrackingNumber] = useState('');
@@ -20,7 +20,12 @@ function Track() {
   const [tripDetails, setTripDetails] = useState(null);
 
   useEffect(() => {
-    axios.get(`${API_BASE}/trips/active`).then(res => setActiveTrips(res.data));
+    axios.get(`${API_BASE}/trips/active`)
+      .then((res) => setActiveTrips(Array.isArray(res.data) ? res.data : []))
+      .catch((err) => {
+        console.error("Error fetching active trips:", err);
+        setActiveTrips([]);
+      });
   }, []);
 
   const handleSearch = async () => {
@@ -40,10 +45,16 @@ function Track() {
       
       {/* Search Bar */}
       <div className="bg-white p-6 rounded-lg shadow-md flex gap-4">
-        <select className="border p-3 rounded flex-1 bg-gray-50" onChange={e => setTrackingNumber(e.target.value)}>
-          <option value="">Select Active Trip...</option>
-          {activeTrips.map(t => <option key={t.trip_id} value={t.tracking_number || t.trip_id}>{t.tracking_number || t.trip_id}</option>)}
-        </select>
+        <input
+          className="border p-3 rounded flex-1 bg-gray-50"
+          list="active-trip-numbers"
+          placeholder="Search active trip"
+          value={trackingNumber}
+          onChange={e => setTrackingNumber(e.target.value)}
+        />
+        <datalist id="active-trip-numbers">
+          {activeTrips?.map?.(t => <option key={t.trip_id} value={t.tracking_number || t.trip_id} />)}
+        </datalist>
         <button onClick={handleSearch} className="bg-blue-900 text-white px-8 py-3 rounded-lg font-bold">Search</button>
       </div>
 

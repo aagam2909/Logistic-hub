@@ -9,6 +9,7 @@ import Track from './pages/track';
 import PartyHistory from './pages/PartyHistory';
 import DriverHistory from './pages/DriverHistory';
 import TripDetails from './pages/TripDetails'; // Make sure this file exists!
+import TripHistory from './pages/TripHistory';
 
 function App() {
   return (
@@ -20,6 +21,7 @@ function App() {
           <nav className="space-y-2">
             <Link to="/" className="block p-3 hover:bg-slate-800 rounded">🚚 Fleet Registry</Link>
             <Link to="/trips" className="block p-3 hover:bg-slate-800 rounded">📍 Active Trips & POD</Link>
+            <Link to="/trip-history" className="block p-3 hover:bg-slate-800 rounded">🕘 Completed Trip History</Link>
             <Link to="/finance" className="block p-3 hover:bg-slate-800 rounded">💰 Finances & Receipt</Link>
             <Link to="/track" className="block p-3 hover:bg-slate-800 rounded">🔍 Track & Trace</Link>
             
@@ -35,6 +37,7 @@ function App() {
           <Routes>
             <Route path="/" element={<FleetRegistry />} />
             <Route path="/trips" element={<Trips />} />
+            <Route path="/trip-history" element={<TripHistory />} />
             <Route path="/finance" element={<Finance />} />
             <Route path="/track" element={<Track />} />
             <Route path="/party-history" element={<PartyHistory />} />
