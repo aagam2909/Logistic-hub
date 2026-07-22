@@ -164,7 +164,7 @@ def complete_trip(trip_id: int, data: TripCompleteUpdate):
 def get_track_data(trip_id: str):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM trips WHERE trip_id = %s;", (trip_id,))
+    cursor.execute("SELECT * FROM trips WHERE tracking_number = %s;", (trip_id,))
     row = cursor.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Trip not found")
