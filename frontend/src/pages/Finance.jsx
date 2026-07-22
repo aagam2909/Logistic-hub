@@ -7,6 +7,7 @@ const API_BASE = `${import.meta.env.VITE_API_BASE}`;
 function Finances() {
   const [trips, setTrips] = useState([]);
   const [selectedTrip, setSelectedTrip] = useState(null);
+  const [trackingNumber, setTrackingNumber] = useState('');
   const [finance, setFinance] = useState({ 
     freight_amount: 0, adv_amt: 0, expenses: 0, tds: 0, finance_remarks: '' 
   });
@@ -18,10 +19,11 @@ function Finances() {
     axios.get(`${API_BASE}/trips/all`).then(res => setTrips(res.data));
   }, []);
 
-  const loadTripFinance = async (trip_id) => {
-    if (!trip_id) return;
+  const loadTripFinance = async () => {
+    const trackingId = trackingNumber.trim();
+    if (!trackingId) return;
     try {
-        const res = await axios.get(`${API_BASE}/track/${trip_id}`);
+        const res = await axios.get(`${API_BASE}/track/${encodeURIComponent(trackingId)}`);
         setSelectedTrip(res.data.trip || res.data);
     } catch (err) { alert("Error loading trip details"); }
   };
@@ -44,10 +46,27 @@ function Finances() {
   return (
     <div className="p-6 space-y-6">
       <h2 className="text-3xl font-bold">Automated Finance Ledger</h2>
-      <select className="border p-3 w-full rounded" onChange={(e) => loadTripFinance(e.target.value)}>
-        <option value="">Select a Trip to Generate Receipt</option>
-        {trips.map(t => <option key={t.trip_id} value={t.trip_id}>{t.tracking_number}</option>)}
-      </select>
+      <div className="flex gap-3">
+        <input
+          className="border p-3 w-full rounded"
+          list="tracking-numbers"
+          value={trackingNumber}
+          onChange={(e) => setTrackingNumber(e.target.value)}
+          placeholder="Enter tracking number"
+        />
+        <datalist id="tracking-numbers">
+          {trips.map((trip) => (
+            <option key={trip.trip_id} value={trip.tracking_number} />
+          ))}
+        </datalist>
+        <button
+          type="button"
+          onClick={loadTripFinance}
+          className="bg-blue-600 text-white px-6 rounded font-bold"
+        >
+          Load Trip
+        </button>
+      </div>
 
       {selectedTrip && (
         <div className="bg-white p-8 shadow-lg border rounded">
