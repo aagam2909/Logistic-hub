@@ -21,7 +21,6 @@ function FleetRegistry() {
 
   const fetchAssets = async () => {
     setLoading(true);
-
     try {
       const res = await axios.get(`${API_BASE}/assets`);
       setAssets(Array.isArray(res.data) ? res.data : []);
@@ -118,23 +117,30 @@ function FleetRegistry() {
       sevenDaysAgo.setDate(now.getDate() - 7);
       return tripDate >= sevenDaysAgo;
     }
-    return tripDate.getFullYear() === now.getFullYear()
-      && tripDate.getMonth() === now.getMonth();
+    if (historyDateFilter === 'This Month') {
+      return tripDate.getFullYear() === now.getFullYear() && tripDate.getMonth() === now.getMonth();
+    }
+    // Sorting by specific Year/Month filter option if selected
+    return tripDate.toLocaleString('default', { month: 'long', year: 'numeric' }) === historyDateFilter;
   });
 
   const handleDelete = async (vehicleNumber) => {
     if (!window.confirm("Are you sure you want to delete this truck?")) return;
 
     try {
-      await axios.delete(
-        `${API_BASE}/assets/${encodeURIComponent(vehicleNumber)}`
-      );
+      await axios.delete(`${API_BASE}/assets/${encodeURIComponent(vehicleNumber)}`);
       fetchAssets();
     } catch (err) {
       console.error("Error deleting:", err);
       alert(err.response?.data?.detail || "Cannot delete: vehicle is in use or unavailable.");
     }
   };
+
+  // Generate unique months from trips for dynamic month/year filtering
+  const availableMonths = Array.from(new Set(truckTrips.map(trip => {
+    const d = new Date(trip.trip_start_date || trip.created_at);
+    return Number.isNaN(d.getTime()) ? null : d.toLocaleString('default', { month: 'long', year: 'numeric' });
+  }))).filter(Boolean);
 
   return (
     <div className="p-6">
@@ -146,9 +152,7 @@ function FleetRegistry() {
           placeholder="Vehicle No *"
           value={formData.vehicle_number}
           disabled={Boolean(editingAsset)}
-          onChange={(e) =>
-            setFormData({ ...formData, vehicle_number: e.target.value })
-          }
+          onChange={(e) => setFormData({ ...formData, vehicle_number: e.target.value })}
         />
 
         <input
@@ -156,9 +160,7 @@ function FleetRegistry() {
           list="driver-names"
           placeholder="Search driver"
           value={formData.driver_name}
-          onChange={(e) =>
-            setFormData({ ...formData, driver_name: e.target.value })
-          }
+          onChange={(e) => setFormData({ ...formData, driver_name: e.target.value })}
         />
         <datalist id="driver-names">
           {drivers?.map?.((driver) => (
@@ -171,9 +173,7 @@ function FleetRegistry() {
           type="number"
           placeholder="Rate/KM *"
           value={formData.per_km_rate}
-          onChange={(e) =>
-            setFormData({ ...formData, per_km_rate: e.target.value })
-          }
+          onChange={(e) => setFormData({ ...formData, per_km_rate: e.target.value })}
         />
 
         <input
@@ -238,12 +238,12 @@ function FleetRegistry() {
                       Edit
                     </button>
                     {asset.current_status !== 'Archived' && (
-                        <button
-                          onClick={() => handleDelete(asset.vehicle_number)}
-                          className="text-red-600 font-bold"
-                        >
-                          Delete
-                        </button>
+                      <button
+                        onClick={() => handleDelete(asset.vehicle_number)}
+                        className="text-red-600 font-bold"
+                      >
+                        Delete
+                      </button>
                     )}
                   </td>
                 </tr>
@@ -261,25 +261,32 @@ function FleetRegistry() {
               <button onClick={() => setSelectedTruck(null)} className="text-xl font-bold text-gray-600">×</button>
             </div>
             <div className="mb-4 flex items-center gap-3">
-              <label className="font-medium">Date range</label>
-              <input
-                className="border p-2 rounded"
-                list="truck-history-date-filters"
+              <label className="font-medium">Filter by Month/Year</label>
+              <select
+                className="border p-2 rounded bg-white"
                 value={historyDateFilter}
                 onChange={(e) => setHistoryDateFilter(e.target.value)}
-              />
-              <datalist id="truck-history-date-filters">
-                <option value="All Time" />
-                <option value="Last 7 Days" />
-                <option value="This Month" />
-              </datalist>
+              >
+                <option value="All Time">All Time</option>
+                <option value="Last 7 Days">Last 7 Days</option>
+                <option value="This Month">This Month</option>
+                {availableMonths.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
             </div>
             {truckHistoryLoading ? (
               <p>Loading trip history...</p>
             ) : (
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-100">
-                  <tr><th className="p-3">Tracking No.</th><th className="p-3">Date</th><th className="p-3">Route</th><th className="p-3">Party</th><th className="p-3">Status</th></tr>
+                  <tr>
+                    <th className="p-3">Tracking No.</th>
+                    <th className="p-3">Date</th>
+                    <th className="p-3">Route</th>
+                    <th className="p-3">Party</th>
+                    <th className="p-3">Status</th>
+                  </tr>
                 </thead>
                 <tbody>
                   {filteredTruckTrips?.map?.((trip) => (
@@ -292,7 +299,7 @@ function FleetRegistry() {
                     </tr>
                   ))}
                   {!filteredTruckTrips.length && (
-                    <tr><td className="p-4 text-center text-gray-500" colSpan="5">No trips match this date range.</td></tr>
+                    <tr><td className="p-4 text-center text-gray-500" colSpan="5">No trips match this filter range.</td></tr>
                   )}
                 </tbody>
               </table>
