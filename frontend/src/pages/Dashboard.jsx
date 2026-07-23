@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Truck, Users, MapPin, Receipt, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
+import { Truck, Users, MapPin, Receipt, ArrowRight, Loader2, AlertCircle, X } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
 function Dashboard() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [showDriverModal, setShowDriverModal] = useState(false); // <-- NEW STATE FOR POPUP
   
   const [stats, setStats] = useState({
     activeTrucks: 0,
@@ -89,7 +90,7 @@ function Dashboard() {
   }
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto">
+    <div className="space-y-8 max-w-6xl mx-auto relative">
       
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Operations Overview</h1>
@@ -98,7 +99,7 @@ function Dashboard() {
 
       {/* EXPIRING LICENSE WARNING BANNER */}
       {expiringDrivers.length > 0 && (
-        <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl flex items-center justify-between">
+        <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl flex items-center justify-between shadow-sm">
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 bg-rose-100 text-rose-600 rounded-lg flex items-center justify-center font-bold">
               <AlertCircle className="h-5 w-5" />
@@ -111,8 +112,8 @@ function Dashboard() {
             </div>
           </div>
           <button 
-            onClick={() => navigate('/driver-history')} 
-            className="bg-rose-600 text-white text-xs px-4 py-2 rounded-lg font-semibold hover:bg-rose-700 transition"
+            onClick={() => setShowDriverModal(true)} 
+            className="bg-rose-600 text-white text-xs px-4 py-2 rounded-lg font-semibold hover:bg-rose-700 transition shadow-sm"
           >
             Review Drivers
           </button>
@@ -144,7 +145,7 @@ function Dashboard() {
       </div>
 
       {/* RECENT TRIPS TABLE */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
           <h3 className="font-semibold text-gray-800">Recent Active Trips</h3>
           <button onClick={() => navigate('/trips')} className="text-sm text-blue-600 font-medium hover:text-blue-800 flex items-center gap-1 transition">
@@ -193,6 +194,71 @@ function Dashboard() {
           </div>
         )}
       </div>
+
+      {/* DRIVER EXPIRY MODAL POPUP */}
+      {showDriverModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b flex items-center justify-between bg-gray-50">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-5 w-5 text-rose-500" />
+                <h2 className="text-lg font-bold text-gray-900">Action Required: License Renewals</h2>
+              </div>
+              <button 
+                onClick={() => setShowDriverModal(false)}
+                className="p-1.5 hover:bg-gray-200 rounded-lg text-gray-500 transition"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Body / Driver List */}
+            <div className="p-6 max-h-[60vh] overflow-y-auto">
+              <div className="space-y-3">
+                {expiringDrivers.map((driver, index) => (
+                  <div key={index} className="flex items-center justify-between p-4 rounded-xl border border-gray-100 bg-white shadow-sm hover:shadow-md transition">
+                    <div>
+                      <div className="font-bold text-gray-900 text-base">{driver.name}</div>
+                      <div className="text-sm text-gray-500 mt-0.5">DL: <span className="font-mono text-gray-700">{driver.dl_number}</span></div>
+                      {driver.mobile_number && <div className="text-xs text-gray-400 mt-0.5">Contact: {driver.mobile_number}</div>}
+                    </div>
+                    <div className="text-right flex flex-col items-end">
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold border ${
+                        driver.status === 'Expired' 
+                          ? 'bg-rose-50 text-rose-700 border-rose-200' 
+                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                      }`}>
+                        {driver.status}
+                      </span>
+                      <div className="text-xs text-gray-500 mt-2 font-medium">
+                        Expires: {driver.dl_expiry_date}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-3">
+              <button 
+                onClick={() => navigate('/driver-history')}
+                className="px-4 py-2 text-sm font-semibold text-gray-600 hover:text-gray-900 bg-white border border-gray-200 rounded-lg hover:bg-gray-100 transition"
+              >
+                Manage All Drivers
+              </button>
+              <button 
+                onClick={() => setShowDriverModal(false)}
+                className="px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
