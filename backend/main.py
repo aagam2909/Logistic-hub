@@ -32,13 +32,13 @@ class TripCreate(BaseModel):
     vehicle_number: str
     source_city: str
     destination_city: str
-    party_name: str
-    gta_name: str
-    lr_no: str
-    eway_bill: str = ""  # <--- FIXED: Now optional, defaults to empty string!
-    eway_bill_expiry: date
-    trip_start_date: date = date.today()
-    lw: str
+    party_name: Optional[str] = ""
+    gta_name: Optional[str] = ""
+    lr_no: Optional[str] = ""
+    eway_bill: Optional[str] = "" 
+    eway_bill_expiry: Optional[date] = None
+    trip_start_date: Optional[date] = date.today()
+    lw: Optional[str] = ""
 
 class TripCompleteUpdate(BaseModel):
     actual_delivery_date: date
@@ -66,7 +66,7 @@ class AssetUpdate(BaseModel):
     per_km_rate: float
     current_status: str
 
-# --- TELEMETRY ENGINE (PRESERVED) ---
+# --- TELEMETRY ENGINE ---
 def get_taabi_live_data(vehicle_number):
     url = "https://dev-api-dtwin.taabi.ai/graphql"
     query = """
@@ -256,13 +256,26 @@ def complete_trip(trip_id: int, data: TripCompleteUpdate):
 def get_track_data(trip_id: str):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM trips WHERE tracking_number = %s;", (trip_id,))
+    # UPDATED QUERY: Joins trip_finances to pull freight and balance!
+    cursor.execute("""
+        SELECT t.*, f.freight_amount, f.balance_payment 
+        FROM trips t 
+        LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
+        WHERE t.tracking_number = %s;
+    """, (trip_id,))
+    
     row = cursor.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Trip not found")
+    
     cols = [d[0] for d in cursor.description]
     res = dict(zip(cols, row))
     cursor.close(); conn.close()
+    
+    # FETCH TELEMETRY DATA DIRECTLY IN THE API CALL
+    telemetry = get_taabi_live_data(res['vehicle_number'])
+    res['telemetry'] = telemetry
+    
     return res
 
 @app.post("/finances/calculate")
