@@ -60,10 +60,15 @@ function Trips() {
     };
     try {
       await axios.post(`${API_BASE}/trips`, tripPayload);
-      alert("Trip Launched!");
+      alert("Trip Launched Successfully! 🚀");
       setTripData({ vehicle_number: '', source_city: '', destination_city: '', party_name: '', gta_name: '', lr_no: '', eway_bill: '', eway_bill_expiry: '', trip_start_date: '', lw: ''});
       fetchTrips(); fetchParties(); fetchAvailableTrucks();
-    } catch (err) { alert(err.response?.data?.detail || "Error launching trip."); }
+    } catch (err) { 
+      // FIXED: Properly parse the FastAPI error array to avoid [object Object]
+      const errorData = err.response?.data?.detail;
+      const errorMsg = Array.isArray(errorData) ? errorData[0].msg : errorData;
+      alert(`Error: ${errorMsg || "Failed to launch trip."}`); 
+    }
   };
 
   const handleUpdatePOD = async () => {
@@ -108,7 +113,10 @@ function Trips() {
           
           <input className="border p-2.5 rounded-lg text-sm" placeholder="GTA Name" value={tripData.gta_name} onChange={e => setTripData({...tripData, gta_name: e.target.value})} />
           <input className="border p-2.5 rounded-lg text-sm" placeholder="LR No" value={tripData.lr_no} onChange={e => setTripData({...tripData, lr_no: e.target.value})} />
-          <input className="border p-2.5 rounded-lg text-sm text-gray-500" type="date" placeholder="E-Way Bill Date" value={tripData.eway_bill} onChange={e => setTripData({...tripData, eway_bill: e.target.value})} title="E-Way Bill Date" />
+          
+          {/* FIXED: Wired directly to eway_bill_expiry state! */}
+          <input className="border p-2.5 rounded-lg text-sm text-gray-500" type="date" placeholder="E-Way Bill Expiry Date" value={tripData.eway_bill_expiry} onChange={e => setTripData({...tripData, eway_bill_expiry: e.target.value})} title="E-Way Bill Expiry Date" />
+          
           <input className="border p-2.5 rounded-lg text-sm text-gray-500" type="date" placeholder="Launch Date" value={tripData.trip_start_date} onChange={e => setTripData({...tripData, trip_start_date: e.target.value})} title="Launch Date" />
           
           <input className="border p-2.5 rounded-lg text-sm lg:col-span-3" placeholder="L/W Details (Optional)" value={tripData.lw} onChange={e => setTripData({...tripData, lw: e.target.value})} />

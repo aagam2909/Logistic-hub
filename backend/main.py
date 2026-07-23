@@ -19,7 +19,7 @@ app = FastAPI(title="Jain Freight Carrier")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # The "*" allows your Vercel app to connect
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -35,7 +35,7 @@ class TripCreate(BaseModel):
     party_name: str
     gta_name: str
     lr_no: str
-    eway_bill: str
+    eway_bill: str = ""  # <--- FIXED: Now optional, defaults to empty string!
     eway_bill_expiry: date
     trip_start_date: date = date.today()
     lw: str
@@ -143,7 +143,6 @@ def update_asset(vehicle_no: str, asset: AssetUpdate):
 
 @app.delete("/assets/{vehicle_number}")
 def delete_asset(vehicle_number: str):
-    # We replaced the DELETE query with an UPDATE query for Soft Deleting (Archiving)
     conn = None
     cursor = None
     try:
@@ -158,7 +157,6 @@ def delete_asset(vehicle_number: str):
     except Exception as exc:
         if conn:
             conn.rollback()
-        print(f"Error archiving vehicle {vehicle_number}: {exc}")
         raise HTTPException(status_code=500, detail="Unable to archive vehicle.")
     finally:
         if cursor:
@@ -178,7 +176,6 @@ def create_trip(trip: TripCreate):
     vehicle_number = trip.vehicle_number.upper().strip()
     now = datetime.now()
 
-    # The monthly sequence is global across all vehicles and resets each month.
     cursor.execute("""
         SELECT COUNT(*)
         FROM trips
@@ -255,7 +252,6 @@ def complete_trip(trip_id: int, data: TripCompleteUpdate):
     cursor.close(); conn.close()
     return {"status": "Success"}
 
-# --- MISSING TRACKING ENDPOINT RESTORED ---
 @app.get("/track/{trip_id}")
 def get_track_data(trip_id: str):
     conn = get_db_connection()
@@ -269,7 +265,6 @@ def get_track_data(trip_id: str):
     cursor.close(); conn.close()
     return res
 
-# --- MISSING FINANCE ENDPOINTS RESTORED ---
 @app.post("/finances/calculate")
 def calculate_finance(data: dict):
     conn = get_db_connection()
@@ -424,8 +419,12 @@ def get_trip_details(trip_id: int):
 
 @app.get("/drivers/expiring-licenses")
 def get_expiring_licenses():
-    # Fetch all drivers from your database
-    drivers = db.get_all_drivers() # Replace with your actual DB query logic
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM drivers;")
+    cols = [d[0] for d in cursor.description]
+    drivers = [dict(zip(cols, row)) for row in cursor.fetchall()]
+    cursor.close(); conn.close()
     
     today = date.today()
     threshold = today + timedelta(days=30)
@@ -434,7 +433,6 @@ def get_expiring_licenses():
     for driver in drivers:
         expiry_date = driver.get("dl_expiry_date")
         if expiry_date:
-            # Convert string to date object if it's stored as a string
             if isinstance(expiry_date, str):
                 expiry_date = date.fromisoformat(expiry_date[:10])
                 
