@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { BriefcaseBusiness, Search, Plus, Trash2, Edit } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
@@ -8,101 +9,142 @@ function PartyHistory() {
   const [history, setHistory] = useState([]);
   const [selected, setSelected] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [editingParty, setEditingParty] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const [newPartyName, setNewPartyName] = useState('');
 
   const fetchParties = async () => {
     try {
-        // Backend ke sahi endpoint '/parties' ka use karo
         const res = await axios.get(`${API_BASE}/parties`);
         setParties(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      console.error("Error fetching parties:", err);
-      setParties([]);
-    }
+    } catch (err) { setParties([]); }
   };
 
   useEffect(() => { fetchParties(); }, []);
 
-  const addParty = async () => {
+  const resetForm = () => { setEditingParty(null); setNewPartyName(''); setShowAdd(false); };
+
+  const saveParty = async () => {
     if(!newPartyName.trim()) return;
     try {
-        const formData = new FormData();
-        formData.append('name', newPartyName.trim());
-        // POST request to '/parties'
-        await axios.post(`${API_BASE}/parties`, formData);
-        await fetchParties();
-        setNewPartyName('');
-        setShowAdd(false);
+        const formData = new FormData(); formData.append('name', newPartyName.trim());
+        if (editingParty) await axios.put(`${API_BASE}/parties/${encodeURIComponent(editingParty)}`, formData);
+        else await axios.post(`${API_BASE}/parties`, formData);
+        await fetchParties(); resetForm();
     } catch(err) { alert("Error saving client"); }
   };
 
-  const deleteParty = async (partyName) => {
-    if(window.confirm(`Delete all trips for ${partyName}?`)) {
+  const startEditParty = (p, e) => {
+    e.stopPropagation(); setEditingParty(p); setNewPartyName(typeof p === 'string' ? p : p.party_name); setShowAdd(true);
+  };
+
+  const deleteParty = async (partyName, e) => {
+    e.stopPropagation();
+    if(window.confirm(`Delete client ${partyName}?`)) {
         try {
             await axios.delete(`${API_BASE}/parties/${encodeURIComponent(partyName)}`);
-            await fetchParties();
-            if(selected === partyName) setSelected(null);
-        } catch (err) {
-            console.error("Error deleting party:", err);
-            alert(err.response?.data?.detail || "Cannot delete: party is in use or unavailable.");
-        }
+            await fetchParties(); if(selected === partyName) setSelected(null);
+        } catch (err) { alert("Cannot delete: party is in use."); }
     }
   };
 
   const fetchHistory = async (partyName) => {
-    if(!partyName) return;
     setSelected(partyName);
     try {
         const res = await axios.get(`${API_BASE}/trips/by-party/${encodeURIComponent(partyName)}`);
         setHistory(Array.isArray(res.data) ? res.data : []);
-    } catch (err) {
-      console.error("History fetch error:", err);
-      setHistory([]);
-    }
+    } catch (err) { setHistory([]); }
   };
 
+  const filteredParties = parties.filter(p => {
+    const name = typeof p === 'string' ? p : p.party_name;
+    return name?.toLowerCase().includes(searchQuery.toLowerCase());
+  });
+
   return (
-    <div className="flex h-screen bg-gray-50 p-6">
-      {/* Client Directory Sidebar */}
-      <div className="w-1/4 bg-white shadow-lg p-4 border-r rounded-l-lg">
-        <h3 className="font-bold mb-4 text-lg border-b pb-2">Client Directory</h3>
-        <button onClick={() => setShowAdd(!showAdd)} className="w-full bg-green-600 text-white p-2 rounded mb-4 font-bold text-sm">+ Add New Client</button>
+    <div className="flex flex-col lg:flex-row h-[85vh] gap-6">
+      
+      {/* 1/3 SIDEBAR: Client Directory */}
+      <div className="w-full lg:w-1/3 bg-white p-6 rounded-2xl shadow-sm border flex flex-col">
+        <div className="flex items-center justify-between mb-4 border-b pb-4">
+          <h3 className="font-bold text-lg flex items-center gap-2"><BriefcaseBusiness className="h-5 w-5 text-gray-400"/> Client Directory</h3>
+          <button onClick={() => { resetForm(); setShowAdd(!showAdd); }} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-1 hover:bg-blue-700 transition"><Plus className="h-4 w-4"/> Add</button>
+        </div>
+
+        <div className="relative mb-4">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <input type="text" placeholder="Search clients..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full border rounded-lg p-2.5 pl-9 text-sm focus:ring-2 focus:ring-blue-100 outline-none" />
+        </div>
+
         {showAdd && (
-            <div className="mb-4 p-2 bg-gray-100 rounded border border-green-200">
-                <input className="w-full border p-1 mb-1 text-sm" placeholder="Client Name" value={newPartyName} onChange={e => setNewPartyName(e.target.value)} />
-                <button onClick={addParty} className="w-full bg-blue-600 text-white py-1 rounded text-xs font-bold">Save Client</button>
+            <div className="bg-gray-50 p-4 mb-4 rounded-xl border space-y-2">
+                <input className="w-full border p-2 rounded text-sm outline-none" placeholder="Client Name *" value={newPartyName} onChange={e => setNewPartyName(e.target.value)} />
+                <div className="flex gap-2 pt-2">
+                    <button onClick={saveParty} className="flex-1 bg-green-600 text-white py-1.5 rounded-lg font-bold text-sm">{editingParty ? "Update" : "Save"}</button>
+                    <button onClick={resetForm} className="bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-sm font-semibold">Cancel</button>
+                </div>
             </div>
         )}
-        <div className="overflow-y-auto max-h-[65vh]">
-          {parties?.map?.(p => (
-            <div key={p} className="flex justify-between items-center mb-2 bg-white border rounded shadow-sm hover:border-blue-400">
-                <button onClick={() => fetchHistory(p)} className={`flex-1 text-left p-3 transition-all ${selected === p ? 'bg-blue-600 text-white' : 'hover:bg-blue-50 text-gray-700'}`}>{p}</button>
-                <button onClick={() => deleteParty(p)} className="px-3 text-red-400 font-bold hover:text-red-600">X</button>
-            </div>
-          ))}
+
+        <div className="flex-1 overflow-y-auto pr-2 space-y-2">
+          {filteredParties.map(p => {
+            const pName = typeof p === 'string' ? p : p.party_name;
+            return (
+              <div key={pName} onClick={() => fetchHistory(pName)} className={`cursor-pointer p-3 rounded-xl border flex items-center justify-between transition group ${selected === pName ? 'bg-blue-50 border-blue-200' : 'hover:bg-gray-50 border-gray-100'}`}>
+                  <div className="flex items-center gap-3">
+                     <div className={`h-10 w-10 rounded-full flex items-center justify-center font-bold text-sm ${selected === pName ? 'bg-blue-200 text-blue-800' : 'bg-gray-100 text-gray-600'}`}>
+                        {pName.substring(0,2).toUpperCase()}
+                     </div>
+                     <span className="text-sm font-semibold text-gray-900 truncate max-w-[150px]">{pName}</span>
+                  </div>
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                      <button onClick={(e) => startEditParty(p, e)} className="p-1.5 text-blue-500 hover:bg-blue-100 rounded-md"><Edit className="h-4 w-4"/></button>
+                      <button onClick={(e) => deleteParty(pName, e)} className="p-1.5 text-red-500 hover:bg-red-100 rounded-md"><Trash2 className="h-4 w-4"/></button>
+                  </div>
+              </div>
+            );
+          })}
+          {!filteredParties.length && <p className="text-sm text-gray-500 text-center py-4">No clients found.</p>}
         </div>
       </div>
 
-      {/* History Area */}
-      <div className="w-3/4 p-6 bg-white shadow-lg rounded-r-lg ml-2">
-        <h2 className="text-2xl font-bold mb-6 text-gray-800">{selected ? `Work History: ${selected}` : "Select a Client to View History"}</h2>
-        {selected && (
-          <table className="w-full text-left border-collapse">
-            <thead className="bg-gray-100"><tr><th className="p-3 border-b">Trip ID</th><th className="p-3 border-b">Vehicle</th><th className="p-3 border-b">Date</th><th className="p-3 border-b">Status</th></tr></thead>
-            <tbody>
-              {history?.length > 0 ? history?.map?.(h => (
-                <tr key={h.trip_id} className="border-b hover:bg-gray-50">
-                  <td className="p-3">{h.tracking_number}</td>
-                  <td className="p-3">{h.vehicle_number}</td>
-                  <td className="p-3">{h.trip_start_date}</td>
-                  <td className="p-3"><span className={`px-2 py-1 rounded text-xs font-bold ${h.actual_delivery_date ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>{h.actual_delivery_date ? "Completed" : "Active"}</span></td>
-                </tr>
-              )) : <tr><td colSpan="4" className="p-4 text-center text-gray-500">No history found for this party.</td></tr>}
-            </tbody>
-          </table>
+      {/* 2/3 MAIN: History Area */}
+      <div className="flex-1 overflow-y-auto space-y-6">
+        {selected ? (
+          <>
+            <div className="bg-white p-6 rounded-2xl shadow-sm border">
+               <h2 className="text-2xl font-bold text-gray-900 mb-2">{selected}</h2>
+               <p className="text-sm text-gray-500">Total Shipments Managed: <span className="font-bold text-gray-800">{history.length}</span></p>
+            </div>
+            
+            <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
+              <div className="p-5 border-b bg-gray-50"><h3 className="font-bold text-gray-900">Work History & Logistics Log</h3></div>
+              <table className="w-full text-sm text-left">
+                <thead className="border-b text-gray-600 bg-white">
+                    <tr><th className="p-4">Trip ID</th><th className="p-4">Vehicle</th><th className="p-4">Date</th><th className="p-4 text-center">Status</th></tr>
+                </thead>
+                <tbody>
+                  {history.map(h => (
+                    <tr key={h.trip_id} className="border-b last:border-0 hover:bg-gray-50">
+                      <td className="p-4 font-semibold text-blue-600">{h.tracking_number}</td>
+                      <td className="p-4 font-bold text-gray-900">{h.vehicle_number}</td>
+                      <td className="p-4 text-gray-600">{h.trip_start_date}</td>
+                      <td className="p-4 text-center"><span className={`px-2 py-1 rounded text-xs font-semibold ${h.actual_delivery_date ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{h.actual_delivery_date ? "Completed" : "Active"}</span></td>
+                    </tr>
+                  ))}
+                  {!history.length && <tr><td colSpan="4" className="p-8 text-center text-gray-500">No active or past shipments found for this client.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : (
+          <div className="bg-white h-full min-h-[400px] flex items-center justify-center rounded-2xl border shadow-sm text-gray-400">
+             Choose a client from the directory to review their ledger.
+          </div>
         )}
       </div>
     </div>
   );
 }
+
 export default PartyHistory;

@@ -9,6 +9,7 @@ import requests
 import shutil
 from dotenv import load_dotenv
 from typing import Optional
+from datetime import date, timedelta
 
 # --- CONFIGURATION ---
 load_dotenv()
@@ -420,3 +421,31 @@ def get_trip_details(trip_id: int):
     res = dict(zip(cols, row))
     cursor.close(); conn.close()
     return res
+
+@app.get("/drivers/expiring-licenses")
+def get_expiring_licenses():
+    # Fetch all drivers from your database
+    drivers = db.get_all_drivers() # Replace with your actual DB query logic
+    
+    today = date.today()
+    threshold = today + timedelta(days=30)
+    
+    expiring_soon = []
+    for driver in drivers:
+        expiry_date = driver.get("dl_expiry_date")
+        if expiry_date:
+            # Convert string to date object if it's stored as a string
+            if isinstance(expiry_date, str):
+                expiry_date = date.fromisoformat(expiry_date[:10])
+                
+            if expiry_date <= threshold:
+                status = "Expired" if expiry_date < today else "Expiring Soon"
+                expiring_soon.append({
+                    "name": driver["name"],
+                    "dl_number": driver["dl_number"],
+                    "mobile_number": driver.get("mobile_number"),
+                    "dl_expiry_date": str(expiry_date),
+                    "status": status
+                })
+                
+    return expiring_soon
