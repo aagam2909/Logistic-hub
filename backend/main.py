@@ -34,7 +34,7 @@ class TripCreate(BaseModel):
     source_city: str
     destination_city: str
     party_name: Optional[str] = ""
-    owner_name: Optional[str] = "" # <-- NEW FIELD
+    owner_name: Optional[str] = ""
     gta_name: Optional[str] = ""
     lr_no: Optional[str] = ""
     eway_bill: Optional[str] = "" 
@@ -69,6 +69,13 @@ class AssetUpdate(BaseModel):
     driver_name: str
     per_km_rate: float
     current_status: str
+    compensation_type: Optional[str] = 'KM Based'
+    mileage: Optional[float] = 0.0
+    fixed_salary: Optional[float] = 0.0
+
+class DriverSettleUpdate(BaseModel):
+    trip_id: int
+    payment_date: date
 
 
 # --- TELEMETRY ENGINE ---
@@ -116,14 +123,17 @@ def get_all_assets():
 async def create_asset(
     vehicle_number: str = Form(...),
     driver_name: str = Form(...),
-    per_km_rate: float = Form(...)
+    per_km_rate: float = Form(...),
+    compensation_type: str = Form('KM Based'),
+    mileage: float = Form(0.0),
+    fixed_salary: float = Form(0.0)
 ):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT INTO assets (vehicle_number, driver_name, per_km_rate, current_status)
-        VALUES (%s, %s, %s, 'Available');
-    """, (vehicle_number.upper().strip(), driver_name, per_km_rate))
+        INSERT INTO assets (vehicle_number, driver_name, per_km_rate, current_status, compensation_type, mileage, fixed_salary)
+        VALUES (%s, %s, %s, 'Available', %s, %s, %s);
+    """, (vehicle_number.upper().strip(), driver_name, per_km_rate, compensation_type, mileage, fixed_salary))
     conn.commit()
     cursor.close(); conn.close()
     return {"status": "Success"}
@@ -134,10 +144,10 @@ def update_asset(vehicle_no: str, asset: AssetUpdate):
     cursor = conn.cursor()
     cursor.execute("""
         UPDATE assets
-        SET driver_name = %s, per_km_rate = %s, current_status = %s
+        SET driver_name = %s, per_km_rate = %s, current_status = %s, compensation_type = %s, mileage = %s, fixed_salary = %s
         WHERE vehicle_number = %s
         RETURNING vehicle_number;
-    """, (asset.driver_name, asset.per_km_rate, asset.current_status,
+    """, (asset.driver_name, asset.per_km_rate, asset.current_status, asset.compensation_type, asset.mileage, asset.fixed_salary,
           vehicle_no.upper().strip()))
     updated_vehicle = cursor.fetchone()
     conn.commit()
@@ -181,7 +191,6 @@ def create_trip(trip: TripCreate):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # 1. Insert trip
         cursor.execute("""
             INSERT INTO trips (vehicle_number, source_city, destination_city, party_name, owner_name, gta_name, lr_no, eway_bill, eway_bill_expiry, trip_start_date, lw)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING trip_id;
@@ -189,7 +198,6 @@ def create_trip(trip: TripCreate):
         
         trip_id = cursor.fetchone()[0]
         
-        # 2. Extract launch date for tracking number
         start_date_obj = trip.trip_start_date if trip.trip_start_date else datetime.now().date()
         date_str = start_date_obj.strftime('%d%m%y')
         
@@ -200,7 +208,6 @@ def create_trip(trip: TripCreate):
         
         cursor.execute("UPDATE trips SET tracking_number = %s WHERE trip_id = %s", (tracking_number, trip_id))
         
-        # 3. Auto-calculate Freight & Driver Hisaab immediately into finances
         freight = trip.freight_amount or 0.0
         gst = freight * 0.18
         initial_balance = freight + gst
@@ -395,14 +402,28 @@ def calculate_finance(data: dict):
     driver_total = float(data.get('driver_total', 0) or 0)
     finance_remarks = data.get('finance_remarks', '')
 
+    # --- DIESEL CALCULATION (KM / Mileage) ---
+    # Fetch truck mileage from assets via the trip
+    cursor.execute("""
+        SELECT a.mileage FROM trips t 
+        JOIN assets a ON t.vehicle_number = a.vehicle_number 
+        WHERE t.trip_id = %s;
+    """, (trip_id,))
+    m_row = cursor.fetchone()
+    mileage = float(m_row[0]) if m_row and m_row[0] else 5.5 # Default to 5.5 if not set
+    
+    diesel_liters_needed = round(total_km / mileage, 2) if mileage > 0 else 0.0
+    diesel_rate_per_liter = 90.0 # Standard approx diesel price (or make dynamic if needed)
+    diesel_cost = round(diesel_liters_needed * diesel_rate_per_liter, 2)
+
     cursor.execute("""
         INSERT INTO trip_finances (
             trip_id, freight_amount, adv_amt, tds, balance_payment, finance_remarks,
             loading_charge, gst, holding_charge, extra_deduction,
             total_km, driver_advance, driver_remaining, driver_total,
-            advance_details, bill_no
+            advance_details, bill_no, diesel_liters_needed, diesel_cost
         ) 
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (trip_id) DO UPDATE SET 
         freight_amount = EXCLUDED.freight_amount, adv_amt = EXCLUDED.adv_amt, 
         tds = EXCLUDED.tds, balance_payment = EXCLUDED.balance_payment, finance_remarks = EXCLUDED.finance_remarks,
@@ -410,13 +431,14 @@ def calculate_finance(data: dict):
         holding_charge = EXCLUDED.holding_charge, extra_deduction = EXCLUDED.extra_deduction,
         total_km = EXCLUDED.total_km, driver_advance = EXCLUDED.driver_advance, 
         driver_remaining = EXCLUDED.driver_remaining, driver_total = EXCLUDED.driver_total,
-        advance_details = EXCLUDED.advance_details, bill_no = EXCLUDED.bill_no;
-    """, (trip_id, freight, total_adv, tds, balance, finance_remarks, loading, gst, holding, extra_deduction, total_km, driver_advance, driver_remaining, driver_total, advance_details_json, bill_no))
+        advance_details = EXCLUDED.advance_details, bill_no = EXCLUDED.bill_no,
+        diesel_liters_needed = EXCLUDED.diesel_liters_needed, diesel_cost = EXCLUDED.diesel_cost;
+    """, (trip_id, freight, total_adv, tds, balance, finance_remarks, loading, gst, holding, extra_deduction, total_km, driver_advance, driver_remaining, driver_total, advance_details_json, bill_no, diesel_liters_needed, diesel_cost))
     
     conn.commit()
     cursor.close()
     conn.close()
-    return {"status": "Success"}
+    return {"status": "Success", "diesel_liters": diesel_liters_needed, "diesel_cost": diesel_cost}
 
 @app.put("/finances/{trip_id}/pod")
 def update_pod(trip_id: int, data: PODUpdate):
@@ -571,7 +593,7 @@ def get_trip_details(trip_id: int):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT t.*, f.freight_amount, f.adv_amt, f.tds, f.balance_payment, f.bill_no, f.pod_status, f.loading_charge, f.gst, f.holding_charge, f.extra_deduction, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total, f.advance_details, f.pod_arrived_office_date
+        SELECT t.*, f.freight_amount, f.adv_amt, f.tds, f.balance_payment, f.bill_no, f.pod_status, f.loading_charge, f.gst, f.holding_charge, f.extra_deduction, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total, f.advance_details, f.pod_arrived_office_date, f.pod_forwarded_client_date
         FROM trips t 
         LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
         WHERE t.trip_id = %s;
@@ -614,3 +636,22 @@ def get_expiring_licenses():
                 })
                 
     return expiring_soon
+
+@app.post("/finances/settle-driver")
+def settle_driver_payment(data: DriverSettleUpdate):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE trip_finances 
+            SET driver_paid = TRUE, driver_payment_date = %s 
+            WHERE trip_id = %s;
+        """, (data.payment_date, data.trip_id))
+        conn.commit()
+        return {"status": "Success"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()

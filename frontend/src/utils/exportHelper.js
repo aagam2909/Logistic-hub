@@ -9,8 +9,8 @@ export const exportAllDataToExcel = async () => {
 
     let csvContent = "data:text/csv;charset=utf-8,";
     
-    // EXACT HEADERS MATCHING YOUR TEMPLATE
-    csvContent += "DATE,FROM,TO,VEHICLE NO,PARTY,OWNER NAME,FREIGHT,UNLOADING,HOLDING,GST,TOTAL FREIGHT,ADVANCE,ADVANCE DATE,TDS,EXTRA DEDUCTION,BALANCE,POD RECEIVED DATE,GTA,L R NO.,EWAY BILL,EWAY BILL EXPIRY\n";
+    // HEADERS (EWAY BILL NUMBER REMOVED, ONLY EXPIRY DATE KEPT)
+    csvContent += "DATE,FROM,TO,VEHICLE NO,PARTY,OWNER NAME,FREIGHT,UNLOADING,HOLDING,GST,TOTAL FREIGHT,ADVANCE,ADVANCE DATE,TDS,EXTRA DEDUCTION,BALANCE,POD RECEIVED DATE,GTA,L R NO.,EWAY BILL EXPIRY\n";
     
     for (const t of trips) {
       let fin = {};
@@ -18,7 +18,7 @@ export const exportAllDataToExcel = async () => {
         const finRes = await axios.get(`${API_BASE}/trips/details/${t.trip_id}`);
         fin = finRes.data || {};
       } catch (e) {
-        // fallback if details fail
+        // fallback
       }
 
       const advances = fin.advance_details 
@@ -58,7 +58,6 @@ export const exportAllDataToExcel = async () => {
         fin.pod_arrived_office_date || '',
         `"${t.gta_name || ''}"`,
         `"${t.lr_no || ''}"`,
-        `"${t.eway_bill || ''}"`,
         t.eway_bill_expiry || ''
       ];
       csvContent += row.join(",") + "\n";

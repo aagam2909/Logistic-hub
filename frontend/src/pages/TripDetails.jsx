@@ -32,7 +32,6 @@ function TripDetails() {
   if (loading) return <div className="p-10 text-center text-gray-500 font-medium">Loading Receipt...</div>;
   if (!trip) return <div className="p-10 text-center text-rose-500 font-bold">Trip not found.</div>;
 
-  // Safely parse the advance details array
   const advances = trip.advance_details 
     ? (typeof trip.advance_details === 'string' ? JSON.parse(trip.advance_details) : trip.advance_details) 
     : [];
@@ -41,10 +40,10 @@ function TripDetails() {
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       
       <div className="print:hidden flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-        <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 font-medium transition">
+        <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 font-medium transition cursor-pointer">
           <ArrowLeft className="h-5 w-5" /> Back to History
         </button>
-        <button onClick={handlePrint} className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-6 py-2.5 rounded-lg font-bold shadow-sm transition">
+        <button onClick={handlePrint} className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-6 py-2.5 rounded-lg font-bold shadow-sm transition cursor-pointer">
           <Printer className="h-5 w-5"/> Print Receipt
         </button>
       </div>
@@ -60,14 +59,13 @@ function TripDetails() {
               <div className="text-right">
                 <h2 className="text-xl font-bold text-gray-800">FREIGHT RECEIPT</h2>
                 <p className="text-sm font-semibold text-gray-500 mt-1">TRK: {trip.tracking_number}</p>
-                {/* Dynamically show Bill Number if it exists */}
                 {trip.bill_no && (
                     <p className="text-sm font-bold text-blue-700 mt-1 uppercase tracking-wide">BILL NO: {trip.bill_no}</p>
                 )}
               </div>
           </div>
           
-          <div className="grid grid-cols-2 gap-8 mb-10 text-sm">
+          <div className="grid grid-cols-2 gap-8 mb-6 text-sm">
               <div className="space-y-3">
                 <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Date of Dispatch:</span> <span className="font-bold">{trip.trip_start_date || '-'}</span></div>
                 <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Vehicle No:</span> <span className="font-bold text-base">{trip.vehicle_number}</span></div>
@@ -76,16 +74,31 @@ function TripDetails() {
               </div>
               <div className="space-y-3">
                 <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Billed To (Party):</span> <span className="font-bold">{trip.party_name || 'N/A'}</span></div>
+                <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Owner Name:</span> <span className="font-bold">{trip.owner_name || 'N/A'}</span></div>
                 <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">GTA Name:</span> <span className="font-bold">{trip.gta_name || 'N/A'}</span></div>
                 <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">LR / Bilty No:</span> <span className="font-bold">{trip.lr_no || 'N/A'}</span></div>
-                <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">E-Way Bill:</span> <span className="font-bold">{trip.eway_bill || 'N/A'}</span></div>
+              </div>
+          </div>
+
+          {/* POD INFO BOX DISPLAYED ON BILL */}
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-8 grid grid-cols-3 gap-4 text-xs">
+              <div>
+                  <span className="text-gray-500 font-semibold block">POD STATUS</span>
+                  <span className="font-bold text-slate-800 text-sm">{trip.pod_status || 'Pending'}</span>
+              </div>
+              <div>
+                  <span className="text-gray-500 font-semibold block">POD OFFICE ARRIVAL</span>
+                  <span className="font-bold text-slate-800 text-sm">{trip.pod_arrived_office_date || 'Not Arrived'}</span>
+              </div>
+              <div>
+                  <span className="text-gray-500 font-semibold block">FORWARDED TO CLIENT</span>
+                  <span className="font-bold text-slate-800 text-sm">{trip.pod_forwarded_client_date || 'Not Forwarded'}</span>
               </div>
           </div>
 
           <h3 className="font-bold text-base mb-4 text-slate-800 uppercase tracking-wide border-b pb-2">Financial Settlement</h3>
           <div className="grid grid-cols-2 gap-x-12 gap-y-4">
               
-              {/* Additions */}
               <div>
                   <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Additions (+)</h4>
                   <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
@@ -112,7 +125,6 @@ function TripDetails() {
                   )}
               </div>
 
-              {/* Deductions (WITH DATED ADVANCES) */}
               <div>
                   <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Deductions (-)</h4>
                   
