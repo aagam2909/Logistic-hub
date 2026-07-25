@@ -84,13 +84,13 @@ function Track() {
               </div>
             </div>
 
-            {/* Financials Box (FIXED MAPPING) */}
+            {/* Financials Box (UPDATED to include new additions/deductions) */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 border-t-4 border-t-emerald-500 flex flex-col justify-between">
               <div>
                 <h3 className="font-bold mb-4 text-gray-800 flex items-center gap-2">💰 Ledger Sync</h3>
                 <div className="space-y-2">
-                  <p className="text-sm text-gray-500 font-medium flex justify-between">Total Freight: <span className="font-bold text-gray-900">₹{tripDetails.freight_amount || 0}</span></p>
-                  <p className="text-sm text-gray-500 font-medium flex justify-between">Advances/Exp: <span className="font-bold text-rose-500">₹{parseFloat(tripDetails.adv_amt || 0) + parseFloat(tripDetails.expenses || 0) + parseFloat(tripDetails.tds || 0)}</span></p>
+                  <p className="text-sm text-gray-500 font-medium flex justify-between">Gross Additions: <span className="font-bold text-gray-900">₹{parseFloat(tripDetails.freight_amount || 0) + parseFloat(tripDetails.loading_charge || 0) + parseFloat(tripDetails.gst || 0) + parseFloat(tripDetails.holding_charge || 0)}</span></p>
+                  <p className="text-sm text-gray-500 font-medium flex justify-between">Total Deductions: <span className="font-bold text-rose-500">₹{parseFloat(tripDetails.adv_amt || 0) + parseFloat(tripDetails.tds || 0) + parseFloat(tripDetails.extra_deduction || 0)}</span></p>
                 </div>
               </div>
               <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center">

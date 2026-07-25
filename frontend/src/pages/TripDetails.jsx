@@ -79,26 +79,44 @@ function TripDetails() {
 
           {/* Financial Breakdown (Read-Only Version) */}
           <h3 className="font-bold text-base mb-4 text-slate-800 uppercase tracking-wide border-b pb-2">Financial Settlement</h3>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-4">
+          <div className="grid grid-cols-2 gap-x-12 gap-y-4">
               
-              <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                <span className="text-sm font-semibold text-gray-700">Total Freight (₹)</span>
-                <span className="font-bold">₹{trip.freight_amount || 0}</span>
+              {/* Additions */}
+              <div>
+                  <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Additions (+)</h4>
+                  <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
+                    <span className="text-sm font-semibold text-gray-700">Total Freight</span>
+                    <span className="font-bold">₹{trip.freight_amount || 0}</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
+                    <span className="text-sm font-semibold text-gray-700">Loading/Unloading</span>
+                    <span className="font-bold">₹{trip.loading_charge || 0}</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
+                    <span className="text-sm font-semibold text-gray-700">GST (18%)</span>
+                    <span className="font-bold text-emerald-600">₹{trip.gst || 0}</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                    <span className="text-sm font-semibold text-gray-700">Holding Charge</span>
+                    <span className="font-bold">₹{trip.holding_charge || 0}</span>
+                  </div>
               </div>
-              
-              <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                <span className="text-sm font-semibold text-gray-700">Advance Received (₹)</span>
-                <span className="font-bold text-rose-600">₹{trip.adv_amt || 0}</span>
-              </div>
-              
-              <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                <span className="text-sm font-semibold text-gray-700">Trip Expenses (₹)</span>
-                <span className="font-bold text-rose-600">₹{trip.expenses || 0}</span>
-              </div>
-              
-              <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                <span className="text-sm font-semibold text-gray-700">TDS Deduction (₹)</span>
-                <span className="font-bold text-rose-600">₹{trip.tds || 0}</span>
+
+              {/* Deductions */}
+              <div>
+                  <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Deductions (-)</h4>
+                  <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
+                    <span className="text-sm font-semibold text-gray-700">Advance Received</span>
+                    <span className="font-bold text-rose-600">₹{trip.adv_amt || 0}</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
+                    <span className="text-sm font-semibold text-gray-700">TDS Deduction</span>
+                    <span className="font-bold text-rose-600">₹{trip.tds || 0}</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                    <span className="text-sm font-semibold text-gray-700">Extra Deduction</span>
+                    <span className="font-bold text-rose-600">₹{trip.extra_deduction || 0}</span>
+                  </div>
               </div>
               
               {/* Final Balance Box */}
@@ -107,8 +125,29 @@ function TripDetails() {
                   <span className="font-extrabold text-2xl text-emerald-600 print:text-slate-900">₹{trip.balance_payment || 0}</span>
               </div>
           </div>
+
+          {/* Driver Hisaab Section */}
+          <h3 className="font-bold text-base mb-4 mt-8 text-slate-800 uppercase tracking-wide border-b pb-2">Driver Settlement (Hisaab)</h3>
+          <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-6 grid grid-cols-2 gap-x-8 gap-y-4 print:bg-transparent print:border-none print:p-0">
+              <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                <span className="text-sm font-semibold text-gray-700">Total KM Traveled</span>
+                <span className="font-bold text-blue-700">{trip.total_km || 0} KM</span>
+              </div>
+              <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                <span className="text-sm font-semibold text-gray-700">Driver Advance (₹3.5/km)</span>
+                <span className="font-bold text-slate-900">₹{trip.driver_advance || 0}</span>
+              </div>
+              <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                <span className="text-sm font-semibold text-gray-700">Remaining Balance (₹1.0/km)</span>
+                <span className="font-bold text-slate-900">₹{trip.driver_remaining || 0}</span>
+              </div>
+              <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                <span className="text-sm font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span>
+                <span className="font-extrabold text-blue-700">₹{trip.driver_total || 0}</span>
+              </div>
+          </div>
           
-          {/* Signature Area (Only visible when actually printed) */}
+          {/* Signature Area */}
           <div className="hidden print:flex justify-between mt-20 pt-8">
               <div className="border-t border-gray-400 w-48 text-center pt-2 font-semibold text-sm">Receiver's Signature</div>
               <div className="border-t border-gray-400 w-48 text-center pt-2 font-semibold text-sm">Authorized Signatory</div>

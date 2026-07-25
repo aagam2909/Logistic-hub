@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Search, FileUp, PlusCircle, X, Printer, Save } from 'lucide-react';
+import { Search, FileUp, PlusCircle, X, Printer, Save, Edit, Filter, Trash2 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 
 const API_BASE = import.meta.env.VITE_API_URL;
@@ -18,10 +18,11 @@ function Trips() {
   const [parties, setParties] = useState([]);
   const [podFiles, setPodFiles] = useState({});
   const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState('newest'); 
   
   const [tripData, setTripData] = useState({
     vehicle_number: '', source_city: '', destination_city: '', party_name: '', 
-    gta_name: '', lr_no: '', eway_bill: '', eway_bill_expiry: '', trip_start_date: '', lw: ''
+    gta_name: '', lr_no: '', eway_bill: '', eway_bill_expiry: '', trip_start_date: '', lw: '', freight_amount: '', total_km: ''
   });
   
   const [podUpdate, setPodUpdate] = useState({ 
@@ -29,10 +30,13 @@ function Trips() {
   });
 
   const [receiptModal, setReceiptModal] = useState({ isOpen: false, trip: null });
-  
-  // UPDATED: Added driver settlement fields to finance state
+  const [editModal, setEditModal] = useState({ isOpen: false, tripData: null });
+
+  const [activeCharges, setActiveCharges] = useState({ loading: false, holding: false, gst: false });
+
   const [finance, setFinance] = useState({ 
-    freight_amount: 0, adv_amt: 0, expenses: 0, tds: 0, finance_remarks: '',
+    freight_amount: 0, adv_amt: 0, tds: 0, finance_remarks: '',
+    loading_charge: 0, gst: 0, holding_charge: 0, extra_deduction: 0,
     total_km: 0, driver_advance: 0, driver_remaining: 0, driver_total: 0 
   });
   
@@ -62,6 +66,9 @@ function Trips() {
     } catch (err) { setParties([]); }
   };
 
+  const uniqueSources = [...new Set(activeTrips.map(t => t.source_city).filter(Boolean))];
+  const uniqueDestinations = [...new Set(activeTrips.map(t => t.destination_city).filter(Boolean))];
+
   const handleAddTrip = async () => {
     if (!tripData.vehicle_number.trim() || !tripData.source_city.trim() || !tripData.destination_city.trim()) {
       return alert("Please fill in the mandatory fields: Truck Number, Source, and Destination!");
@@ -69,17 +76,24 @@ function Trips() {
     const tripPayload = {
       ...tripData,
       trip_start_date: tripData.trip_start_date || new Date().toISOString().slice(0, 10),
+      freight_amount: parseFloat(tripData.freight_amount) || 0,
+      total_km: parseFloat(tripData.total_km) || 0
     };
     try {
       await axios.post(`${API_BASE}/trips`, tripPayload);
       alert("Trip Launched Successfully! 🚀");
-      setTripData({ vehicle_number: '', source_city: '', destination_city: '', party_name: '', gta_name: '', lr_no: '', eway_bill: '', eway_bill_expiry: '', trip_start_date: '', lw: ''});
+      setTripData({ vehicle_number: '', source_city: '', destination_city: '', party_name: '', gta_name: '', lr_no: '', eway_bill: '', eway_bill_expiry: '', trip_start_date: '', lw: '', freight_amount: '', total_km: ''});
       fetchTrips(); fetchParties(); fetchAvailableTrucks();
-    } catch (err) { 
-      const errorData = err.response?.data?.detail;
-      const errorMsg = Array.isArray(errorData) ? errorData[0].msg : errorData;
-      alert(`Error: ${errorMsg || "Failed to launch trip."}`); 
-    }
+    } catch (err) { alert("Failed to launch trip."); }
+  };
+
+  const handleUpdateTrip = async () => {
+    try {
+      await axios.put(`${API_BASE}/trips/${editModal.tripData.trip_id}`, editModal.tripData);
+      alert("Trip Updated Successfully!");
+      setEditModal({ isOpen: false, tripData: null });
+      fetchTrips();
+    } catch (err) { alert("Failed to update trip."); }
   };
 
   const handleUpdatePOD = async () => {
@@ -91,15 +105,44 @@ function Trips() {
     } catch (err) { alert("Update failed."); }
   };
 
-  const handleCompleteTrip = async (trip_id) => {
-    if (!podFiles[trip_id]) return alert("Select a POD file first!");
+  // UPDATED: Require exactly 0 balance to complete, POD file is optional.
+  const handleCompleteTrip = async (trip) => {
+    // 1. Check Zero Balance Rule
+    const currentBalance = parseFloat(trip.balance_payment || 0);
+    if (currentBalance !== 0) {
+        return alert(`⚠️ CANNOT COMPLETE TRIP.\n\nThe Net Balance Payable is currently ₹${currentBalance}.\nYou must settle the ledger to exactly ₹0 before completing the trip.`);
+    }
+
     try {
-        const formData = new FormData(); formData.append("file", podFiles[trip_id]);
-        await axios.post(`${API_BASE}/upload-pod`, formData);
-        await axios.put(`${API_BASE}/trips/${trip_id}/complete`, { actual_delivery_date: new Date().toISOString().split('T')[0] });
-        alert("POD Uploaded & Trip Completed!");
+        let podPath = null;
+        // 2. Only upload POD if a file was selected (Optional)
+        if (podFiles[trip.trip_id]) {
+            const formData = new FormData(); 
+            formData.append("file", podFiles[trip.trip_id]);
+            const uploadRes = await axios.post(`${API_BASE}/upload-pod`, formData);
+            podPath = uploadRes.data.path;
+        }
+
+        // 3. Mark as Complete
+        await axios.put(`${API_BASE}/trips/${trip.trip_id}/complete`, { 
+            actual_delivery_date: new Date().toISOString().split('T')[0],
+            pod_image_path: podPath
+        });
+        
+        alert("Trip Completed Successfully!");
         fetchTrips(); fetchAvailableTrucks();
-    } catch (err) { alert("Failed."); }
+    } catch (err) { alert("Failed to complete trip."); }
+  };
+
+  // NEW: Force Delete Function
+  const handleForceDelete = async (trip_id, tracking_number) => {
+    if (window.confirm(`🚨 DANGER: Are you sure you want to FORCE DELETE trip ${tracking_number}?\n\nThis will completely erase the route and its financial ledger. This action CANNOT be undone.`)) {
+        try {
+            await axios.delete(`${API_BASE}/trips/${trip_id}`);
+            alert("Trip has been permanently deleted.");
+            fetchTrips(); fetchAvailableTrucks();
+        } catch (err) { alert("Failed to delete trip."); }
+    }
   };
 
   const openReceiptModal = async (trip) => {
@@ -109,75 +152,136 @@ function Trips() {
       
       setFinance({
         freight_amount: tripData.freight_amount || 0,
+        loading_charge: tripData.loading_charge || 0,
+        gst: tripData.gst || 0,
+        holding_charge: tripData.holding_charge || 0,
         adv_amt: tripData.adv_amt || 0,
-        expenses: tripData.expenses || 0,
         tds: tripData.tds || 0,
+        extra_deduction: tripData.extra_deduction || 0,
         finance_remarks: tripData.finance_remarks || '',
         total_km: tripData.total_km || 0,
         driver_advance: tripData.driver_advance || 0,
         driver_remaining: tripData.driver_remaining || 0,
         driver_total: tripData.driver_total || 0
       });
+
+      setActiveCharges({
+        loading: parseFloat(tripData.loading_charge || 0) > 0,
+        holding: parseFloat(tripData.holding_charge || 0) > 0,
+        gst: parseFloat(tripData.gst || 0) > 0
+      });
+      
       setReceiptModal({ isOpen: true, trip: tripData });
-    } catch (err) { alert("Error loading trip finance details"); }
+    } catch (err) { alert("Error loading trip finance details."); }
+  };
+
+  const handleFinanceChange = (field, value, customActiveCharges = activeCharges) => {
+    let newFinance = { ...finance };
+    if (field !== 'TOGGLE_ACTIVE') newFinance[field] = value;
+
+    if (['freight_amount', 'loading_charge', 'holding_charge', 'TOGGLE_ACTIVE'].includes(field)) {
+        const freight = parseFloat(newFinance.freight_amount || 0);
+        const loading = customActiveCharges.loading ? parseFloat(newFinance.loading_charge || 0) : 0;
+        const holding = customActiveCharges.holding ? parseFloat(newFinance.holding_charge || 0) : 0;
+        
+        newFinance.gst = ((freight + loading + holding) * 0.18).toFixed(2);
+    }
+    setFinance(newFinance);
+  };
+
+  const toggleCharge = (chargeName) => {
+    const newActive = { ...activeCharges, [chargeName]: !activeCharges[chargeName] };
+    setActiveCharges(newActive);
+    handleFinanceChange('TOGGLE_ACTIVE', null, newActive);
   };
 
   const calculatePending = () => {
-    const total = parseFloat(finance.freight_amount || 0);
-    const deductions = parseFloat(finance.adv_amt || 0) + parseFloat(finance.expenses || 0) + parseFloat(finance.tds || 0);
-    return (total - deductions).toFixed(2);
+    const loading = activeCharges.loading ? parseFloat(finance.loading_charge || 0) : 0;
+    const holding = activeCharges.holding ? parseFloat(finance.holding_charge || 0) : 0;
+    const gst = activeCharges.gst ? parseFloat(finance.gst || 0) : 0;
+    
+    const additions = parseFloat(finance.freight_amount || 0) + loading + gst + holding;
+    const deductions = parseFloat(finance.adv_amt || 0) + parseFloat(finance.tds || 0) + parseFloat(finance.extra_deduction || 0);
+    return (additions - deductions).toFixed(2);
   };
 
-  // NEW: Auto-calculates driver hisaab based on KM entered
   const handleKmChange = (e) => {
     const km = parseFloat(e.target.value) || 0;
     setFinance({
       ...finance,
       total_km: km,
-      driver_advance: km * 3.5,     // ₹3.5 per km
-      driver_remaining: km * 1.0,   // ₹1.0 per km
-      driver_total: km * 4.5        // Total ₹4.5 per km
+      driver_advance: km * 3.5,
+      driver_remaining: km * 1.0,
+      driver_total: km * 4.5
     });
   };
 
   const handleSaveFinance = async () => {
     try {
-      await axios.post(`${API_BASE}/finances/calculate`, { ...finance, trip_id: receiptModal.trip.trip_id });
+      const payload = {
+        ...finance,
+        loading_charge: activeCharges.loading ? finance.loading_charge : 0,
+        holding_charge: activeCharges.holding ? finance.holding_charge : 0,
+        gst: activeCharges.gst ? finance.gst : 0,
+        trip_id: receiptModal.trip.trip_id
+      };
+      await axios.post(`${API_BASE}/finances/calculate`, payload);
       alert("Finance Record Saved Successfully!");
+      fetchTrips(); // Refresh so the table sees the new balance
     } catch (err) { alert("Error saving record."); }
   };
 
-  const filteredTrips = activeTrips.filter(t => 
+  let processedTrips = activeTrips.filter(t => 
     (t.tracking_number || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (t.vehicle_number || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (t.party_name || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  if (sortBy === 'newest') {
+      processedTrips.sort((a, b) => new Date(b.trip_start_date) - new Date(a.trip_start_date));
+  } else if (sortBy === 'oldest') {
+      processedTrips.sort((a, b) => new Date(a.trip_start_date) - new Date(b.trip_start_date));
+  } else if (sortBy === 'advance-pending') {
+      processedTrips = processedTrips.filter(t => parseFloat(t.freight_amount) > 0 && parseFloat(t.adv_amt || 0) === 0);
+  }
+
   return (
     <div className="space-y-8 relative">
       
+      {/* LAUNCH NEW TRIP SECTION */}
       <section className="bg-white p-6 rounded-2xl shadow-sm border">
-        <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><PlusCircle className="text-blue-500"/> Launch New Trip</h2>
+        <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><PlusCircle className="text-slate-700"/> Launch New Trip</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <input className="border p-2.5 rounded-lg text-sm" list="available-trucks" placeholder="Search truck number *" value={tripData.vehicle_number} onChange={e => setTripData({...tripData, vehicle_number: e.target.value})} />
           <datalist id="available-trucks">{availableTrucks.map(t => <option key={t.vehicle_number} value={t.vehicle_number} />)}</datalist>
-          <input className="border p-2.5 rounded-lg text-sm" placeholder="Source *" value={tripData.source_city} onChange={e => setTripData({...tripData, source_city: e.target.value})} />
-          <input className="border p-2.5 rounded-lg text-sm" placeholder="Destination *" value={tripData.destination_city} onChange={e => setTripData({...tripData, destination_city: e.target.value})} />
+          
+          <input className="border p-2.5 rounded-lg text-sm" list="source-cities" placeholder="Source *" value={tripData.source_city} onChange={e => setTripData({...tripData, source_city: e.target.value})} />
+          <datalist id="source-cities">{uniqueSources.map(c => <option key={c} value={c} />)}</datalist>
+          
+          <input className="border p-2.5 rounded-lg text-sm" list="dest-cities" placeholder="Destination *" value={tripData.destination_city} onChange={e => setTripData({...tripData, destination_city: e.target.value})} />
+          <datalist id="dest-cities">{uniqueDestinations.map(c => <option key={c} value={c} />)}</datalist>
+
           <input className="border p-2.5 rounded-lg text-sm" list="party-names" placeholder="Party name (Optional)" value={tripData.party_name} onChange={e => setTripData({...tripData, party_name: e.target.value})} />
           <datalist id="party-names">{parties.map(p => <option key={p} value={p} />)}</datalist>
           
           <input className="border p-2.5 rounded-lg text-sm" placeholder="GTA Name (Optional)" value={tripData.gta_name} onChange={e => setTripData({...tripData, gta_name: e.target.value})} />
           <input className="border p-2.5 rounded-lg text-sm" placeholder="LR No (Optional)" value={tripData.lr_no} onChange={e => setTripData({...tripData, lr_no: e.target.value})} />
-          <input className="border p-2.5 rounded-lg text-sm text-gray-500" type="date" placeholder="E-Way Bill Expiry Date" value={tripData.eway_bill_expiry} onChange={e => setTripData({...tripData, eway_bill_expiry: e.target.value})} title="E-Way Bill Expiry Date" />
+          
+          <input className="border p-2.5 rounded-lg text-sm" type="number" placeholder="Estimated Route KM" value={tripData.total_km} onChange={e => setTripData({...tripData, total_km: e.target.value})} />
+          <input className="border p-2.5 rounded-lg text-sm" type="number" placeholder="Rough Freight (₹)" value={tripData.freight_amount} onChange={e => setTripData({...tripData, freight_amount: e.target.value})} />
+          
           <input className="border p-2.5 rounded-lg text-sm text-gray-500" type="date" placeholder="Launch Date" value={tripData.trip_start_date} onChange={e => setTripData({...tripData, trip_start_date: e.target.value})} title="Launch Date" />
+          <input className="border p-2.5 rounded-lg text-sm text-gray-500" type="date" placeholder="E-Way Bill Expiry Date" value={tripData.eway_bill_expiry} onChange={e => setTripData({...tripData, eway_bill_expiry: e.target.value})} title="E-Way Bill Expiry Date" />
           
           <input className="border p-2.5 rounded-lg text-sm lg:col-span-3" placeholder="L/W Details (Optional)" value={tripData.lw} onChange={e => setTripData({...tripData, lw: e.target.value})} />
-          <button onClick={handleAddTrip} className="bg-blue-600 text-white p-2.5 rounded-lg font-bold hover:bg-blue-700 transition shadow-sm">Launch Route 🚀</button>
+          
+          <button onClick={handleAddTrip} className="bg-slate-900 text-white p-2.5 rounded-lg font-bold hover:bg-slate-800 transition shadow-sm">Launch Route 🚀</button>
         </div>
       </section>
 
+      {/* POD TRACKING SECTION */}
       <section className="bg-white p-6 rounded-2xl shadow-sm border">
-        <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><FileUp className="text-blue-500"/> POD Tracking & Management</h2>
+        <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><FileUp className="text-slate-700"/> POD Tracking & Management</h2>
         <div className="flex flex-wrap gap-4 items-end">
           <div className="flex-1 min-w-[250px]">
             <input className="w-full border p-2.5 rounded-lg text-sm" list="pod-trip-numbers" placeholder="Search trip ID for POD update..." value={podUpdate.trip_id} onChange={(e) => setPodUpdate({...podUpdate, trip_id: e.target.value})} />
@@ -187,16 +291,33 @@ function Trips() {
           <datalist id="pod-statuses"><option value="Pending" /><option value="Received" /><option value="Forwarded" /></datalist>
           <input type="date" className="border p-2.5 rounded-lg text-sm text-gray-500" title="Office Arrival Date" onChange={(e) => setPodUpdate({...podUpdate, pod_arrived_office_date: e.target.value})} />
           <input type="date" className="border p-2.5 rounded-lg text-sm text-gray-500" title="Forwarded to Client Date" onChange={(e) => setPodUpdate({...podUpdate, pod_forwarded_client_date: e.target.value})} />
-          <button onClick={handleUpdatePOD} className="bg-blue-600 text-white px-5 py-2.5 rounded-lg font-bold hover:bg-blue-700 transition shadow-sm">Update POD</button>
+          
+          <button onClick={handleUpdatePOD} className="bg-slate-900 text-white px-5 py-2.5 rounded-lg font-bold hover:bg-slate-800 transition shadow-sm">Update POD</button>
         </div>
       </section>
 
+      {/* ACTIVE TRIPS LIST */}
       <section className="space-y-4">
         <div className="flex flex-wrap gap-4 items-center justify-between bg-white p-4 rounded-2xl border shadow-sm">
-           <h2 className="text-xl font-bold">Active Trips List</h2>
-           <div className="relative w-72">
-             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-             <input type="text" placeholder="Search trips..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full border rounded-lg p-2 pl-9 text-sm focus:ring-2 focus:ring-blue-100 outline-none" />
+           <h2 className="text-xl font-bold text-slate-800">Active Trips List</h2>
+           <div className="flex items-center gap-3">
+             <div className="relative">
+                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <select 
+                   value={sortBy} 
+                   onChange={(e) => setSortBy(e.target.value)}
+                   className="border rounded-lg p-2 pl-9 pr-8 text-sm focus:ring-2 focus:ring-slate-100 outline-none text-slate-700 font-medium cursor-pointer appearance-none bg-white"
+                >
+                   <option value="newest">Latest Launch Date</option>
+                   <option value="oldest">Oldest Launch Date</option>
+                   <option value="advance-pending">Advance Pending ⚠️</option>
+                </select>
+             </div>
+             
+             <div className="relative w-72">
+               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+               <input type="text" placeholder="Search tracking, truck, or party..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full border rounded-lg p-2 pl-9 text-sm focus:ring-2 focus:ring-slate-100 outline-none" />
+             </div>
            </div>
         </div>
 
@@ -213,37 +334,105 @@ function Trips() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredTrips.map(trip => (
+              {processedTrips.map(trip => (
                 <tr key={trip.trip_id} className="hover:bg-gray-50 transition">
                   <td className="p-4">
-                    <a href={`/trip-details/${trip.trip_id}`} className="text-blue-600 font-semibold hover:underline transition">{trip.tracking_number || `Trip #${trip.trip_id}`}</a>
+                    <a href={`/trip-details/${trip.trip_id}`} className="text-slate-800 font-semibold hover:underline transition">{trip.tracking_number || `Trip #${trip.trip_id}`}</a>
                     <div className="text-xs text-gray-500 mt-1">{trip.party_name || '-'}</div>
                   </td>
                   <td className="p-4 font-medium text-gray-700">{trip.source_city} → {trip.destination_city}</td>
                   <td className="p-4 font-bold text-slate-800">{trip.vehicle_number}</td>
                   <td className="p-4"><StatusTag status={trip.pod_status} deliveryDate={trip.actual_delivery_date} /></td>
                   <td className="p-4">
-                    <input type="file" className="text-xs text-gray-500 file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition cursor-pointer" onChange={(e) => setPodFiles({...podFiles, [trip.trip_id]: e.target.files[0]})} />
+                    <input type="file" className="text-xs text-gray-500 file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 transition cursor-pointer" onChange={(e) => setPodFiles({...podFiles, [trip.trip_id]: e.target.files[0]})} />
                   </td>
                   
                   <td className="p-4">
                     <div className="flex flex-col gap-2">
+                        <div className="flex gap-2">
+                            <button onClick={() => setEditModal({isOpen: true, tripData: trip})} className="flex-1 bg-slate-50 text-slate-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-slate-100 shadow-sm text-xs transition flex items-center justify-center gap-1 border border-slate-200">
+                                <Edit className="h-3 w-3"/> Edit
+                            </button>
+                            <button onClick={() => handleForceDelete(trip.trip_id, trip.tracking_number)} className="bg-rose-50 text-rose-600 px-3 py-1.5 rounded-lg font-semibold hover:bg-rose-100 shadow-sm text-xs transition flex items-center justify-center border border-rose-200" title="Force Delete Trip">
+                                <Trash2 className="h-3 w-3"/>
+                            </button>
+                        </div>
                         <button onClick={() => openReceiptModal(trip)} className="bg-slate-900 text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-slate-800 shadow-sm text-xs transition flex items-center justify-center gap-1">
                             <Printer className="h-3 w-3"/> Receipt
                         </button>
-                        <button onClick={() => handleCompleteTrip(trip.trip_id)} className="bg-white border border-gray-200 text-gray-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-gray-50 shadow-sm text-xs transition">
-                            Complete
+                        {/* Passes full trip object to check balance */}
+                        <button onClick={() => handleCompleteTrip(trip)} className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-3 py-1.5 rounded-lg font-bold hover:bg-emerald-100 shadow-sm text-xs transition">
+                            Complete Trip
                         </button>
                     </div>
                   </td>
                 </tr>
               ))}
-              {!filteredTrips.length && <tr><td colSpan="6" className="p-8 text-center text-gray-500">No active trips found matching your search.</td></tr>}
+              {!processedTrips.length && <tr><td colSpan="6" className="p-8 text-center text-gray-500">No active trips found matching your search or filter.</td></tr>}
             </tbody>
           </table>
         </div>
       </section>
 
+      {/* EDIT TRIP MODAL */}
+      {editModal.isOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="flex justify-between items-center p-5 border-b bg-gray-50">
+               <h3 className="font-bold text-lg text-slate-800">Edit Trip: {editModal.tripData.tracking_number}</h3>
+               <button onClick={() => setEditModal({isOpen: false, tripData: null})} className="p-2 hover:bg-gray-200 rounded-lg text-gray-500 transition"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">Vehicle</label>
+                    <input className="w-full border p-2.5 rounded-lg text-sm bg-gray-100" value={editModal.tripData.vehicle_number} disabled />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">Launch Date</label>
+                    <input type="date" className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.trip_start_date || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, trip_start_date: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">Source</label>
+                    <input className="w-full border p-2.5 rounded-lg text-sm" list="source-cities" value={editModal.tripData.source_city} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, source_city: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">Destination</label>
+                    <input className="w-full border p-2.5 rounded-lg text-sm" list="dest-cities" value={editModal.tripData.destination_city} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, destination_city: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">Party Name</label>
+                    <input className="w-full border p-2.5 rounded-lg text-sm" list="party-names" value={editModal.tripData.party_name || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, party_name: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">GTA Name</label>
+                    <input className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.gta_name || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, gta_name: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">LR / Bilty No</label>
+                    <input className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.lr_no || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, lr_no: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">E-Way Bill</label>
+                    <input className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.eway_bill || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, eway_bill: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">E-Way Bill Expiry Date</label>
+                    <input type="date" className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.eway_bill_expiry || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, eway_bill_expiry: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">L/W Details</label>
+                    <input className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.lw || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, lw: e.target.value}})} />
+                </div>
+            </div>
+            <div className="p-5 border-t bg-white flex justify-end gap-3">
+               <button onClick={() => setEditModal({isOpen: false, tripData: null})} className="px-5 py-2.5 rounded-lg font-semibold text-gray-600 hover:bg-gray-100 transition">Cancel</button>
+               <button onClick={handleUpdateTrip} className="bg-slate-900 hover:bg-slate-800 text-white px-6 py-2.5 rounded-lg font-bold shadow-sm transition">Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FINANCE RECEIPT MODAL */}
       {receiptModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] animate-in fade-in zoom-in-95 duration-200">
@@ -251,7 +440,6 @@ function Trips() {
             <div className="flex justify-between items-center p-5 border-b bg-gray-50">
                <div>
                   <h3 className="font-bold text-lg text-slate-800">Financial Settlement & Receipt</h3>
-                  <p className="text-xs text-gray-500">Update ledger details or print professional receipt</p>
                </div>
                <button onClick={() => setReceiptModal({isOpen: false, trip: null})} className="p-2 hover:bg-gray-200 rounded-lg text-gray-500 transition">
                   <X className="h-5 w-5" />
@@ -287,28 +475,91 @@ function Trips() {
                       </div>
                   </div>
 
-                  {/* Freight Settlement */}
                   <h3 className="font-bold text-base mb-4 text-slate-800 uppercase tracking-wide border-b pb-2">Financial Settlement</h3>
-                  <div className="grid grid-cols-2 gap-x-8 gap-y-4">
-                      
-                      <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                        <label className="text-sm font-semibold text-gray-700">Total Freight (₹)</label>
-                        <input className="border p-2 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.freight_amount} onChange={e => setFinance({...finance, freight_amount: e.target.value})} />
+                  
+                  <div className="grid grid-cols-2 gap-x-12 gap-y-6">
+                      {/* ADDITIONS COLUMN */}
+                      <div>
+                        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Additions (+)</h4>
+                        
+                        <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
+                          <label className="text-sm font-semibold text-gray-700">Total Freight (₹)</label>
+                          <input className="border p-1.5 rounded w-28 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.freight_amount} onChange={e => handleFinanceChange('freight_amount', e.target.value)} />
+                        </div>
+
+                        {/* Checkbox controlled Loading Charge */}
+                        <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
+                          <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer hover:text-slate-900">
+                            <input 
+                              type="checkbox" 
+                              checked={activeCharges.loading} 
+                              onChange={() => toggleCharge('loading')} 
+                              className="rounded text-slate-900 focus:ring-slate-900 cursor-pointer print:hidden" 
+                            />
+                            Loading/Unloading (₹)
+                          </label>
+                          {activeCharges.loading ? (
+                              <input className="border p-1.5 rounded w-28 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.loading_charge} onChange={e => handleFinanceChange('loading_charge', e.target.value)} />
+                          ) : (
+                              <span className="w-28 text-right text-gray-400 font-medium print:hidden">Excluded</span>
+                          )}
+                        </div>
+
+                        {/* Checkbox controlled Holding Charge */}
+                        <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
+                          <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer hover:text-slate-900">
+                            <input 
+                              type="checkbox" 
+                              checked={activeCharges.holding} 
+                              onChange={() => toggleCharge('holding')} 
+                              className="rounded text-slate-900 focus:ring-slate-900 cursor-pointer print:hidden" 
+                            />
+                            Holding Charge (₹)
+                          </label>
+                          {activeCharges.holding ? (
+                              <input className="border p-1.5 rounded w-28 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.holding_charge} onChange={e => handleFinanceChange('holding_charge', e.target.value)} />
+                          ) : (
+                              <span className="w-28 text-right text-gray-400 font-medium print:hidden">Excluded</span>
+                          )}
+                        </div>
+
+                        {/* Checkbox controlled GST */}
+                        <div className="flex justify-between items-center border-b border-gray-100 pb-2 mt-2 bg-slate-50/50 print:bg-transparent px-1 rounded">
+                          <label className="flex items-center gap-2 text-sm font-bold text-gray-900 cursor-pointer hover:text-emerald-700">
+                            <input 
+                              type="checkbox" 
+                              checked={activeCharges.gst} 
+                              onChange={() => toggleCharge('gst')} 
+                              className="rounded text-emerald-600 focus:ring-emerald-600 cursor-pointer print:hidden" 
+                            />
+                            GST (18%) (₹)
+                          </label>
+                          {activeCharges.gst ? (
+                              <input className="border p-1.5 rounded w-28 text-right font-bold print:border-0 print:p-0 print:bg-transparent text-emerald-600" type="number" value={finance.gst} onChange={e => handleFinanceChange('gst', e.target.value)} />
+                          ) : (
+                              <span className="w-28 text-right text-gray-400 font-medium print:hidden">Excluded</span>
+                          )}
+                        </div>
                       </div>
-                      
-                      <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                        <label className="text-sm font-semibold text-gray-700">Advance Received (₹)</label>
-                        <input className="border p-2 rounded w-32 text-right font-bold text-rose-600 print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.adv_amt} onChange={e => setFinance({...finance, adv_amt: e.target.value})} />
-                      </div>
-                      
-                      <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                        <label className="text-sm font-semibold text-gray-700">Trip Expenses (₹)</label>
-                        <input className="border p-2 rounded w-32 text-right font-bold text-rose-600 print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.expenses} onChange={e => setFinance({...finance, expenses: e.target.value})} />
-                      </div>
-                      
-                      <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                        <label className="text-sm font-semibold text-gray-700">TDS Deduction (₹)</label>
-                        <input className="border p-2 rounded w-32 text-right font-bold text-rose-600 print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.tds} onChange={e => setFinance({...finance, tds: e.target.value})} />
+
+                      {/* DEDUCTIONS COLUMN */}
+                      <div>
+                        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Deductions (-)</h4>
+                        
+                        <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
+                          <label className="text-sm font-semibold text-gray-700">Advance Received (₹)</label>
+                          <input className="border p-1.5 rounded w-28 text-right font-bold text-rose-600 print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.adv_amt} onChange={e => handleFinanceChange('adv_amt', e.target.value)} />
+                        </div>
+
+                        <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
+                          <label className="text-sm font-semibold text-gray-700">TDS Deduction (₹)</label>
+                          <input className="border p-1.5 rounded w-28 text-right font-bold text-rose-600 print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.tds} onChange={e => handleFinanceChange('tds', e.target.value)} />
+                        </div>
+
+                        <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                          <input className="text-sm font-semibold text-gray-700 border-b border-dashed border-gray-300 w-32 focus:outline-none print:border-none bg-transparent" placeholder="Extra Deduction..." />
+                          <input className="border p-1.5 rounded w-28 text-right font-bold text-rose-600 print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.extra_deduction} onChange={e => handleFinanceChange('extra_deduction', e.target.value)} />
+                        </div>
                       </div>
                       
                       <div className="col-span-2 mt-4 p-4 border-2 border-slate-900 rounded-lg flex justify-between items-center bg-emerald-50/30 print:border-2 print:bg-transparent">
@@ -323,18 +574,17 @@ function Trips() {
                           rows="2" 
                           value={finance.finance_remarks}
                           placeholder="Add remarks for payment..." 
-                          onChange={e => setFinance({...finance, finance_remarks: e.target.value})} 
+                          onChange={e => handleFinanceChange('finance_remarks', e.target.value)} 
                         />
                       </div>
                   </div>
 
-                  {/* NEW: Driver Hisaab Section */}
                   <h3 className="font-bold text-base mb-4 mt-8 text-slate-800 uppercase tracking-wide border-b pb-2">Driver Settlement (Hisaab)</h3>
                   <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-6 grid grid-cols-2 gap-x-8 gap-y-4 print:bg-transparent print:border-none print:p-0">
                       
                       <div className="flex justify-between items-center border-b border-gray-200 pb-2">
                         <label className="text-sm font-semibold text-gray-700">Total KM Traveled</label>
-                        <input className="border p-2 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent text-blue-700" type="number" value={finance.total_km || ''} onChange={handleKmChange} placeholder="Enter KM" />
+                        <input className="border p-2 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent text-slate-700" type="number" value={finance.total_km || ''} onChange={handleKmChange} placeholder="Enter KM" />
                       </div>
                       
                       <div className="flex justify-between items-center border-b border-gray-200 pb-2">
@@ -349,7 +599,7 @@ function Trips() {
                       
                       <div className="flex justify-between items-center border-b border-gray-200 pb-2">
                         <span className="text-sm font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span>
-                        <span className="font-extrabold text-blue-700">₹{finance.driver_total || 0}</span>
+                        <span className="font-extrabold text-slate-700">₹{finance.driver_total || 0}</span>
                       </div>
                   </div>
                   
