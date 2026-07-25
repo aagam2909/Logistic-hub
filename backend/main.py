@@ -283,6 +283,8 @@ def calculate_finance(data: dict):
     conn = get_db_connection()
     cursor = conn.cursor()
     trip_id = data.get('trip_id')
+    
+    # Standard Freight Finances
     freight = float(data.get('freight_amount', 0))
     adv = float(data.get('adv_amt', 0))
     expenses = float(data.get('expenses', 0))
@@ -290,13 +292,23 @@ def calculate_finance(data: dict):
     balance = float(data.get('balance_payment', (freight - adv - expenses - tds)))
     bill_no = data.get('bill_no', 'N/A')
 
+    # NEW: Driver Hisaab Finances
+    total_km = float(data.get('total_km', 0))
+    driver_advance = float(data.get('driver_advance', 0))
+    driver_remaining = float(data.get('driver_remaining', 0))
+    driver_total = float(data.get('driver_total', 0))
+
     cursor.execute("""
-        INSERT INTO trip_finances (trip_id, freight_amount, adv_amt, expenses, tds, balance_payment, bill_no) 
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO trip_finances (
+            trip_id, freight_amount, adv_amt, expenses, tds, balance_payment, bill_no,
+            total_km, driver_advance, driver_remaining, driver_total
+        ) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (trip_id) DO UPDATE SET 
         freight_amount = EXCLUDED.freight_amount, adv_amt = EXCLUDED.adv_amt, 
-        expenses = EXCLUDED.expenses, tds = EXCLUDED.tds, balance_payment = EXCLUDED.balance_payment, bill_no = EXCLUDED.bill_no;
-    """, (trip_id, freight, adv, expenses, tds, balance, bill_no))
+        expenses = EXCLUDED.expenses, tds = EXCLUDED.tds, balance_payment = EXCLUDED.balance_payment, bill_no = EXCLUDED.bill_no,
+        total_km = EXCLUDED.total_km, driver_advance = EXCLUDED.driver_advance, driver_remaining = EXCLUDED.driver_remaining, driver_total = EXCLUDED.driver_total;
+    """, (trip_id, freight, adv, expenses, tds, balance, bill_no, total_km, driver_advance, driver_remaining, driver_total))
     conn.commit()
     cursor.close(); conn.close()
     return {"status": "Success"}
@@ -381,9 +393,19 @@ def get_trips_by_party(party_name: str):
 def get_trips_by_driver(driver_name: str):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT t.* FROM trips t JOIN assets a ON t.vehicle_number = a.vehicle_number WHERE a.driver_name = %s ORDER BY t.trip_start_date DESC;", (driver_name,))
+    # UPDATED: Now joins finances so the Driver Page can see the Driver Ledger!
+    cursor.execute("""
+        SELECT t.*, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total
+        FROM trips t 
+        JOIN assets a ON t.vehicle_number = a.vehicle_number 
+        LEFT JOIN trip_finances f ON t.trip_id = f.trip_id
+        WHERE a.driver_name = %s 
+        ORDER BY t.trip_start_date DESC;
+    """, (driver_name,))
     cols = [d[0] for d in cursor.description]
-    return [dict(zip(cols, row)) for row in cursor.fetchall()]
+    res = [dict(zip(cols, row)) for row in cursor.fetchall()]
+    cursor.close(); conn.close()
+    return res
 
 @app.get("/parties")
 def get_party_list():

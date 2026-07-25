@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Users, Search, Plus, Phone, FileSignature, MapPin, Trash2, Edit } from 'lucide-react';
+import { Users, Search, Plus, Phone, FileSignature, MapPin, Trash2, Edit, Printer, X, Receipt } from 'lucide-react';
+import { useReactToPrint } from 'react-to-print';
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
@@ -10,14 +11,18 @@ const HistoryTag = ({ completed }) => (
   </span>
 );
 
-function DriverHistory() {
+function DriversHistory() {
   const [drivers, setDrivers] = useState([]);
   const [history, setHistory] = useState([]);
   const [selectedDriver, setSelectedDriver] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [showReceipt, setShowReceipt] = useState(false);
   const [editingDriver, setEditingDriver] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [newDriver, setNewDriver] = useState({ name: '', dl_number: '', aadhaar_number: '', mobile_number: '', dl_expiry_date: '' });
+
+  const receiptRef = useRef(null);
+  const handlePrint = useReactToPrint({ contentRef: receiptRef });
 
   useEffect(() => { fetchDrivers(); }, []);
 
@@ -66,7 +71,7 @@ function DriverHistory() {
   const handleSelectDriver = async (driver) => {
     setSelectedDriver(driver);
     try {
-      const res = await axios.get(`${API_BASE}/trips/by-driver/${driver.name}`);
+      const res = await axios.get(`${API_BASE}/trips/by-driver/${encodeURIComponent(driver.name)}`);
       setHistory(Array.isArray(res.data) ? res.data : []);
     } catch (err) { setHistory([]); }
   };
@@ -74,12 +79,12 @@ function DriverHistory() {
   const filteredDrivers = drivers.filter(d => d.name?.toLowerCase().includes(searchQuery.toLowerCase()) || d.mobile_number?.includes(searchQuery));
 
   return (
-    <div className="flex flex-col lg:flex-row h-[85vh] gap-6">
+    <div className="flex flex-col lg:flex-row h-[85vh] gap-6 p-6">
       
       {/* 1/3 COLUMN: Driver Directory */}
       <div className="w-full lg:w-1/3 bg-white p-6 rounded-2xl shadow-sm border flex flex-col">
         <div className="flex items-center justify-between mb-4 border-b pb-4">
-          <h3 className="font-bold text-lg flex items-center gap-2"><Users className="h-5 w-5 text-gray-400"/> Driver Directory</h3>
+          <h3 className="font-bold text-lg flex items-center gap-2"><Users className="h-5 w-5 text-gray-400"/> Directory</h3>
           <button onClick={() => { resetDriverForm(); setShowForm(!showForm); }} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-1 hover:bg-blue-700 transition"><Plus className="h-4 w-4"/> Add</button>
         </div>
 
@@ -128,12 +133,21 @@ function DriverHistory() {
       <div className="flex-1 overflow-y-auto space-y-6">
         {selectedDriver ? (
           <>
-            <div className="bg-white p-6 rounded-2xl shadow-sm border flex items-center gap-4">
-                <div className="h-16 w-16 bg-blue-100 rounded-full flex items-center justify-center font-bold text-2xl text-blue-700">{selectedDriver.name.substring(0, 2).toUpperCase()}</div>
-                <div className="flex-1">
-                    <h2 className="text-2xl font-bold text-gray-900">{selectedDriver.name}</h2>
-                    <p className="text-sm text-gray-500">ID: {selectedDriver.driver_id}</p>
+            <div className="bg-white p-6 rounded-2xl shadow-sm border flex items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                    <div className="h-16 w-16 bg-blue-100 rounded-full flex items-center justify-center font-bold text-2xl text-blue-700">{selectedDriver.name.substring(0, 2).toUpperCase()}</div>
+                    <div>
+                        <h2 className="text-2xl font-bold text-gray-900">{selectedDriver.name}</h2>
+                        <p className="text-sm text-gray-500">ID: {selectedDriver.driver_id}</p>
+                    </div>
                 </div>
+                {/* NEW: Driver Settlement Action Button */}
+                <button 
+                  onClick={() => setShowReceipt(true)} 
+                  className="bg-slate-900 text-white px-5 py-2.5 rounded-lg font-semibold hover:bg-slate-800 shadow-sm text-sm transition inline-flex items-center gap-2"
+                >
+                  <Receipt className="h-4 w-4"/> Hisaab Receipt
+                </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -180,8 +194,85 @@ function DriverHistory() {
           </div>
         )}
       </div>
+
+      {/* NEW: Driver Settlement Modal (Integrated from previous version) */}
+      {showReceipt && selectedDriver && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh]">
+            
+            <div className="flex justify-between items-center p-5 border-b bg-gray-50">
+               <div>
+                  <h3 className="font-bold text-lg text-slate-800">Driver Settlement Receipt</h3>
+               </div>
+               <button onClick={() => setShowReceipt(false)} className="p-2 hover:bg-gray-200 rounded-lg text-gray-500 transition">
+                  <X className="h-5 w-5" />
+               </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 bg-gray-100">
+               <div ref={receiptRef} className="bg-white p-10 mx-auto shadow-sm border border-gray-200 rounded-xl">
+                  
+                  <div className="border-b-2 border-slate-900 pb-6 mb-6 flex justify-between items-end">
+                      <div>
+                        <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">JAIN FREIGHT CARRIERS</h1>
+                        <p className="text-gray-500 mt-1 font-medium text-sm">Driver Payment Ledger</p>
+                      </div>
+                      <div className="text-right">
+                        <h2 className="text-xl font-bold text-gray-800 uppercase">Driver Hisaab</h2>
+                        <p className="text-sm font-bold text-blue-700 mt-1">{selectedDriver.name}</p>
+                      </div>
+                  </div>
+
+                  <h3 className="font-bold text-sm mb-4 text-slate-800 uppercase tracking-wide border-b pb-2">Trip Breakdown</h3>
+                  
+                  {history.map(trip => (
+                      <div key={trip.trip_id} className="mb-6 p-4 border border-gray-200 rounded-lg bg-slate-50 print:bg-transparent print:border-b">
+                          <div className="flex justify-between mb-3 text-sm border-b pb-2">
+                              <span className="font-bold text-slate-800">TRK: {trip.tracking_number}</span>
+                              <span className="font-semibold text-gray-600">{trip.source_city} → {trip.destination_city}</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
+                              <div className="flex justify-between">
+                                  <span className="text-gray-600">Total KM:</span>
+                                  <span className="font-bold">{trip.total_km || 0} km</span>
+                              </div>
+                              <div className="flex justify-between">
+                                  <span className="text-gray-600">Advance (₹3.5):</span>
+                                  <span className="font-bold text-slate-900">₹{trip.driver_advance || 0}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                  <span className="text-gray-600">Remaining (₹1.0):</span>
+                                  <span className="font-bold text-slate-900">₹{trip.driver_remaining || 0}</span>
+                              </div>
+                              <div className="flex justify-between bg-blue-50/50 print:bg-transparent px-1 rounded">
+                                  <span className="font-extrabold text-gray-900">Total (₹4.5):</span>
+                                  <span className="font-extrabold text-blue-700">₹{trip.driver_total || 0}</span>
+                              </div>
+                          </div>
+                      </div>
+                  ))}
+
+                  {!history.length && <p className="text-center text-gray-500 py-4">No trips recorded for this driver.</p>}
+
+                  <div className="hidden print:flex justify-between mt-20 pt-8">
+                     <div className="border-t border-gray-400 w-48 text-center pt-2 font-semibold text-sm">Driver's Signature</div>
+                     <div className="border-t border-gray-400 w-48 text-center pt-2 font-semibold text-sm">Authorized Signatory</div>
+                  </div>
+
+               </div>
+            </div>
+
+            <div className="p-5 border-t bg-white flex justify-end gap-4">
+               <button onClick={handlePrint} className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-2.5 rounded-lg font-bold transition">
+                 <Printer className="h-5 w-5"/> Print Driver Hisaab
+               </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-export default DriverHistory;
+export default DriversHistory;

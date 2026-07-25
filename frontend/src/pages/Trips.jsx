@@ -28,11 +28,14 @@ function Trips() {
     trip_id: '', pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '' 
   });
 
-  // --- NEW: FINANCE RECEIPT MODAL STATE ---
   const [receiptModal, setReceiptModal] = useState({ isOpen: false, trip: null });
-  const [finance, setFinance] = useState({ freight_amount: 0, adv_amt: 0, expenses: 0, tds: 0, finance_remarks: '' });
   
-  // FIX APPLIED HERE FOR REACT-TO-PRINT V3
+  // UPDATED: Added driver settlement fields to finance state
+  const [finance, setFinance] = useState({ 
+    freight_amount: 0, adv_amt: 0, expenses: 0, tds: 0, finance_remarks: '',
+    total_km: 0, driver_advance: 0, driver_remaining: 0, driver_total: 0 
+  });
+  
   const receiptRef = useRef(null);
   const handlePrint = useReactToPrint({ contentRef: receiptRef });
 
@@ -99,7 +102,6 @@ function Trips() {
     } catch (err) { alert("Failed."); }
   };
 
-  // --- NEW: FINANCE RECEIPT LOGIC ---
   const openReceiptModal = async (trip) => {
     try {
       const res = await axios.get(`${API_BASE}/track/${encodeURIComponent(trip.tracking_number)}`);
@@ -110,7 +112,11 @@ function Trips() {
         adv_amt: tripData.adv_amt || 0,
         expenses: tripData.expenses || 0,
         tds: tripData.tds || 0,
-        finance_remarks: tripData.finance_remarks || ''
+        finance_remarks: tripData.finance_remarks || '',
+        total_km: tripData.total_km || 0,
+        driver_advance: tripData.driver_advance || 0,
+        driver_remaining: tripData.driver_remaining || 0,
+        driver_total: tripData.driver_total || 0
       });
       setReceiptModal({ isOpen: true, trip: tripData });
     } catch (err) { alert("Error loading trip finance details"); }
@@ -120,6 +126,18 @@ function Trips() {
     const total = parseFloat(finance.freight_amount || 0);
     const deductions = parseFloat(finance.adv_amt || 0) + parseFloat(finance.expenses || 0) + parseFloat(finance.tds || 0);
     return (total - deductions).toFixed(2);
+  };
+
+  // NEW: Auto-calculates driver hisaab based on KM entered
+  const handleKmChange = (e) => {
+    const km = parseFloat(e.target.value) || 0;
+    setFinance({
+      ...finance,
+      total_km: km,
+      driver_advance: km * 3.5,     // ₹3.5 per km
+      driver_remaining: km * 1.0,   // ₹1.0 per km
+      driver_total: km * 4.5        // Total ₹4.5 per km
+    });
   };
 
   const handleSaveFinance = async () => {
@@ -269,6 +287,7 @@ function Trips() {
                       </div>
                   </div>
 
+                  {/* Freight Settlement */}
                   <h3 className="font-bold text-base mb-4 text-slate-800 uppercase tracking-wide border-b pb-2">Financial Settlement</h3>
                   <div className="grid grid-cols-2 gap-x-8 gap-y-4">
                       
@@ -306,6 +325,31 @@ function Trips() {
                           placeholder="Add remarks for payment..." 
                           onChange={e => setFinance({...finance, finance_remarks: e.target.value})} 
                         />
+                      </div>
+                  </div>
+
+                  {/* NEW: Driver Hisaab Section */}
+                  <h3 className="font-bold text-base mb-4 mt-8 text-slate-800 uppercase tracking-wide border-b pb-2">Driver Settlement (Hisaab)</h3>
+                  <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-6 grid grid-cols-2 gap-x-8 gap-y-4 print:bg-transparent print:border-none print:p-0">
+                      
+                      <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                        <label className="text-sm font-semibold text-gray-700">Total KM Traveled</label>
+                        <input className="border p-2 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent text-blue-700" type="number" value={finance.total_km || ''} onChange={handleKmChange} placeholder="Enter KM" />
+                      </div>
+                      
+                      <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                        <span className="text-sm font-semibold text-gray-700">Driver Advance (₹3.5/km)</span>
+                        <span className="font-bold text-slate-900">₹{finance.driver_advance || 0}</span>
+                      </div>
+                      
+                      <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                        <span className="text-sm font-semibold text-gray-700">Remaining Balance (₹1.0/km)</span>
+                        <span className="font-bold text-slate-900">₹{finance.driver_remaining || 0}</span>
+                      </div>
+                      
+                      <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                        <span className="text-sm font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span>
+                        <span className="font-extrabold text-blue-700">₹{finance.driver_total || 0}</span>
                       </div>
                   </div>
                   
