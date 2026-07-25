@@ -2,15 +2,15 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from database import get_db_connection
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import os
 import psycopg2
 from psycopg2 import errors
 import requests
 import shutil
+import json
 from dotenv import load_dotenv
 from typing import Optional
-from datetime import timedelta
 
 # --- CONFIGURATION ---
 load_dotenv()
@@ -34,6 +34,7 @@ class TripCreate(BaseModel):
     source_city: str
     destination_city: str
     party_name: Optional[str] = ""
+    owner_name: Optional[str] = "" # <-- NEW FIELD
     gta_name: Optional[str] = ""
     lr_no: Optional[str] = ""
     eway_bill: Optional[str] = "" 
@@ -41,7 +42,7 @@ class TripCreate(BaseModel):
     trip_start_date: Optional[date] = date.today()
     lw: Optional[str] = ""
     freight_amount: Optional[float] = 0.0 
-    total_km: Optional[float] = 0.0 # NEW FIELD
+    total_km: Optional[float] = 0.0
 
 class TripCompleteUpdate(BaseModel):
     actual_delivery_date: date
@@ -68,6 +69,7 @@ class AssetUpdate(BaseModel):
     driver_name: str
     per_km_rate: float
     current_status: str
+
 
 # --- TELEMETRY ENGINE ---
 def get_taabi_live_data(vehicle_number):
@@ -97,6 +99,7 @@ def get_taabi_live_data(vehicle_number):
         return {"speed": 0, "fuel_level": "N/A", "urea_level": "N/A", "status": "Not Found"}
     except Exception:
         return {"speed": 0, "fuel_level": "N/A", "urea_level": "N/A", "status": "Offline"}
+
 
 # --- ASSET ENDPOINTS ---
 @app.get("/assets")
@@ -171,6 +174,7 @@ def delete_asset(vehicle_number: str):
         raise HTTPException(status_code=404, detail="Vehicle not found")
     return {"status": "Archived", "vehicle_number": archived_vehicle[0]}
 
+
 # --- TRIP ENDPOINTS ---
 @app.post("/trips")
 def create_trip(trip: TripCreate):
@@ -179,17 +183,20 @@ def create_trip(trip: TripCreate):
     try:
         # 1. Insert trip
         cursor.execute("""
-            INSERT INTO trips (vehicle_number, source_city, destination_city, party_name, gta_name, lr_no, eway_bill, eway_bill_expiry, trip_start_date, lw)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING trip_id;
-        """, (trip.vehicle_number.upper().strip(), trip.source_city, trip.destination_city, trip.party_name, trip.gta_name, trip.lr_no, trip.eway_bill, trip.eway_bill_expiry, trip.trip_start_date, trip.lw))
+            INSERT INTO trips (vehicle_number, source_city, destination_city, party_name, owner_name, gta_name, lr_no, eway_bill, eway_bill_expiry, trip_start_date, lw)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING trip_id;
+        """, (trip.vehicle_number.upper().strip(), trip.source_city, trip.destination_city, trip.party_name, trip.owner_name, trip.gta_name, trip.lr_no, trip.eway_bill, trip.eway_bill_expiry, trip.trip_start_date, trip.lw))
         
         trip_id = cursor.fetchone()[0]
         
         # 2. Extract launch date for tracking number
         start_date_obj = trip.trip_start_date if trip.trip_start_date else datetime.now().date()
-        date_str = start_date_obj.strftime('%y%m%d')
-        vehicle_last4 = trip.vehicle_number[-4:] if len(trip.vehicle_number) >= 4 else trip.vehicle_number
-        tracking_number = f"{vehicle_last4}_{date_str}_{trip_id}"
+        date_str = start_date_obj.strftime('%d%m%y')
+        
+        party_clean = trip.party_name.replace(' ', '').upper() if trip.party_name else "NOPARTY"
+        vehicle_clean = trip.vehicle_number.upper().strip()
+        
+        tracking_number = f"{vehicle_clean}-{party_clean}-{date_str}-{trip_id}"
         
         cursor.execute("UPDATE trips SET tracking_number = %s WHERE trip_id = %s", (tracking_number, trip_id))
         
@@ -210,6 +217,8 @@ def create_trip(trip: TripCreate):
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """, (trip_id, freight, gst, initial_balance, total_km, driver_advance, driver_remaining, driver_total))
         
+        cursor.execute("UPDATE assets SET current_status = 'In-Transit' WHERE vehicle_number = %s;", (trip.vehicle_number.upper().strip(),))
+        
         conn.commit()
         return {"message": "Trip launched", "tracking_number": tracking_number}
     except Exception as e:
@@ -227,15 +236,22 @@ def update_trip(trip_id: int, trip_data: dict):
         cursor.execute("""
             UPDATE trips 
             SET vehicle_number = %s, source_city = %s, destination_city = %s, 
-                party_name = %s, gta_name = %s, lr_no = %s, eway_bill = %s, 
+                party_name = %s, owner_name = %s, gta_name = %s, lr_no = %s, eway_bill = %s, 
                 eway_bill_expiry = %s, trip_start_date = %s, lw = %s
             WHERE trip_id = %s
         """, (
             trip_data.get('vehicle_number'), trip_data.get('source_city'), trip_data.get('destination_city'),
-            trip_data.get('party_name'), trip_data.get('gta_name'), trip_data.get('lr_no'), 
+            trip_data.get('party_name'), trip_data.get('owner_name'), trip_data.get('gta_name'), trip_data.get('lr_no'), 
             trip_data.get('eway_bill'), trip_data.get('eway_bill_expiry'), 
             trip_data.get('trip_start_date'), trip_data.get('lw'), trip_id
         ))
+        
+        cursor.execute("""
+            UPDATE trip_finances
+            SET total_km = %s, freight_amount = %s
+            WHERE trip_id = %s
+        """, (trip_data.get('total_km') or 0, trip_data.get('freight_amount') or 0, trip_id))
+        
         conn.commit()
         return {"message": "Trip updated successfully"}
     except Exception as e:
@@ -249,9 +265,8 @@ def update_trip(trip_id: int, trip_data: dict):
 def get_active_trips():
     conn = get_db_connection()
     cursor = conn.cursor()
-    # UPDATED: We now pull balance_payment so React can check if it is zero
     cursor.execute("""
-        SELECT t.*, a.driver_name, f.freight_amount, f.adv_amt, f.balance_payment 
+        SELECT t.*, a.driver_name, f.freight_amount, f.adv_amt, f.balance_payment, f.total_km 
         FROM trips t 
         LEFT JOIN assets a ON t.vehicle_number = a.vehicle_number 
         LEFT JOIN trip_finances f ON t.trip_id = f.trip_id
@@ -268,9 +283,7 @@ def force_delete_trip(trip_id: int):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # Delete finances first to prevent foreign key errors
         cursor.execute("DELETE FROM trip_finances WHERE trip_id = %s;", (trip_id,))
-        # Delete the trip and make the truck 'Available' again
         cursor.execute("DELETE FROM trips WHERE trip_id = %s RETURNING vehicle_number;", (trip_id,))
         res = cursor.fetchone()
         if res:
@@ -331,12 +344,12 @@ def complete_trip(trip_id: int, data: TripCompleteUpdate):
     cursor.close(); conn.close()
     return {"status": "Success"}
 
-@app.get("/track/{trip_id}")
+@app.get("/track/{trip_id:path}")
 def get_track_data(trip_id: str):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT t.*, f.freight_amount, f.adv_amt, f.tds, f.balance_payment, f.loading_charge, f.gst, f.holding_charge, f.extra_deduction, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total
+        SELECT t.*, f.freight_amount, f.adv_amt, f.tds, f.balance_payment, f.loading_charge, f.gst, f.holding_charge, f.extra_deduction, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total, f.advance_details, f.bill_no
         FROM trips t 
         LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
         WHERE t.tracking_number = %s;
@@ -354,45 +367,51 @@ def get_track_data(trip_id: str):
     res['telemetry'] = telemetry
     return res
 
+
+# --- FINANCE ENDPOINTS ---
 @app.post("/finances/calculate")
 def calculate_finance(data: dict):
     conn = get_db_connection()
     cursor = conn.cursor()
     trip_id = data.get('trip_id')
     
-    freight = float(data.get('freight_amount', 0))
-    adv = float(data.get('adv_amt', 0))
-    tds = float(data.get('tds', 0))
+    freight = float(data.get('freight_amount', 0) or 0)
+    tds = float(data.get('tds', 0) or 0)
+    loading = float(data.get('loading_charge', 0) or 0)
+    gst = float(data.get('gst', 0) or 0)
+    holding = float(data.get('holding_charge', 0) or 0)
+    extra_deduction = float(data.get('extra_deduction', 0) or 0)
     
-    # NEW FIELDS
-    loading = float(data.get('loading_charge', 0))
-    gst = float(data.get('gst', 0))
-    holding = float(data.get('holding_charge', 0))
-    extra_deduction = float(data.get('extra_deduction', 0))
+    advances = data.get('advance_details', [])
+    advance_details_json = json.dumps(advances)
+    total_adv = sum(float(adv.get('amount', 0) or 0) for adv in advances)
     
-    balance = (freight + loading + holding + gst) - (adv + tds + extra_deduction)
+    bill_no = data.get('bill_no', '')
+    balance = (freight + loading + holding + gst) - (total_adv + tds + extra_deduction)
 
-    total_km = float(data.get('total_km', 0))
-    driver_advance = float(data.get('driver_advance', 0))
-    driver_remaining = float(data.get('driver_remaining', 0))
-    driver_total = float(data.get('driver_total', 0))
+    total_km = float(data.get('total_km', 0) or 0)
+    driver_advance = float(data.get('driver_advance', 0) or 0)
+    driver_remaining = float(data.get('driver_remaining', 0) or 0)
+    driver_total = float(data.get('driver_total', 0) or 0)
     finance_remarks = data.get('finance_remarks', '')
 
     cursor.execute("""
         INSERT INTO trip_finances (
             trip_id, freight_amount, adv_amt, tds, balance_payment, finance_remarks,
             loading_charge, gst, holding_charge, extra_deduction,
-            total_km, driver_advance, driver_remaining, driver_total
+            total_km, driver_advance, driver_remaining, driver_total,
+            advance_details, bill_no
         ) 
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (trip_id) DO UPDATE SET 
         freight_amount = EXCLUDED.freight_amount, adv_amt = EXCLUDED.adv_amt, 
         tds = EXCLUDED.tds, balance_payment = EXCLUDED.balance_payment, finance_remarks = EXCLUDED.finance_remarks,
         loading_charge = EXCLUDED.loading_charge, gst = EXCLUDED.gst,
         holding_charge = EXCLUDED.holding_charge, extra_deduction = EXCLUDED.extra_deduction,
         total_km = EXCLUDED.total_km, driver_advance = EXCLUDED.driver_advance, 
-        driver_remaining = EXCLUDED.driver_remaining, driver_total = EXCLUDED.driver_total;
-    """, (trip_id, freight, adv, tds, balance, finance_remarks, loading, gst, holding, extra_deduction, total_km, driver_advance, driver_remaining, driver_total))
+        driver_remaining = EXCLUDED.driver_remaining, driver_total = EXCLUDED.driver_total,
+        advance_details = EXCLUDED.advance_details, bill_no = EXCLUDED.bill_no;
+    """, (trip_id, freight, total_adv, tds, balance, finance_remarks, loading, gst, holding, extra_deduction, total_km, driver_advance, driver_remaining, driver_total, advance_details_json, bill_no))
     
     conn.commit()
     cursor.close()
@@ -416,7 +435,17 @@ async def upload_pod(file: UploadFile = File(...)):
         shutil.copyfileobj(file.file, buffer)
     return {"path": file_path}
 
-# --- PARTIES & DRIVERS ---
+
+# --- PARTIES, OWNERS & DRIVERS ---
+@app.get("/owners")
+def get_owner_list():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT DISTINCT owner_name FROM trips WHERE owner_name IS NOT NULL AND owner_name != '';")
+    res = [row[0] for row in cursor.fetchall()]
+    cursor.close(); conn.close()
+    return res
+
 @app.get("/drivers")
 def get_all_drivers():
     conn = get_db_connection()
@@ -481,9 +510,17 @@ def delete_driver(driver_id: int):
 def get_trips_by_party(party_name: str):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM trips WHERE party_name = %s ORDER BY trip_start_date DESC;", (party_name,))
+    cursor.execute("""
+        SELECT t.*, f.freight_amount, f.adv_amt, f.balance_payment, f.total_km
+        FROM trips t 
+        LEFT JOIN trip_finances f ON t.trip_id = f.trip_id
+        WHERE t.party_name = %s 
+        ORDER BY t.trip_start_date DESC;
+    """, (party_name,))
     cols = [d[0] for d in cursor.description]
-    return [dict(zip(cols, row)) for row in cursor.fetchall()]
+    res = [dict(zip(cols, row)) for row in cursor.fetchall()]
+    cursor.close(); conn.close()
+    return res
 
 @app.get("/trips/by-driver/{driver_name}")
 def get_trips_by_driver(driver_name: str):
@@ -534,7 +571,7 @@ def get_trip_details(trip_id: int):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT t.*, f.freight_amount, f.adv_amt, f.tds, f.balance_payment, f.bill_no, f.pod_status, f.loading_charge, f.gst, f.holding_charge, f.extra_deduction
+        SELECT t.*, f.freight_amount, f.adv_amt, f.tds, f.balance_payment, f.bill_no, f.pod_status, f.loading_charge, f.gst, f.holding_charge, f.extra_deduction, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total, f.advance_details, f.pod_arrived_office_date
         FROM trips t 
         LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
         WHERE t.trip_id = %s;

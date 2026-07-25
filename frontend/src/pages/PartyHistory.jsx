@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { BriefcaseBusiness, Search, Plus, Trash2, Edit } from 'lucide-react';
+import { BriefcaseBusiness, Search, Plus, Trash2, Edit, IndianRupee, AlertCircle } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
 function PartyHistory() {
   const [parties, setParties] = useState([]);
-  const [history, setHistory] = useState([]);
+  const [partyTrips, setPartyTrips] = useState([]);
   const [selected, setSelected] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [editingParty, setEditingParty] = useState(null);
@@ -52,8 +52,8 @@ function PartyHistory() {
     setSelected(partyName);
     try {
         const res = await axios.get(`${API_BASE}/trips/by-party/${encodeURIComponent(partyName)}`);
-        setHistory(Array.isArray(res.data) ? res.data : []);
-    } catch (err) { setHistory([]); }
+        setPartyTrips(Array.isArray(res.data) ? res.data : []);
+    } catch (err) { setPartyTrips([]); }
   };
 
   const filteredParties = parties.filter(p => {
@@ -61,10 +61,14 @@ function PartyHistory() {
     return name?.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
+  // --- LEDGER MATH ---
+  const outstandingTrips = partyTrips.filter(t => parseFloat(t.balance_payment || 0) > 0);
+  const totalOutstanding = outstandingTrips.reduce((sum, t) => sum + parseFloat(t.balance_payment || 0), 0);
+
   return (
-    <div className="flex flex-col lg:flex-row h-[85vh] gap-6">
+    <div className="flex flex-col lg:flex-row h-[85vh] gap-6 p-6">
       
-      {/* 1/3 SIDEBAR: Client Directory */}
+      {/* 1/3 SIDEBAR: Client Directory with Search */}
       <div className="w-full lg:w-1/3 bg-white p-6 rounded-2xl shadow-sm border flex flex-col">
         <div className="flex items-center justify-between mb-4 border-b pb-4">
           <h3 className="font-bold text-lg flex items-center gap-2"><BriefcaseBusiness className="h-5 w-5 text-gray-400"/> Client Directory</h3>
@@ -108,31 +112,82 @@ function PartyHistory() {
         </div>
       </div>
 
-      {/* 2/3 MAIN: History Area */}
+      {/* 2/3 MAIN: Detailed Client Ledger Area */}
       <div className="flex-1 overflow-y-auto space-y-6">
         {selected ? (
           <>
-            <div className="bg-white p-6 rounded-2xl shadow-sm border">
-               <h2 className="text-2xl font-bold text-gray-900 mb-2">{selected}</h2>
-               <p className="text-sm text-gray-500">Total Shipments Managed: <span className="font-bold text-gray-800">{history.length}</span></p>
+            <div className="bg-white p-6 rounded-2xl shadow-sm border flex justify-between items-center">
+               <div>
+                   <h2 className="text-2xl font-bold text-gray-900 mb-1">{selected}</h2>
+                   <p className="text-sm text-gray-500">Total Shipments Managed: <span className="font-bold text-gray-800">{partyTrips.length}</span></p>
+               </div>
             </div>
             
+            {/* PENDING PAYMENTS LEDGER BOX */}
+            <div className="bg-white rounded-2xl shadow-sm border-2 border-rose-200 overflow-hidden">
+               <div className="bg-rose-50 p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-rose-100">
+                  <div>
+                     <h3 className="text-lg font-bold text-rose-900 flex items-center gap-2">
+                         <AlertCircle className="h-5 w-5"/> Pending Payments Ledger
+                     </h3>
+                     <p className="text-xs text-rose-700 font-medium mt-0.5">Trips with outstanding balances remaining</p>
+                  </div>
+                  <div className="bg-white px-5 py-2.5 rounded-xl border border-rose-200 shadow-sm text-right">
+                     <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Total Amount Due</p>
+                     <p className="text-2xl font-black text-rose-600 flex items-center gap-0.5">
+                        <IndianRupee className="h-5 w-5"/> {totalOutstanding.toLocaleString('en-IN')}
+                     </p>
+                  </div>
+               </div>
+
+               <div className="p-5 bg-white">
+                  {outstandingTrips.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {outstandingTrips.map(trip => (
+                              <div key={trip.trip_id} className="border border-gray-200 p-3.5 rounded-xl hover:border-rose-300 transition shadow-sm bg-gray-50 flex flex-col justify-between">
+                                  <div>
+                                     <a href={`/trip-details/${trip.trip_id}`} className="font-bold text-blue-700 hover:underline text-xs break-all">
+                                        {trip.tracking_number}
+                                     </a>
+                                     <p className="text-xs text-gray-500 mt-1 font-medium">{trip.source_city} → {trip.destination_city}</p>
+                                  </div>
+                                  <div className="mt-3 pt-2 border-t border-gray-200 flex justify-between items-center">
+                                     <span className="text-[11px] font-bold text-gray-600 uppercase">Remaining Balance:</span>
+                                     <span className="font-extrabold text-base text-rose-600">₹{trip.balance_payment}</span>
+                                  </div>
+                              </div>
+                          ))}
+                      </div>
+                  ) : (
+                      <div className="text-center p-6 bg-emerald-50 rounded-xl border border-emerald-100">
+                          <p className="text-emerald-700 font-bold text-base">All Clear! 🎉</p>
+                          <p className="text-emerald-600 text-xs mt-0.5">This client has no outstanding balances.</p>
+                      </div>
+                  )}
+               </div>
+            </div>
+
+            {/* FULL WORK HISTORY TABLE */}
             <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
-              <div className="p-5 border-b bg-gray-50"><h3 className="font-bold text-gray-900">Work History & Logistics Log</h3></div>
+              <div className="p-5 border-b bg-gray-50"><h3 className="font-bold text-gray-900">Complete Work History & Logistics Log</h3></div>
               <table className="w-full text-sm text-left">
                 <thead className="border-b text-gray-600 bg-white">
                     <tr><th className="p-4">Trip ID</th><th className="p-4">Vehicle</th><th className="p-4">Date</th><th className="p-4 text-center">Status</th></tr>
                 </thead>
                 <tbody>
-                  {history.map(h => (
+                  {partyTrips.map(h => (
                     <tr key={h.trip_id} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="p-4 font-semibold text-blue-600">{h.tracking_number}</td>
+                      <td className="p-4">
+                        <a href={`/trip-details/${h.trip_id}`} className="font-semibold text-blue-600 hover:underline">
+                          {h.tracking_number}
+                        </a>
+                      </td>
                       <td className="p-4 font-bold text-gray-900">{h.vehicle_number}</td>
-                      <td className="p-4 text-gray-600">{h.trip_start_date}</td>
+                      <td className="p-4 text-gray-600">{h.trip_start_date || '-'}</td>
                       <td className="p-4 text-center"><span className={`px-2 py-1 rounded text-xs font-semibold ${h.actual_delivery_date ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{h.actual_delivery_date ? "Completed" : "Active"}</span></td>
                     </tr>
                   ))}
-                  {!history.length && <tr><td colSpan="4" className="p-8 text-center text-gray-500">No active or past shipments found for this client.</td></tr>}
+                  {!partyTrips.length && <tr><td colSpan="4" className="p-8 text-center text-gray-500">No active or past shipments found for this client.</td></tr>}
                 </tbody>
               </table>
             </div>

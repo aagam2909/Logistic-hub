@@ -32,10 +32,14 @@ function TripDetails() {
   if (loading) return <div className="p-10 text-center text-gray-500 font-medium">Loading Receipt...</div>;
   if (!trip) return <div className="p-10 text-center text-rose-500 font-bold">Trip not found.</div>;
 
+  // Safely parse the advance details array
+  const advances = trip.advance_details 
+    ? (typeof trip.advance_details === 'string' ? JSON.parse(trip.advance_details) : trip.advance_details) 
+    : [];
+
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       
-      {/* Top Action Bar (Hidden when printing) */}
       <div className="print:hidden flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-200">
         <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 font-medium transition">
           <ArrowLeft className="h-5 w-5" /> Back to History
@@ -45,11 +49,9 @@ function TripDetails() {
         </button>
       </div>
 
-      {/* --- START OF PRINTABLE AREA --- */}
       <div className="bg-white shadow-lg border border-gray-200 rounded-xl overflow-hidden">
         <div ref={receiptRef} className="p-10 bg-white print:p-0">
           
-          {/* Header */}
           <div className="border-b-2 border-slate-900 pb-6 mb-8 flex justify-between items-end">
               <div>
                 <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">JAIN FREIGHT CARRIERS</h1>
@@ -58,10 +60,13 @@ function TripDetails() {
               <div className="text-right">
                 <h2 className="text-xl font-bold text-gray-800">FREIGHT RECEIPT</h2>
                 <p className="text-sm font-semibold text-gray-500 mt-1">TRK: {trip.tracking_number}</p>
+                {/* Dynamically show Bill Number if it exists */}
+                {trip.bill_no && (
+                    <p className="text-sm font-bold text-blue-700 mt-1 uppercase tracking-wide">BILL NO: {trip.bill_no}</p>
+                )}
               </div>
           </div>
           
-          {/* Grid Info */}
           <div className="grid grid-cols-2 gap-8 mb-10 text-sm">
               <div className="space-y-3">
                 <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Date of Dispatch:</span> <span className="font-bold">{trip.trip_start_date || '-'}</span></div>
@@ -77,7 +82,6 @@ function TripDetails() {
               </div>
           </div>
 
-          {/* Financial Breakdown (Read-Only Version) */}
           <h3 className="font-bold text-base mb-4 text-slate-800 uppercase tracking-wide border-b pb-2">Financial Settlement</h3>
           <div className="grid grid-cols-2 gap-x-12 gap-y-4">
               
@@ -88,45 +92,66 @@ function TripDetails() {
                     <span className="text-sm font-semibold text-gray-700">Total Freight</span>
                     <span className="font-bold">₹{trip.freight_amount || 0}</span>
                   </div>
-                  <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
-                    <span className="text-sm font-semibold text-gray-700">Loading/Unloading</span>
-                    <span className="font-bold">₹{trip.loading_charge || 0}</span>
-                  </div>
-                  <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
-                    <span className="text-sm font-semibold text-gray-700">GST (18%)</span>
-                    <span className="font-bold text-emerald-600">₹{trip.gst || 0}</span>
-                  </div>
-                  <div className="flex justify-between items-center border-b border-gray-100 pb-2">
-                    <span className="text-sm font-semibold text-gray-700">Holding Charge</span>
-                    <span className="font-bold">₹{trip.holding_charge || 0}</span>
-                  </div>
+                  {parseFloat(trip.loading_charge || 0) > 0 && (
+                    <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
+                      <span className="text-sm font-semibold text-gray-700">Loading/Unloading</span>
+                      <span className="font-bold">₹{trip.loading_charge}</span>
+                    </div>
+                  )}
+                  {parseFloat(trip.holding_charge || 0) > 0 && (
+                    <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
+                      <span className="text-sm font-semibold text-gray-700">Holding Charge</span>
+                      <span className="font-bold">₹{trip.holding_charge}</span>
+                    </div>
+                  )}
+                  {parseFloat(trip.gst || 0) > 0 && (
+                    <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
+                      <span className="text-sm font-semibold text-gray-900">GST (18%)</span>
+                      <span className="font-bold text-emerald-600">₹{trip.gst}</span>
+                    </div>
+                  )}
               </div>
 
-              {/* Deductions */}
+              {/* Deductions (WITH DATED ADVANCES) */}
               <div>
                   <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Deductions (-)</h4>
-                  <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
-                    <span className="text-sm font-semibold text-gray-700">Advance Received</span>
-                    <span className="font-bold text-rose-600">₹{trip.adv_amt || 0}</span>
-                  </div>
-                  <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
-                    <span className="text-sm font-semibold text-gray-700">TDS Deduction</span>
-                    <span className="font-bold text-rose-600">₹{trip.tds || 0}</span>
-                  </div>
-                  <div className="flex justify-between items-center border-b border-gray-100 pb-2">
-                    <span className="text-sm font-semibold text-gray-700">Extra Deduction</span>
-                    <span className="font-bold text-rose-600">₹{trip.extra_deduction || 0}</span>
-                  </div>
+                  
+                  {advances.map((adv, idx) => (
+                      <div key={idx} className="flex justify-between items-center border-b border-gray-50 pb-1 mb-1">
+                          <span className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                              Advance {adv.date && <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{adv.date}</span>}
+                          </span>
+                          <span className="font-bold text-rose-600">₹{adv.amount || 0}</span>
+                      </div>
+                  ))}
+
+                  {parseFloat(trip.tds || 0) > 0 && (
+                    <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2 mt-2">
+                      <span className="text-sm font-semibold text-gray-700">TDS Deduction</span>
+                      <span className="font-bold text-rose-600">₹{trip.tds}</span>
+                    </div>
+                  )}
+                  {parseFloat(trip.extra_deduction || 0) > 0 && (
+                    <div className="flex justify-between items-center border-b border-gray-100 pb-2 mt-2">
+                      <span className="text-sm font-semibold text-gray-700">Extra Deduction</span>
+                      <span className="font-bold text-rose-600">₹{trip.extra_deduction}</span>
+                    </div>
+                  )}
               </div>
               
-              {/* Final Balance Box */}
               <div className="col-span-2 mt-4 p-4 border-2 border-slate-900 rounded-lg flex justify-between items-center bg-emerald-50/30 print:border-2 print:bg-transparent">
                   <span className="font-extrabold text-lg text-slate-900">NET BALANCE PAYABLE</span>
                   <span className="font-extrabold text-2xl text-emerald-600 print:text-slate-900">₹{trip.balance_payment || 0}</span>
               </div>
+
+              {trip.finance_remarks && (
+                <div className="col-span-2 mt-2">
+                    <span className="block text-xs font-semibold text-gray-500 mb-1">Remarks / Payment Notes:</span>
+                    <p className="text-sm font-medium text-gray-800 bg-gray-50 p-3 rounded-lg border border-gray-100 print:bg-transparent print:border-0 print:p-0">{trip.finance_remarks}</p>
+                </div>
+              )}
           </div>
 
-          {/* Driver Hisaab Section */}
           <h3 className="font-bold text-base mb-4 mt-8 text-slate-800 uppercase tracking-wide border-b pb-2">Driver Settlement (Hisaab)</h3>
           <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-6 grid grid-cols-2 gap-x-8 gap-y-4 print:bg-transparent print:border-none print:p-0">
               <div className="flex justify-between items-center border-b border-gray-200 pb-2">
@@ -147,7 +172,6 @@ function TripDetails() {
               </div>
           </div>
           
-          {/* Signature Area */}
           <div className="hidden print:flex justify-between mt-20 pt-8">
               <div className="border-t border-gray-400 w-48 text-center pt-2 font-semibold text-sm">Receiver's Signature</div>
               <div className="border-t border-gray-400 w-48 text-center pt-2 font-semibold text-sm">Authorized Signatory</div>
@@ -155,7 +179,6 @@ function TripDetails() {
 
         </div>
       </div>
-      {/* --- END OF PRINTABLE AREA --- */}
       
     </div>
   );

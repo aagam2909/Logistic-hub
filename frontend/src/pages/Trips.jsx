@@ -16,12 +16,13 @@ function Trips() {
   const [activeTrips, setActiveTrips] = useState([]);
   const [availableTrucks, setAvailableTrucks] = useState([]);
   const [parties, setParties] = useState([]);
+  const [owners, setOwners] = useState([]);
   const [podFiles, setPodFiles] = useState({});
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('newest'); 
   
   const [tripData, setTripData] = useState({
-    vehicle_number: '', source_city: '', destination_city: '', party_name: '', 
+    vehicle_number: '', source_city: '', destination_city: '', party_name: '', owner_name: '',
     gta_name: '', lr_no: '', eway_bill: '', eway_bill_expiry: '', trip_start_date: '', lw: '', freight_amount: '', total_km: ''
   });
   
@@ -32,18 +33,19 @@ function Trips() {
   const [receiptModal, setReceiptModal] = useState({ isOpen: false, trip: null });
   const [editModal, setEditModal] = useState({ isOpen: false, tripData: null });
 
-  const [activeCharges, setActiveCharges] = useState({ loading: false, holding: false, gst: false });
+  const [activeCharges, setActiveCharges] = useState({ loading: false, holding: false, gst: false, bill_no: false });
 
   const [finance, setFinance] = useState({ 
-    freight_amount: 0, adv_amt: 0, tds: 0, finance_remarks: '',
+    freight_amount: 0, tds: 0, finance_remarks: '',
     loading_charge: 0, gst: 0, holding_charge: 0, extra_deduction: 0,
-    total_km: 0, driver_advance: 0, driver_remaining: 0, driver_total: 0 
+    total_km: 0, driver_advance: 0, driver_remaining: 0, driver_total: 0,
+    advance_details: [{ date: '', amount: '' }], bill_no: ''
   });
   
   const receiptRef = useRef(null);
   const handlePrint = useReactToPrint({ contentRef: receiptRef });
 
-  useEffect(() => { fetchTrips(); fetchAvailableTrucks(); fetchParties(); }, []);
+  useEffect(() => { fetchTrips(); fetchAvailableTrucks(); fetchParties(); fetchOwners(); }, []);
 
   const fetchTrips = async () => {
     try {
@@ -66,8 +68,16 @@ function Trips() {
     } catch (err) { setParties([]); }
   };
 
+  const fetchOwners = async () => {
+    try { 
+        const res = await axios.get(`${API_BASE}/owners`);
+        setOwners(Array.isArray(res.data) ? res.data.filter(Boolean) : []);
+    } catch (err) { setOwners([]); }
+  };
+
   const uniqueSources = [...new Set(activeTrips.map(t => t.source_city).filter(Boolean))];
   const uniqueDestinations = [...new Set(activeTrips.map(t => t.destination_city).filter(Boolean))];
+  const uniqueGtas = [...new Set(activeTrips.map(t => t.gta_name).filter(Boolean))];
 
   const handleAddTrip = async () => {
     if (!tripData.vehicle_number.trim() || !tripData.source_city.trim() || !tripData.destination_city.trim()) {
@@ -82,8 +92,8 @@ function Trips() {
     try {
       await axios.post(`${API_BASE}/trips`, tripPayload);
       alert("Trip Launched Successfully! 🚀");
-      setTripData({ vehicle_number: '', source_city: '', destination_city: '', party_name: '', gta_name: '', lr_no: '', eway_bill: '', eway_bill_expiry: '', trip_start_date: '', lw: '', freight_amount: '', total_km: ''});
-      fetchTrips(); fetchParties(); fetchAvailableTrucks();
+      setTripData({ vehicle_number: '', source_city: '', destination_city: '', party_name: '', owner_name: '', gta_name: '', lr_no: '', eway_bill: '', eway_bill_expiry: '', trip_start_date: '', lw: '', freight_amount: '', total_km: ''});
+      fetchTrips(); fetchParties(); fetchAvailableTrucks(); fetchOwners();
     } catch (err) { alert("Failed to launch trip."); }
   };
 
@@ -105,9 +115,7 @@ function Trips() {
     } catch (err) { alert("Update failed."); }
   };
 
-  // UPDATED: Require exactly 0 balance to complete, POD file is optional.
   const handleCompleteTrip = async (trip) => {
-    // 1. Check Zero Balance Rule
     const currentBalance = parseFloat(trip.balance_payment || 0);
     if (currentBalance !== 0) {
         return alert(`⚠️ CANNOT COMPLETE TRIP.\n\nThe Net Balance Payable is currently ₹${currentBalance}.\nYou must settle the ledger to exactly ₹0 before completing the trip.`);
@@ -115,7 +123,6 @@ function Trips() {
 
     try {
         let podPath = null;
-        // 2. Only upload POD if a file was selected (Optional)
         if (podFiles[trip.trip_id]) {
             const formData = new FormData(); 
             formData.append("file", podFiles[trip.trip_id]);
@@ -123,7 +130,6 @@ function Trips() {
             podPath = uploadRes.data.path;
         }
 
-        // 3. Mark as Complete
         await axios.put(`${API_BASE}/trips/${trip.trip_id}/complete`, { 
             actual_delivery_date: new Date().toISOString().split('T')[0],
             pod_image_path: podPath
@@ -134,7 +140,6 @@ function Trips() {
     } catch (err) { alert("Failed to complete trip."); }
   };
 
-  // NEW: Force Delete Function
   const handleForceDelete = async (trip_id, tracking_number) => {
     if (window.confirm(`🚨 DANGER: Are you sure you want to FORCE DELETE trip ${tracking_number}?\n\nThis will completely erase the route and its financial ledger. This action CANNOT be undone.`)) {
         try {
@@ -150,25 +155,31 @@ function Trips() {
       const res = await axios.get(`${API_BASE}/track/${encodeURIComponent(trip.tracking_number)}`);
       const tripData = res.data.trip || res.data;
       
+      const parsedAdvances = tripData.advance_details 
+          ? (typeof tripData.advance_details === 'string' ? JSON.parse(tripData.advance_details) : tripData.advance_details)
+          : [];
+
       setFinance({
         freight_amount: tripData.freight_amount || 0,
         loading_charge: tripData.loading_charge || 0,
         gst: tripData.gst || 0,
         holding_charge: tripData.holding_charge || 0,
-        adv_amt: tripData.adv_amt || 0,
         tds: tripData.tds || 0,
         extra_deduction: tripData.extra_deduction || 0,
         finance_remarks: tripData.finance_remarks || '',
         total_km: tripData.total_km || 0,
         driver_advance: tripData.driver_advance || 0,
         driver_remaining: tripData.driver_remaining || 0,
-        driver_total: tripData.driver_total || 0
+        driver_total: tripData.driver_total || 0,
+        advance_details: parsedAdvances.length > 0 ? parsedAdvances : [{ date: '', amount: '' }],
+        bill_no: tripData.bill_no || ''
       });
 
       setActiveCharges({
         loading: parseFloat(tripData.loading_charge || 0) > 0,
         holding: parseFloat(tripData.holding_charge || 0) > 0,
-        gst: parseFloat(tripData.gst || 0) > 0
+        gst: parseFloat(tripData.gst || 0) > 0,
+        bill_no: !!tripData.bill_no
       });
       
       setReceiptModal({ isOpen: true, trip: tripData });
@@ -183,7 +194,6 @@ function Trips() {
         const freight = parseFloat(newFinance.freight_amount || 0);
         const loading = customActiveCharges.loading ? parseFloat(newFinance.loading_charge || 0) : 0;
         const holding = customActiveCharges.holding ? parseFloat(newFinance.holding_charge || 0) : 0;
-        
         newFinance.gst = ((freight + loading + holding) * 0.18).toFixed(2);
     }
     setFinance(newFinance);
@@ -195,13 +205,27 @@ function Trips() {
     handleFinanceChange('TOGGLE_ACTIVE', null, newActive);
   };
 
+  const handleAdvanceChange = (index, field, value) => {
+    const newAdvances = [...finance.advance_details];
+    newAdvances[index][field] = value;
+    setFinance({ ...finance, advance_details: newAdvances });
+  };
+  const addAdvanceRow = () => {
+    setFinance({ ...finance, advance_details: [...finance.advance_details, { date: '', amount: '' }] });
+  };
+  const removeAdvanceRow = (index) => {
+    const newAdvances = finance.advance_details.filter((_, i) => i !== index);
+    setFinance({ ...finance, advance_details: newAdvances });
+  };
+
   const calculatePending = () => {
     const loading = activeCharges.loading ? parseFloat(finance.loading_charge || 0) : 0;
     const holding = activeCharges.holding ? parseFloat(finance.holding_charge || 0) : 0;
     const gst = activeCharges.gst ? parseFloat(finance.gst || 0) : 0;
+    const totalAdv = finance.advance_details.reduce((sum, adv) => sum + parseFloat(adv.amount || 0), 0);
     
     const additions = parseFloat(finance.freight_amount || 0) + loading + gst + holding;
-    const deductions = parseFloat(finance.adv_amt || 0) + parseFloat(finance.tds || 0) + parseFloat(finance.extra_deduction || 0);
+    const deductions = totalAdv + parseFloat(finance.tds || 0) + parseFloat(finance.extra_deduction || 0);
     return (additions - deductions).toFixed(2);
   };
 
@@ -223,18 +247,20 @@ function Trips() {
         loading_charge: activeCharges.loading ? finance.loading_charge : 0,
         holding_charge: activeCharges.holding ? finance.holding_charge : 0,
         gst: activeCharges.gst ? finance.gst : 0,
+        bill_no: activeCharges.bill_no ? finance.bill_no : '',
         trip_id: receiptModal.trip.trip_id
       };
       await axios.post(`${API_BASE}/finances/calculate`, payload);
       alert("Finance Record Saved Successfully!");
-      fetchTrips(); // Refresh so the table sees the new balance
+      fetchTrips(); 
     } catch (err) { alert("Error saving record."); }
   };
 
   let processedTrips = activeTrips.filter(t => 
     (t.tracking_number || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (t.vehicle_number || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (t.party_name || '').toLowerCase().includes(searchTerm.toLowerCase())
+    (t.party_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (t.owner_name || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   if (sortBy === 'newest') {
@@ -264,7 +290,13 @@ function Trips() {
           <input className="border p-2.5 rounded-lg text-sm" list="party-names" placeholder="Party name (Optional)" value={tripData.party_name} onChange={e => setTripData({...tripData, party_name: e.target.value})} />
           <datalist id="party-names">{parties.map(p => <option key={p} value={p} />)}</datalist>
           
-          <input className="border p-2.5 rounded-lg text-sm" placeholder="GTA Name (Optional)" value={tripData.gta_name} onChange={e => setTripData({...tripData, gta_name: e.target.value})} />
+          {/* OWNER NAME INPUT WITH DROPDOWN */}
+          <input className="border p-2.5 rounded-lg text-sm" list="owner-names" placeholder="Owner Name (Optional)" value={tripData.owner_name} onChange={e => setTripData({...tripData, owner_name: e.target.value})} />
+          <datalist id="owner-names">{owners.map(o => <option key={o} value={o} />)}</datalist>
+          
+          <input className="border p-2.5 rounded-lg text-sm" list="gta-names" placeholder="GTA Name (Optional)" value={tripData.gta_name} onChange={e => setTripData({...tripData, gta_name: e.target.value})} />
+          <datalist id="gta-names">{uniqueGtas.map(g => <option key={g} value={g} />)}</datalist>
+          
           <input className="border p-2.5 rounded-lg text-sm" placeholder="LR No (Optional)" value={tripData.lr_no} onChange={e => setTripData({...tripData, lr_no: e.target.value})} />
           
           <input className="border p-2.5 rounded-lg text-sm" type="number" placeholder="Estimated Route KM" value={tripData.total_km} onChange={e => setTripData({...tripData, total_km: e.target.value})} />
@@ -338,7 +370,7 @@ function Trips() {
                 <tr key={trip.trip_id} className="hover:bg-gray-50 transition">
                   <td className="p-4">
                     <a href={`/trip-details/${trip.trip_id}`} className="text-slate-800 font-semibold hover:underline transition">{trip.tracking_number || `Trip #${trip.trip_id}`}</a>
-                    <div className="text-xs text-gray-500 mt-1">{trip.party_name || '-'}</div>
+                    <div className="text-xs text-gray-500 mt-1">{trip.party_name || '-'} {trip.owner_name ? `(Owner: ${trip.owner_name})` : ''}</div>
                   </td>
                   <td className="p-4 font-medium text-gray-700">{trip.source_city} → {trip.destination_city}</td>
                   <td className="p-4 font-bold text-slate-800">{trip.vehicle_number}</td>
@@ -360,7 +392,6 @@ function Trips() {
                         <button onClick={() => openReceiptModal(trip)} className="bg-slate-900 text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-slate-800 shadow-sm text-xs transition flex items-center justify-center gap-1">
                             <Printer className="h-3 w-3"/> Receipt
                         </button>
-                        {/* Passes full trip object to check balance */}
                         <button onClick={() => handleCompleteTrip(trip)} className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-3 py-1.5 rounded-lg font-bold hover:bg-emerald-100 shadow-sm text-xs transition">
                             Complete Trip
                         </button>
@@ -374,7 +405,7 @@ function Trips() {
         </div>
       </section>
 
-      {/* EDIT TRIP MODAL */}
+      {/* EXPANDED EDIT TRIP MODAL */}
       {editModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col">
@@ -382,7 +413,7 @@ function Trips() {
                <h3 className="font-bold text-lg text-slate-800">Edit Trip: {editModal.tripData.tracking_number}</h3>
                <button onClick={() => setEditModal({isOpen: false, tripData: null})} className="p-2 hover:bg-gray-200 rounded-lg text-gray-500 transition"><X className="h-5 w-5" /></button>
             </div>
-            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 h-96 overflow-y-auto">
                 <div className="space-y-1">
                     <label className="text-xs font-semibold text-gray-600">Vehicle</label>
                     <input className="w-full border p-2.5 rounded-lg text-sm bg-gray-100" value={editModal.tripData.vehicle_number} disabled />
@@ -404,8 +435,12 @@ function Trips() {
                     <input className="w-full border p-2.5 rounded-lg text-sm" list="party-names" value={editModal.tripData.party_name || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, party_name: e.target.value}})} />
                 </div>
                 <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">Owner Name</label>
+                    <input className="w-full border p-2.5 rounded-lg text-sm" list="owner-names" value={editModal.tripData.owner_name || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, owner_name: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
                     <label className="text-xs font-semibold text-gray-600">GTA Name</label>
-                    <input className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.gta_name || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, gta_name: e.target.value}})} />
+                    <input className="w-full border p-2.5 rounded-lg text-sm" list="gta-names" value={editModal.tripData.gta_name || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, gta_name: e.target.value}})} />
                 </div>
                 <div className="space-y-1">
                     <label className="text-xs font-semibold text-gray-600">LR / Bilty No</label>
@@ -416,8 +451,16 @@ function Trips() {
                     <input className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.eway_bill || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, eway_bill: e.target.value}})} />
                 </div>
                 <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-600">E-Way Bill Expiry Date</label>
-                    <input type="date" className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.eway_bill_expiry || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, eway_bill_expiry: e.target.value}})} />
+                    <label className="text-xs font-semibold text-gray-600">Estimated Route KM</label>
+                    <input type="number" className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.total_km || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, total_km: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">Rough Freight (₹)</label>
+                    <input type="number" className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.freight_amount || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, freight_amount: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">E-Way Bill Expiry</label>
+                    <input type="date" className="w-full border p-2.5 rounded-lg text-sm text-gray-500" value={editModal.tripData.eway_bill_expiry || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, eway_bill_expiry: e.target.value}})} />
                 </div>
                 <div className="space-y-1">
                     <label className="text-xs font-semibold text-gray-600">L/W Details</label>
@@ -457,6 +500,9 @@ function Trips() {
                       <div className="text-right">
                         <h2 className="text-xl font-bold text-gray-800">FREIGHT RECEIPT</h2>
                         <p className="text-sm font-semibold text-gray-500 mt-1">TRK: {receiptModal.trip.tracking_number}</p>
+                        {activeCharges.bill_no && finance.bill_no && (
+                             <p className="text-sm font-bold text-blue-700 mt-1 uppercase tracking-wide">BILL NO: {finance.bill_no}</p>
+                        )}
                       </div>
                   </div>
                   
@@ -469,6 +515,7 @@ function Trips() {
                       </div>
                       <div className="space-y-3">
                         <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Billed To (Party):</span> <span className="font-bold">{receiptModal.trip.party_name || 'N/A'}</span></div>
+                        <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Owner Name:</span> <span className="font-bold">{receiptModal.trip.owner_name || 'N/A'}</span></div>
                         <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">GTA Name:</span> <span className="font-bold">{receiptModal.trip.gta_name || 'N/A'}</span></div>
                         <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">LR / Bilty No:</span> <span className="font-bold">{receiptModal.trip.lr_no || 'N/A'}</span></div>
                         <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">E-Way Bill:</span> <span className="font-bold">{receiptModal.trip.eway_bill || 'N/A'}</span></div>
@@ -478,87 +525,112 @@ function Trips() {
                   <h3 className="font-bold text-base mb-4 text-slate-800 uppercase tracking-wide border-b pb-2">Financial Settlement</h3>
                   
                   <div className="grid grid-cols-2 gap-x-12 gap-y-6">
-                      {/* ADDITIONS COLUMN */}
                       <div>
                         <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Additions (+)</h4>
                         
                         <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
                           <label className="text-sm font-semibold text-gray-700">Total Freight (₹)</label>
-                          <input className="border p-1.5 rounded w-28 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.freight_amount} onChange={e => handleFinanceChange('freight_amount', e.target.value)} />
+                          <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.freight_amount} onChange={e => handleFinanceChange('freight_amount', e.target.value)} />
                         </div>
 
-                        {/* Checkbox controlled Loading Charge */}
                         <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
                           <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer hover:text-slate-900">
-                            <input 
-                              type="checkbox" 
-                              checked={activeCharges.loading} 
-                              onChange={() => toggleCharge('loading')} 
-                              className="rounded text-slate-900 focus:ring-slate-900 cursor-pointer print:hidden" 
-                            />
+                            <input type="checkbox" checked={activeCharges.loading} onChange={() => toggleCharge('loading')} className="rounded text-slate-900 focus:ring-slate-900 cursor-pointer print:hidden" />
                             Loading/Unloading (₹)
                           </label>
                           {activeCharges.loading ? (
-                              <input className="border p-1.5 rounded w-28 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.loading_charge} onChange={e => handleFinanceChange('loading_charge', e.target.value)} />
+                              <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.loading_charge} onChange={e => handleFinanceChange('loading_charge', e.target.value)} />
                           ) : (
-                              <span className="w-28 text-right text-gray-400 font-medium print:hidden">Excluded</span>
+                              <span className="w-32 text-right text-gray-400 font-medium print:hidden">Excluded</span>
                           )}
                         </div>
 
-                        {/* Checkbox controlled Holding Charge */}
                         <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
                           <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer hover:text-slate-900">
-                            <input 
-                              type="checkbox" 
-                              checked={activeCharges.holding} 
-                              onChange={() => toggleCharge('holding')} 
-                              className="rounded text-slate-900 focus:ring-slate-900 cursor-pointer print:hidden" 
-                            />
+                            <input type="checkbox" checked={activeCharges.holding} onChange={() => toggleCharge('holding')} className="rounded text-slate-900 focus:ring-slate-900 cursor-pointer print:hidden" />
                             Holding Charge (₹)
                           </label>
                           {activeCharges.holding ? (
-                              <input className="border p-1.5 rounded w-28 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.holding_charge} onChange={e => handleFinanceChange('holding_charge', e.target.value)} />
+                              <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.holding_charge} onChange={e => handleFinanceChange('holding_charge', e.target.value)} />
                           ) : (
-                              <span className="w-28 text-right text-gray-400 font-medium print:hidden">Excluded</span>
+                              <span className="w-32 text-right text-gray-400 font-medium print:hidden">Excluded</span>
                           )}
                         </div>
 
-                        {/* Checkbox controlled GST */}
-                        <div className="flex justify-between items-center border-b border-gray-100 pb-2 mt-2 bg-slate-50/50 print:bg-transparent px-1 rounded">
+                        <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2 bg-slate-50/50 print:bg-transparent px-1 rounded">
                           <label className="flex items-center gap-2 text-sm font-bold text-gray-900 cursor-pointer hover:text-emerald-700">
-                            <input 
-                              type="checkbox" 
-                              checked={activeCharges.gst} 
-                              onChange={() => toggleCharge('gst')} 
-                              className="rounded text-emerald-600 focus:ring-emerald-600 cursor-pointer print:hidden" 
-                            />
+                            <input type="checkbox" checked={activeCharges.gst} onChange={() => toggleCharge('gst')} className="rounded text-emerald-600 focus:ring-emerald-600 cursor-pointer print:hidden" />
                             GST (18%) (₹)
                           </label>
                           {activeCharges.gst ? (
-                              <input className="border p-1.5 rounded w-28 text-right font-bold print:border-0 print:p-0 print:bg-transparent text-emerald-600" type="number" value={finance.gst} onChange={e => handleFinanceChange('gst', e.target.value)} />
+                              <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent text-emerald-600" type="number" value={finance.gst} onChange={e => handleFinanceChange('gst', e.target.value)} />
                           ) : (
-                              <span className="w-28 text-right text-gray-400 font-medium print:hidden">Excluded</span>
+                              <span className="w-32 text-right text-gray-400 font-medium print:hidden">Excluded</span>
+                          )}
+                        </div>
+
+                        <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                          <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer hover:text-slate-900">
+                            <input type="checkbox" checked={activeCharges.bill_no} onChange={() => toggleCharge('bill_no')} className="rounded text-slate-900 focus:ring-slate-900 cursor-pointer print:hidden" />
+                            Bill Number
+                          </label>
+                          {activeCharges.bill_no ? (
+                              <input className="border p-1.5 rounded w-32 font-bold text-blue-700 print:hidden" type="text" placeholder="Enter Bill No" value={finance.bill_no} onChange={e => handleFinanceChange('bill_no', e.target.value)} />
+                          ) : (
+                              <span className="w-32 text-right text-gray-400 font-medium print:hidden">Excluded</span>
                           )}
                         </div>
                       </div>
 
-                      {/* DEDUCTIONS COLUMN */}
                       <div>
-                        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Deductions (-)</h4>
+                        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+                            Deductions (-)
+                        </h4>
                         
-                        <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
-                          <label className="text-sm font-semibold text-gray-700">Advance Received (₹)</label>
-                          <input className="border p-1.5 rounded w-28 text-right font-bold text-rose-600 print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.adv_amt} onChange={e => handleFinanceChange('adv_amt', e.target.value)} />
+                        <div className="border-b border-gray-100 pb-2 mb-2">
+                           <div className="flex justify-between items-center mb-2">
+                              <label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                                Advance Received 
+                                <button onClick={addAdvanceRow} className="text-blue-600 hover:text-blue-800 print:hidden flex items-center bg-blue-50 px-2 py-0.5 rounded text-xs">
+                                   <PlusCircle className="h-3 w-3 mr-1"/> Add
+                                </button>
+                              </label>
+                           </div>
+                           
+                           {finance.advance_details.map((adv, idx) => (
+                              <div key={idx} className="flex justify-between items-center mb-1 gap-2">
+                                 <input 
+                                    type="date" 
+                                    className="border p-1 rounded text-xs text-gray-500 w-[110px] print:border-0 print:p-0 print:text-black font-semibold" 
+                                    value={adv.date} 
+                                    onChange={e => handleAdvanceChange(idx, 'date', e.target.value)} 
+                                 />
+                                 <div className="flex items-center gap-1">
+                                    <input 
+                                        type="number" 
+                                        className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600 print:border-0 print:p-0 print:bg-transparent" 
+                                        value={adv.amount} 
+                                        onChange={e => handleAdvanceChange(idx, 'amount', e.target.value)} 
+                                        placeholder="₹ Amount" 
+                                    />
+                                    {idx > 0 && (
+                                        <button onClick={() => removeAdvanceRow(idx)} className="text-rose-400 hover:text-rose-600 print:hidden p-1">
+                                            <X className="h-4 w-4"/>
+                                        </button>
+                                    )}
+                                 </div>
+                              </div>
+                           ))}
                         </div>
 
                         <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
                           <label className="text-sm font-semibold text-gray-700">TDS Deduction (₹)</label>
-                          <input className="border p-1.5 rounded w-28 text-right font-bold text-rose-600 print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.tds} onChange={e => handleFinanceChange('tds', e.target.value)} />
+                          <input className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600 print:border-0 print:p-0 print:bg-transparent mr-5 print:mr-0" type="number" value={finance.tds} onChange={e => handleFinanceChange('tds', e.target.value)} />
                         </div>
 
                         <div className="flex justify-between items-center border-b border-gray-100 pb-2">
                           <input className="text-sm font-semibold text-gray-700 border-b border-dashed border-gray-300 w-32 focus:outline-none print:border-none bg-transparent" placeholder="Extra Deduction..." />
-                          <input className="border p-1.5 rounded w-28 text-right font-bold text-rose-600 print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.extra_deduction} onChange={e => handleFinanceChange('extra_deduction', e.target.value)} />
+                          <input className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600 print:border-0 print:p-0 print:bg-transparent mr-5 print:mr-0" type="number" value={finance.extra_deduction} onChange={e => handleFinanceChange('extra_deduction', e.target.value)} />
                         </div>
                       </div>
                       

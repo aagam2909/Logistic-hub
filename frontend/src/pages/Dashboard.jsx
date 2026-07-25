@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Truck, Users, MapPin, Receipt, ArrowRight, Loader2, AlertCircle, X } from 'lucide-react';
+import { Truck, Users, MapPin, Receipt, ArrowRight, Loader2, AlertCircle, X, Download } from 'lucide-react';
+import { exportAllDataToExcel } from '../utils/exportHelper'; // <-- NEW EXPORT HELPER IMPORT
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
 function Dashboard() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [showDriverModal, setShowDriverModal] = useState(false); // <-- NEW STATE FOR POPUP
+  const [showDriverModal, setShowDriverModal] = useState(false);
   
   const [stats, setStats] = useState({
     activeTrucks: 0,
@@ -92,9 +93,19 @@ function Dashboard() {
   return (
     <div className="space-y-8 max-w-6xl mx-auto relative">
       
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Operations Overview</h1>
-        <p className="text-sm text-gray-500 mt-1">Live metrics from your database</p>
+      {/* HEADER WITH EXPORT BUTTON */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Operations Overview</h1>
+          <p className="text-sm text-gray-500 mt-1">Live metrics from your database</p>
+        </div>
+        
+        <button 
+          onClick={exportAllDataToExcel}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-bold shadow-sm transition flex items-center gap-2 text-sm cursor-pointer"
+        >
+          <Download className="h-4 w-4" /> Export All Data (Excel)
+        </button>
       </div>
 
       {/* EXPIRING LICENSE WARNING BANNER */}
@@ -113,7 +124,7 @@ function Dashboard() {
           </div>
           <button 
             onClick={() => setShowDriverModal(true)} 
-            className="bg-rose-600 text-white text-xs px-4 py-2 rounded-lg font-semibold hover:bg-rose-700 transition shadow-sm"
+            className="bg-rose-600 text-white text-xs px-4 py-2 rounded-lg font-semibold hover:bg-rose-700 transition shadow-sm cursor-pointer"
           >
             Review Drivers
           </button>
@@ -148,7 +159,7 @@ function Dashboard() {
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
           <h3 className="font-semibold text-gray-800">Recent Active Trips</h3>
-          <button onClick={() => navigate('/trips')} className="text-sm text-blue-600 font-medium hover:text-blue-800 flex items-center gap-1 transition">
+          <button onClick={() => navigate('/trips')} className="text-sm text-blue-600 font-medium hover:text-blue-800 flex items-center gap-1 transition cursor-pointer">
             View All <ArrowRight className="h-4 w-4" />
           </button>
         </div>
@@ -208,7 +219,7 @@ function Dashboard() {
               </div>
               <button 
                 onClick={() => setShowDriverModal(false)}
-                className="p-1.5 hover:bg-gray-200 rounded-lg text-gray-500 transition"
+                className="p-1.5 hover:bg-gray-200 rounded-lg text-gray-500 transition cursor-pointer"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -245,13 +256,13 @@ function Dashboard() {
             <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-3">
               <button 
                 onClick={() => navigate('/driver-history')}
-                className="px-4 py-2 text-sm font-semibold text-gray-600 hover:text-gray-900 bg-white border border-gray-200 rounded-lg hover:bg-gray-100 transition"
+                className="px-4 py-2 text-sm font-semibold text-gray-600 hover:text-gray-900 bg-white border border-gray-200 rounded-lg hover:bg-gray-100 transition cursor-pointer"
               >
                 Manage All Drivers
               </button>
               <button 
                 onClick={() => setShowDriverModal(false)}
-                className="px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition"
+                className="px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition cursor-pointer"
               >
                 Done
               </button>

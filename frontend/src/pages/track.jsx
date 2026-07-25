@@ -4,7 +4,6 @@ import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
-// Fix for default Leaflet marker icon issue
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
@@ -42,7 +41,6 @@ function Track() {
     <div className="space-y-6 p-6 max-w-6xl mx-auto">
       <h2 className="text-3xl font-bold text-gray-900">Command Center: Track & Trace</h2>
       
-      {/* Search Bar */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row gap-4">
         <input
           className="border p-3 rounded-lg flex-1 bg-gray-50 focus:ring-2 focus:ring-blue-100 outline-none"
@@ -63,7 +61,6 @@ function Track() {
         <div className="space-y-6 animate-in fade-in duration-300">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             
-            {/* Route Box */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 border-t-4 border-t-blue-500">
               <h3 className="font-bold mb-4 text-gray-800 flex items-center gap-2">📍 Live Route</h3>
               <div className="space-y-2">
@@ -73,7 +70,6 @@ function Track() {
               </div>
             </div>
             
-            {/* Telemetry Box */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 border-t-4 border-t-amber-500">
               <h3 className="font-bold mb-4 text-gray-800 flex items-center gap-2">📡 Live Telemetry</h3>
               <div className="space-y-2">
@@ -84,10 +80,12 @@ function Track() {
               </div>
             </div>
 
-            {/* Financials Box (UPDATED to include new additions/deductions) */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 border-t-4 border-t-emerald-500 flex flex-col justify-between">
               <div>
-                <h3 className="font-bold mb-4 text-gray-800 flex items-center gap-2">💰 Ledger Sync</h3>
+                <h3 className="font-bold mb-4 text-gray-800 flex justify-between items-center">
+                   <span className="flex items-center gap-2">💰 Ledger Sync</span>
+                   {tripDetails.bill_no && <span className="text-xs bg-slate-100 text-slate-700 px-2 py-1 rounded border border-slate-200">Bill: {tripDetails.bill_no}</span>}
+                </h3>
                 <div className="space-y-2">
                   <p className="text-sm text-gray-500 font-medium flex justify-between">Gross Additions: <span className="font-bold text-gray-900">₹{parseFloat(tripDetails.freight_amount || 0) + parseFloat(tripDetails.loading_charge || 0) + parseFloat(tripDetails.gst || 0) + parseFloat(tripDetails.holding_charge || 0)}</span></p>
                   <p className="text-sm text-gray-500 font-medium flex justify-between">Total Deductions: <span className="font-bold text-rose-500">₹{parseFloat(tripDetails.adv_amt || 0) + parseFloat(tripDetails.tds || 0) + parseFloat(tripDetails.extra_deduction || 0)}</span></p>
@@ -101,22 +99,14 @@ function Track() {
             
           </div>
 
-          {/* Integrated Map */}
           {tripDetails.telemetry?.lat ? (
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
               <h3 className="font-bold mb-4 px-2 text-gray-800">Geospatial Tracking</h3>
               <div style={{ height: "400px", width: "100%" }} className="overflow-hidden rounded-lg border border-gray-200">
-                <MapContainer 
-                  center={[tripDetails.telemetry.lat, tripDetails.telemetry.lng]} 
-                  zoom={13} 
-                  style={{ height: "100%", width: "100%" }}
-                >
+                <MapContainer center={[tripDetails.telemetry.lat, tripDetails.telemetry.lng]} zoom={13} style={{ height: "100%", width: "100%" }}>
                   <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                   <Marker position={[tripDetails.telemetry.lat, tripDetails.telemetry.lng]}>
-                    <Popup>
-                      <div className="font-bold text-slate-900">{tripDetails.vehicle_number}</div>
-                      <div className="text-xs text-gray-500 mt-1">Status: {tripDetails.telemetry?.status}</div>
-                    </Popup>
+                    <Popup><div className="font-bold text-slate-900">{tripDetails.vehicle_number}</div><div className="text-xs text-gray-500 mt-1">Status: {tripDetails.telemetry?.status}</div></Popup>
                   </Marker>
                 </MapContainer>
               </div>
