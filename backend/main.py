@@ -93,32 +93,42 @@ class DriverSettleUpdate(BaseModel):
 
 def get_taabi_live_data(vehicle_number):
     url = "https://dev-api-dtwin.taabi.ai/graphql"
+    
+    # 1. UPDATED QUERY: Swapped ureaLevel for adblue_level
     query = """
     query getAllDeviceLocations($configs: Configs) {
         devices: getAllDeviceLocations(configs: $configs) {
-            vehicleNumber, speed, haltStatus, latitude, longitude, fuelValueLtrs, ureaLevel
+            vehicleNumber, speed, haltStatus, latitude, longitude, fuelValueLtrs, adblue_level
         }
     }
     """
     payload = {"query": query, "variables": {"configs": {}}}
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {TAABI_API_KEY}"}
+    
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=5)
+        response = requests.post(url, json=payload, headers=headers, timeout=15)
         data = response.json()
         devices = data.get("data", {}).get("devices", [])
-        db_clean = str(vehicle_number).replace("-", "").upper()
+        db_clean = str(vehicle_number).replace("-", "").replace(" ", "").upper()
+        
         for dev in devices:
-            api_clean = str(dev['vehicleNumber']).replace("-", "").upper()
+            api_clean = str(dev['vehicleNumber']).replace("-", "").replace(" ", "").upper()
             if db_clean in api_clean or api_clean in db_clean:
                 return {
-                    "speed": dev['speed'], "lat": dev['latitude'], "lng": dev['longitude'],
-                    "fuel_level": dev.get('fuelValueLtrs', 'N/A'), "urea_level": dev.get('ureaLevel', 'N/A'),
+                    "speed": dev['speed'], 
+                    "lat": dev['latitude'], 
+                    "lng": dev['longitude'],
+                    "fuel_level": dev.get('fuelValueLtrs', 'N/A'), 
+                    # 2. UPDATED EXTRACTION: Look for adblue_level in the response
+                    "urea_level": dev.get('adblue_level', 'N/A'),
                     "status": "Halted" if dev['haltStatus'] else "Moving"
                 }
+                
         return {"speed": 0, "fuel_level": "N/A", "urea_level": "N/A", "status": "Not Found"}
-    except Exception:
+        
+    except Exception as e:
+        print(f"Taabi API Error: {e}") # Added error logging for future debugging
         return {"speed": 0, "fuel_level": "N/A", "urea_level": "N/A", "status": "Offline"}
-
 
 @app.get("/assets")
 def get_all_assets():
