@@ -12,7 +12,6 @@ import json
 from dotenv import load_dotenv
 from typing import Optional
 
-# --- CONFIGURATION ---
 load_dotenv()
 TAABI_API_KEY = os.getenv("TAABI_API_KEY")
 
@@ -28,7 +27,6 @@ app.add_middleware(
 
 os.makedirs("uploads", exist_ok=True)
 
-# --- MODELS ---
 class TripCreate(BaseModel):
     vehicle_number: str
     source_city: str
@@ -47,13 +45,26 @@ class TripCreate(BaseModel):
 class TripCompleteUpdate(BaseModel):
     actual_delivery_date: date
     pod_image_path: Optional[str] = None
-    api_fuel_consumed_liters: float = 0.0
-    fuel_expenses_cost: float = 0.0
+    trip_unloaded: Optional[bool] = False
+    amount_cleared: Optional[bool] = False
+    pod_status: Optional[str] = 'Pending'
+    pod_arrived_office_date: Optional[date] = None
+    pod_forwarded_client_date: Optional[date] = None
+    pod_received_client_date: Optional[date] = None
+
+class ChecklistUpdate(BaseModel):
+    trip_unloaded: bool
+    amount_cleared: bool
+    pod_status: Optional[str] = 'Pending'
+    pod_arrived_office_date: Optional[date] = None
+    pod_forwarded_client_date: Optional[date] = None
+    pod_received_client_date: Optional[date] = None
 
 class PODUpdate(BaseModel):
     pod_status: str
     pod_arrived_office_date: Optional[date] = None
     pod_forwarded_client_date: Optional[date] = None
+    pod_received_client_date: Optional[date] = None
 
 class DriverCreate(BaseModel):
     name: str
@@ -78,7 +89,6 @@ class DriverSettleUpdate(BaseModel):
     payment_date: date
 
 
-# --- TELEMETRY ENGINE ---
 def get_taabi_live_data(vehicle_number):
     url = "https://dev-api-dtwin.taabi.ai/graphql"
     query = """
@@ -108,7 +118,6 @@ def get_taabi_live_data(vehicle_number):
         return {"speed": 0, "fuel_level": "N/A", "urea_level": "N/A", "status": "Offline"}
 
 
-# --- ASSET ENDPOINTS ---
 @app.get("/assets")
 def get_all_assets():
     conn = get_db_connection()
@@ -152,7 +161,6 @@ def update_asset(vehicle_no: str, asset: AssetUpdate):
     updated_vehicle = cursor.fetchone()
     conn.commit()
     cursor.close(); conn.close()
-
     if not updated_vehicle:
         raise HTTPException(status_code=404, detail="Vehicle not found")
     return {"status": "Updated", "vehicle_number": updated_vehicle[0]}
@@ -171,21 +179,16 @@ def delete_asset(vehicle_number: str):
         archived_vehicle = cursor.fetchone()
         conn.commit()
     except Exception as exc:
-        if conn:
-            conn.rollback()
+        if conn: conn.rollback()
         raise HTTPException(status_code=500, detail="Unable to archive vehicle.")
     finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
-
+        if cursor: cursor.close()
+        if conn: conn.close()
     if not archived_vehicle:
         raise HTTPException(status_code=404, detail="Vehicle not found")
     return {"status": "Archived", "vehicle_number": archived_vehicle[0]}
 
 
-# --- TRIP ENDPOINTS ---
 @app.post("/trips")
 def create_trip(trip: TripCreate):
     conn = get_db_connection()
@@ -197,21 +200,16 @@ def create_trip(trip: TripCreate):
         """, (trip.vehicle_number.upper().strip(), trip.source_city, trip.destination_city, trip.party_name, trip.owner_name, trip.gta_name, trip.lr_no, trip.eway_bill, trip.eway_bill_expiry, trip.trip_start_date, trip.lw))
         
         trip_id = cursor.fetchone()[0]
-        
         start_date_obj = trip.trip_start_date if trip.trip_start_date else datetime.now().date()
         date_str = start_date_obj.strftime('%d%m%y')
-        
         party_clean = trip.party_name.replace(' ', '').upper() if trip.party_name else "NOPARTY"
         vehicle_clean = trip.vehicle_number.upper().strip()
-        
         tracking_number = f"{vehicle_clean}-{party_clean}-{date_str}-{trip_id}"
         
         cursor.execute("UPDATE trips SET tracking_number = %s WHERE trip_id = %s", (tracking_number, trip_id))
         
         freight = trip.freight_amount or 0.0
-        gst = freight * 0.18
-        initial_balance = freight + gst
-        
+        initial_balance = freight
         total_km = trip.total_km or 0.0
         driver_advance = total_km * 3.5
         driver_remaining = total_km * 1.0
@@ -220,20 +218,18 @@ def create_trip(trip: TripCreate):
         cursor.execute("""
             INSERT INTO trip_finances (
                 trip_id, freight_amount, gst, balance_payment,
-                total_km, driver_advance, driver_remaining, driver_total
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """, (trip_id, freight, gst, initial_balance, total_km, driver_advance, driver_remaining, driver_total))
+                total_km, driver_advance, driver_remaining, driver_total, gst_enabled
+            ) VALUES (%s, %s, 0.0, %s, %s, %s, %s, %s, FALSE)
+        """, (trip_id, freight, initial_balance, total_km, driver_advance, driver_remaining, driver_total))
         
         cursor.execute("UPDATE assets SET current_status = 'In-Transit' WHERE vehicle_number = %s;", (trip.vehicle_number.upper().strip(),))
-        
         conn.commit()
         return {"message": "Trip launched", "tracking_number": tracking_number}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=400, detail=str(e))
     finally:
-        cursor.close()
-        conn.close()
+        cursor.close(); conn.close()
 
 @app.put("/trips/{trip_id}")
 def update_trip(trip_id: int, trip_data: dict):
@@ -252,28 +248,20 @@ def update_trip(trip_id: int, trip_data: dict):
             trip_data.get('eway_bill'), trip_data.get('eway_bill_expiry'), 
             trip_data.get('trip_start_date'), trip_data.get('lw'), trip_id
         ))
-        
-        cursor.execute("""
-            UPDATE trip_finances
-            SET total_km = %s, freight_amount = %s
-            WHERE trip_id = %s
-        """, (trip_data.get('total_km') or 0, trip_data.get('freight_amount') or 0, trip_id))
-        
         conn.commit()
         return {"message": "Trip updated successfully"}
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=400, detail=str(e))
     finally:
-        cursor.close()
-        conn.close()
+        cursor.close(); conn.close()
 
 @app.get("/trips/active")
 def get_active_trips():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT t.*, a.driver_name, f.freight_amount, f.adv_amt, f.balance_payment, f.total_km 
+        SELECT t.*, a.driver_name, f.freight_amount, f.adv_amt, f.balance_payment, f.total_km, f.trip_unloaded, f.amount_cleared, f.pod_status 
         FROM trips t 
         LEFT JOIN assets a ON t.vehicle_number = a.vehicle_number 
         LEFT JOIN trip_finances f ON t.trip_id = f.trip_id
@@ -301,8 +289,7 @@ def force_delete_trip(trip_id: int):
         conn.rollback()
         raise HTTPException(status_code=400, detail=str(e))
     finally:
-        cursor.close()
-        conn.close()
+        cursor.close(); conn.close()
 
 @app.get("/trips/all")
 def get_all_trips():
@@ -318,11 +305,14 @@ def get_trip_history():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT * FROM trips
-        WHERE actual_delivery_date IS NOT NULL
-        ORDER BY actual_delivery_date DESC, trip_id DESC;
+        SELECT t.*, f.trip_unloaded, f.amount_cleared, f.pod_status, f.pod_arrived_office_date, f.pod_forwarded_client_date, f.pod_received_client_date 
+        FROM trips t
+        LEFT JOIN trip_finances f ON t.trip_id = f.trip_id
+        WHERE t.actual_delivery_date IS NOT NULL
+        ORDER BY t.actual_delivery_date DESC, t.trip_id DESC;
     """)
-    res = [dict(zip([c[0] for c in cursor.description], row)) for row in cursor.fetchall()]
+    cols = [d[0] for d in cursor.description]
+    res = [dict(zip(cols, row)) for row in cursor.fetchall()]
     cursor.close(); conn.close()
     return res
 
@@ -344,38 +334,67 @@ def complete_trip(trip_id: int, data: TripCompleteUpdate):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("UPDATE trips SET actual_delivery_date = %s WHERE trip_id = %s RETURNING vehicle_number;", (data.actual_delivery_date, trip_id))
-    v_num = cursor.fetchone()[0]
-    cursor.execute("UPDATE assets SET current_status = 'Available' WHERE vehicle_number = %s;", (v_num,))
-    cursor.execute("INSERT INTO trip_finances (trip_id, pod_image_url) VALUES (%s, %s) ON CONFLICT (trip_id) DO UPDATE SET pod_image_url = EXCLUDED.pod_image_url;", (trip_id, data.pod_image_path))
+    v_row = cursor.fetchone()
+    if v_row:
+        cursor.execute("UPDATE assets SET current_status = 'Available' WHERE vehicle_number = %s;", (v_row[0],))
+    
+    cursor.execute("""
+        INSERT INTO trip_finances (trip_id, pod_image_url, trip_unloaded, amount_cleared, pod_status, pod_arrived_office_date, pod_forwarded_client_date, pod_received_client_date) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s) 
+        ON CONFLICT (trip_id) DO UPDATE SET 
+        pod_image_url = COALESCE(EXCLUDED.pod_image_url, trip_finances.pod_image_url),
+        trip_unloaded = EXCLUDED.trip_unloaded, 
+        amount_cleared = EXCLUDED.amount_cleared,
+        pod_status = EXCLUDED.pod_status,
+        pod_arrived_office_date = EXCLUDED.pod_arrived_office_date,
+        pod_forwarded_client_date = EXCLUDED.pod_forwarded_client_date,
+        pod_received_client_date = EXCLUDED.pod_received_client_date;
+    """, (trip_id, data.pod_image_path, data.trip_unloaded, data.amount_cleared, data.pod_status, data.pod_arrived_office_date, data.pod_forwarded_client_date, data.pod_received_client_date))
+    
     conn.commit()
     cursor.close(); conn.close()
     return {"status": "Success"}
+
+@app.put("/finances/{trip_id}/checklist")
+def update_checklist(trip_id: int, data: ChecklistUpdate):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE trip_finances 
+            SET trip_unloaded = %s, amount_cleared = %s, pod_status = %s,
+                pod_arrived_office_date = %s, pod_forwarded_client_date = %s, pod_received_client_date = %s
+            WHERE trip_id = %s;
+        """, (data.trip_unloaded, data.amount_cleared, data.pod_status, data.pod_arrived_office_date, data.pod_forwarded_client_date, data.pod_received_client_date, trip_id))
+        conn.commit()
+        return {"status": "Success"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
 
 @app.get("/track/{trip_id:path}")
 def get_track_data(trip_id: str):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT t.*, f.freight_amount, f.adv_amt, f.tds, f.balance_payment, f.loading_charge, f.gst, f.holding_charge, f.extra_deduction, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total, f.advance_details, f.bill_no
+        SELECT t.*, f.freight_amount, f.adv_amt, f.tds, f.balance_payment, f.loading_charge, f.gst, f.holding_charge, f.extra_deduction, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total, f.advance_details, f.bill_no, f.pod_status, f.pod_arrived_office_date, f.pod_forwarded_client_date, f.pod_received_client_date, f.trip_unloaded, f.amount_cleared, f.bank_account, f.gst_enabled, f.include_charges_in_gst
         FROM trips t 
         LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
         WHERE t.tracking_number = %s;
     """, (trip_id,))
-    
     row = cursor.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Trip not found")
-    
     cols = [d[0] for d in cursor.description]
     res = dict(zip(cols, row))
     cursor.close(); conn.close()
-    
-    telemetry = get_taabi_live_data(res['vehicle_number'])
-    res['telemetry'] = telemetry
+    res['telemetry'] = get_taabi_live_data(res['vehicle_number'])
     return res
 
 
-# --- FINANCE ENDPOINTS ---
 @app.post("/finances/calculate")
 def calculate_finance(data: dict):
     conn = get_db_connection()
@@ -385,15 +404,21 @@ def calculate_finance(data: dict):
     freight = float(data.get('freight_amount', 0) or 0)
     tds = float(data.get('tds', 0) or 0)
     loading = float(data.get('loading_charge', 0) or 0)
-    gst = float(data.get('gst', 0) or 0)
     holding = float(data.get('holding_charge', 0) or 0)
     extra_deduction = float(data.get('extra_deduction', 0) or 0)
+    
+    gst_enabled = bool(data.get('gst_enabled', False))
+    include_charges_in_gst = bool(data.get('include_charges_in_gst', False))
+    
+    taxable_base = freight + (loading if include_charges_in_gst else 0) + (holding if include_charges_in_gst else 0)
+    gst = round(taxable_base * 0.18, 2) if gst_enabled else 0.0
     
     advances = data.get('advance_details', [])
     advance_details_json = json.dumps(advances)
     total_adv = sum(float(adv.get('amount', 0) or 0) for adv in advances)
     
     bill_no = data.get('bill_no', '')
+    bank_account = data.get('bank_account', '')
     balance = (freight + loading + holding + gst) - (total_adv + tds + extra_deduction)
 
     total_km = float(data.get('total_km', 0) or 0)
@@ -402,28 +427,25 @@ def calculate_finance(data: dict):
     driver_total = float(data.get('driver_total', 0) or 0)
     finance_remarks = data.get('finance_remarks', '')
 
-    # --- DIESEL CALCULATION (KM / Mileage) ---
-    # Fetch truck mileage from assets via the trip
     cursor.execute("""
         SELECT a.mileage FROM trips t 
         JOIN assets a ON t.vehicle_number = a.vehicle_number 
         WHERE t.trip_id = %s;
     """, (trip_id,))
     m_row = cursor.fetchone()
-    mileage = float(m_row[0]) if m_row and m_row[0] else 5.5 # Default to 5.5 if not set
-    
+    mileage = float(m_row[0]) if m_row and m_row[0] else 5.5
     diesel_liters_needed = round(total_km / mileage, 2) if mileage > 0 else 0.0
-    diesel_rate_per_liter = 90.0 # Standard approx diesel price (or make dynamic if needed)
-    diesel_cost = round(diesel_liters_needed * diesel_rate_per_liter, 2)
+    diesel_cost = round(diesel_liters_needed * 90.0, 2)
 
     cursor.execute("""
         INSERT INTO trip_finances (
             trip_id, freight_amount, adv_amt, tds, balance_payment, finance_remarks,
             loading_charge, gst, holding_charge, extra_deduction,
             total_km, driver_advance, driver_remaining, driver_total,
-            advance_details, bill_no, diesel_liters_needed, diesel_cost
+            advance_details, bill_no, diesel_liters_needed, diesel_cost,
+            bank_account, gst_enabled, include_charges_in_gst
         ) 
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (trip_id) DO UPDATE SET 
         freight_amount = EXCLUDED.freight_amount, adv_amt = EXCLUDED.adv_amt, 
         tds = EXCLUDED.tds, balance_payment = EXCLUDED.balance_payment, finance_remarks = EXCLUDED.finance_remarks,
@@ -432,20 +454,21 @@ def calculate_finance(data: dict):
         total_km = EXCLUDED.total_km, driver_advance = EXCLUDED.driver_advance, 
         driver_remaining = EXCLUDED.driver_remaining, driver_total = EXCLUDED.driver_total,
         advance_details = EXCLUDED.advance_details, bill_no = EXCLUDED.bill_no,
-        diesel_liters_needed = EXCLUDED.diesel_liters_needed, diesel_cost = EXCLUDED.diesel_cost;
-    """, (trip_id, freight, total_adv, tds, balance, finance_remarks, loading, gst, holding, extra_deduction, total_km, driver_advance, driver_remaining, driver_total, advance_details_json, bill_no, diesel_liters_needed, diesel_cost))
+        diesel_liters_needed = EXCLUDED.diesel_liters_needed, diesel_cost = EXCLUDED.diesel_cost,
+        bank_account = EXCLUDED.bank_account, gst_enabled = EXCLUDED.gst_enabled, include_charges_in_gst = EXCLUDED.include_charges_in_gst;
+    """, (trip_id, freight, total_adv, tds, balance, finance_remarks, loading, gst, holding, extra_deduction, total_km, driver_advance, driver_remaining, driver_total, advance_details_json, bill_no, diesel_liters_needed, diesel_cost, bank_account, gst_enabled, include_charges_in_gst))
     
     conn.commit()
-    cursor.close()
-    conn.close()
-    return {"status": "Success", "diesel_liters": diesel_liters_needed, "diesel_cost": diesel_cost}
+    cursor.close(); conn.close()
+    return {"status": "Success"}
 
 @app.put("/finances/{trip_id}/pod")
 def update_pod(trip_id: int, data: PODUpdate):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("UPDATE trip_finances SET pod_status = %s, pod_arrived_office_date = %s, pod_forwarded_client_date = %s WHERE trip_id = %s;", 
-                   (data.pod_status, data.pod_arrived_office_date, data.pod_forwarded_client_date, trip_id))
+    cursor.execute("""
+        UPDATE trip_finances SET pod_status = %s, pod_arrived_office_date = %s, pod_forwarded_client_date = %s, pod_received_client_date = %s WHERE trip_id = %s;
+    """, (data.pod_status, data.pod_arrived_office_date, data.pod_forwarded_client_date, data.pod_received_client_date, trip_id))
     conn.commit()
     cursor.close(); conn.close()
     return {"status": "Success"}
@@ -457,8 +480,6 @@ async def upload_pod(file: UploadFile = File(...)):
         shutil.copyfileobj(file.file, buffer)
     return {"path": file_path}
 
-
-# --- PARTIES, OWNERS & DRIVERS ---
 @app.get("/owners")
 def get_owner_list():
     conn = get_db_connection()
@@ -491,7 +512,7 @@ def add_driver(driver: DriverCreate):
         return {"status": "Success"}
     except errors.UniqueViolation:
         conn.rollback()
-        raise HTTPException(status_code=400, detail="Error: This Aadhaar or Mobile Number is already registered.")
+        raise HTTPException(status_code=400, detail="Error: Already registered.")
     finally:
         cursor.close(); conn.close()
 
@@ -508,14 +529,8 @@ def update_driver(driver_id: int, driver: DriverUpdate):
             RETURNING driver_id;
         """, (driver.name, driver.dl_number, driver.aadhaar_number,
               driver.mobile_number, driver.dl_expiry_date, driver_id))
-        updated_driver = cursor.fetchone()
         conn.commit()
-        if not updated_driver:
-            raise HTTPException(status_code=404, detail="Driver not found")
-        return {"status": "Updated", "driver_id": updated_driver[0]}
-    except errors.UniqueViolation:
-        conn.rollback()
-        raise HTTPException(status_code=400, detail="Error: This Aadhaar or Mobile Number is already registered.")
+        return {"status": "Updated"}
     finally:
         cursor.close(); conn.close()
 
@@ -549,7 +564,7 @@ def get_trips_by_driver(driver_name: str):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT t.*, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total
+        SELECT t.*, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total, f.driver_paid, f.driver_payment_date, f.diesel_liters_needed, f.diesel_cost, a.mileage
         FROM trips t 
         JOIN assets a ON t.vehicle_number = a.vehicle_number 
         LEFT JOIN trip_finances f ON t.trip_id = f.trip_id
@@ -560,6 +575,25 @@ def get_trips_by_driver(driver_name: str):
     res = [dict(zip(cols, row)) for row in cursor.fetchall()]
     cursor.close(); conn.close()
     return res
+
+@app.post("/finances/settle-driver")
+def settle_driver_payment(data: DriverSettleUpdate):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE trip_finances 
+            SET driver_paid = TRUE, driver_payment_date = %s 
+            WHERE trip_id = %s;
+        """, (data.payment_date, data.trip_id))
+        conn.commit()
+        return {"status": "Success"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
 
 @app.get("/parties")
 def get_party_list():
@@ -593,7 +627,7 @@ def get_trip_details(trip_id: int):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT t.*, f.freight_amount, f.adv_amt, f.tds, f.balance_payment, f.bill_no, f.pod_status, f.loading_charge, f.gst, f.holding_charge, f.extra_deduction, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total, f.advance_details, f.pod_arrived_office_date, f.pod_forwarded_client_date
+        SELECT t.*, f.freight_amount, f.adv_amt, f.tds, f.balance_payment, f.bill_no, f.pod_status, f.loading_charge, f.gst, f.holding_charge, f.extra_deduction, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total, f.advance_details, f.pod_arrived_office_date, f.pod_forwarded_client_date, f.pod_received_client_date, f.trip_unloaded, f.amount_cleared, f.bank_account, f.gst_enabled, f.include_charges_in_gst
         FROM trips t 
         LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
         WHERE t.trip_id = %s;
@@ -614,44 +648,18 @@ def get_expiring_licenses():
     cols = [d[0] for d in cursor.description]
     drivers = [dict(zip(cols, row)) for row in cursor.fetchall()]
     cursor.close(); conn.close()
-    
     today = date.today()
     threshold = today + timedelta(days=30)
-    
     expiring_soon = []
     for driver in drivers:
         expiry_date = driver.get("dl_expiry_date")
         if expiry_date:
             if isinstance(expiry_date, str):
                 expiry_date = date.fromisoformat(expiry_date[:10])
-                
             if expiry_date <= threshold:
                 status = "Expired" if expiry_date < today else "Expiring Soon"
                 expiring_soon.append({
-                    "name": driver["name"],
-                    "dl_number": driver["dl_number"],
-                    "mobile_number": driver.get("mobile_number"),
-                    "dl_expiry_date": str(expiry_date),
-                    "status": status
+                    "name": driver["name"], "dl_number": driver["dl_number"],
+                    "mobile_number": driver.get("mobile_number"), "dl_expiry_date": str(expiry_date), "status": status
                 })
-                
     return expiring_soon
-
-@app.post("/finances/settle-driver")
-def settle_driver_payment(data: DriverSettleUpdate):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            UPDATE trip_finances 
-            SET driver_paid = TRUE, driver_payment_date = %s 
-            WHERE trip_id = %s;
-        """, (data.payment_date, data.trip_id))
-        conn.commit()
-        return {"status": "Success"}
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=400, detail=str(e))
-    finally:
-        cursor.close()
-        conn.close()
