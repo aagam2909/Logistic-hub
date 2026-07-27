@@ -4,13 +4,14 @@ import { Search, FileUp, PlusCircle, X, Printer, Save, Edit, Filter, Trash2, Che
 import { useReactToPrint } from 'react-to-print';
 
 const API_BASE = import.meta.env.VITE_API_URL;
+const PRESET_BANKS = ['JTA 0706', 'JTA 0611', 'JFC 7734', 'JFC 1487'];
 
 const StatusTag = ({ status, deliveryDate }) => {
-  if (deliveryDate) return <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">Completed</span>;
-  if (status === 'Client Received') return <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">Client Received</span>;
-  if (status === 'Received') return <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">POD at Office</span>;
-  if (status === 'Forwarded') return <span className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Forwarded</span>;
-  return <span className="px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-700">Pending / In-Transit</span>;
+  if (deliveryDate) return <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-green-100 text-green-700 whitespace-nowrap">Completed</span>;
+  if (status === 'Client Received') return <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-green-100 text-green-700 whitespace-nowrap">Client Received</span>;
+  if (status === 'Received') return <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 whitespace-nowrap">POD at Office</span>;
+  if (status === 'Forwarded') return <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-blue-100 text-blue-700 whitespace-nowrap">Forwarded</span>;
+  return <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700 whitespace-nowrap">Pending / In-Transit</span>;
 };
 
 function Trips() {
@@ -305,82 +306,93 @@ function Trips() {
       processedTrips = processedTrips.filter(t => parseFloat(t.freight_amount) > 0 && parseFloat(t.adv_amt || 0) === 0);
   }
 
+  const isCustomBank = !PRESET_BANKS.includes(finance.bank_account) && finance.bank_account !== '';
+
   return (
-    <div className="space-y-8 relative">
+    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
       
       {/* LAUNCH NEW TRIP SECTION */}
-      <section className="bg-white p-6 rounded-2xl shadow-sm border">
-        <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><PlusCircle className="text-slate-700"/> Launch New Trip</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <input className="border p-2.5 rounded-lg text-sm" list="available-trucks" placeholder="Search truck number *" value={tripData.vehicle_number} onChange={e => setTripData({...tripData, vehicle_number: e.target.value})} />
+      <section className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+        <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><PlusCircle className="text-blue-600"/> Launch New Trip</h2>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" list="available-trucks" placeholder="Search truck number *" value={tripData.vehicle_number} onChange={e => setTripData({...tripData, vehicle_number: e.target.value})} />
           <datalist id="available-trucks">{availableTrucks.map(t => <option key={t.vehicle_number} value={t.vehicle_number} />)}</datalist>
           
-          <input className="border p-2.5 rounded-lg text-sm" list="source-cities" placeholder="Source *" value={tripData.source_city} onChange={e => setTripData({...tripData, source_city: e.target.value})} />
+          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" list="source-cities" placeholder="Source *" value={tripData.source_city} onChange={e => setTripData({...tripData, source_city: e.target.value})} />
           <datalist id="source-cities">{uniqueSources.map(c => <option key={c} value={c} />)}</datalist>
           
-          <input className="border p-2.5 rounded-lg text-sm" list="dest-cities" placeholder="Destination *" value={tripData.destination_city} onChange={e => setTripData({...tripData, destination_city: e.target.value})} />
+          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" list="dest-cities" placeholder="Destination *" value={tripData.destination_city} onChange={e => setTripData({...tripData, destination_city: e.target.value})} />
           <datalist id="dest-cities">{uniqueDestinations.map(c => <option key={c} value={c} />)}</datalist>
 
-          <input className="border p-2.5 rounded-lg text-sm" list="party-names" placeholder="Party name (Optional)" value={tripData.party_name} onChange={e => setTripData({...tripData, party_name: e.target.value})} />
+          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" list="party-names" placeholder="Party name (Optional)" value={tripData.party_name} onChange={e => setTripData({...tripData, party_name: e.target.value})} />
           <datalist id="party-names">{parties.map(p => <option key={p} value={p} />)}</datalist>
           
-          <input className="border p-2.5 rounded-lg text-sm" list="owner-names" placeholder="Owner Name (Optional)" value={tripData.owner_name} onChange={e => setTripData({...tripData, owner_name: e.target.value})} />
+          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" list="owner-names" placeholder="Owner Name (Optional)" value={tripData.owner_name} onChange={e => setTripData({...tripData, owner_name: e.target.value})} />
           <datalist id="owner-names">{owners.map(o => <option key={o} value={o} />)}</datalist>
           
-          <input className="border p-2.5 rounded-lg text-sm" list="gta-names" placeholder="GTA Name (Optional)" value={tripData.gta_name} onChange={e => setTripData({...tripData, gta_name: e.target.value})} />
+          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" list="gta-names" placeholder="GTA Name (Optional)" value={tripData.gta_name} onChange={e => setTripData({...tripData, gta_name: e.target.value})} />
           <datalist id="gta-names">{uniqueGtas.map(g => <option key={g} value={g} />)}</datalist>
           
-          <input className="border p-2.5 rounded-lg text-sm" placeholder="LR No (Optional)" value={tripData.lr_no} onChange={e => setTripData({...tripData, lr_no: e.target.value})} />
+          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" placeholder="LR No (Optional)" value={tripData.lr_no} onChange={e => setTripData({...tripData, lr_no: e.target.value})} />
           
-          <input className="border p-2.5 rounded-lg text-sm" type="number" placeholder="Estimated Route KM" value={tripData.total_km} onChange={e => setTripData({...tripData, total_km: e.target.value})} />
-          <input className="border p-2.5 rounded-lg text-sm" type="number" placeholder="Rough Freight (₹)" value={tripData.freight_amount} onChange={e => setTripData({...tripData, freight_amount: e.target.value})} />
+          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" type="number" placeholder="Estimated Route KM" value={tripData.total_km} onChange={e => setTripData({...tripData, total_km: e.target.value})} />
+          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" type="number" placeholder="Rough Freight (₹)" value={tripData.freight_amount} onChange={e => setTripData({...tripData, freight_amount: e.target.value})} />
           
-          <input className="border p-2.5 rounded-lg text-sm text-gray-500" type="date" placeholder="Launch Date" value={tripData.trip_start_date} onChange={e => setTripData({...tripData, trip_start_date: e.target.value})} title="Launch Date" />
-          <input className="border p-2.5 rounded-lg text-sm text-gray-500" type="date" placeholder="E-Way Bill Expiry Date" value={tripData.eway_bill_expiry} onChange={e => setTripData({...tripData, eway_bill_expiry: e.target.value})} title="E-Way Bill Expiry Date" />
+          <input className="w-full border p-2.5 rounded-lg text-sm text-gray-500 outline-none focus:ring-2 focus:ring-blue-100" type="date" title="Launch Date" value={tripData.trip_start_date} onChange={e => setTripData({...tripData, trip_start_date: e.target.value})} />
+          <input className="w-full border p-2.5 rounded-lg text-sm text-gray-500 outline-none focus:ring-2 focus:ring-blue-100" type="date" title="E-Way Bill Expiry Date" value={tripData.eway_bill_expiry} onChange={e => setTripData({...tripData, eway_bill_expiry: e.target.value})} />
           
-          <input className="border p-2.5 rounded-lg text-sm lg:col-span-3" placeholder="L/W Details (Optional)" value={tripData.lw} onChange={e => setTripData({...tripData, lw: e.target.value})} />
+          <div className="sm:col-span-2 xl:col-span-2">
+            <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" placeholder="L/W Details (Optional)" value={tripData.lw} onChange={e => setTripData({...tripData, lw: e.target.value})} />
+          </div>
           
-          <button onClick={handleAddTrip} className="bg-slate-900 text-white p-2.5 rounded-lg font-bold hover:bg-slate-800 transition shadow-sm cursor-pointer">Launch Route 🚀</button>
+          <button onClick={handleAddTrip} className="w-full sm:col-span-2 lg:col-span-1 xl:col-span-1 bg-slate-900 text-white p-2.5 rounded-lg font-bold hover:bg-slate-800 transition shadow-sm cursor-pointer">Launch Route 🚀</button>
         </div>
       </section>
 
       {/* POD TRACKING SECTION */}
-      <section className="bg-white p-6 rounded-2xl shadow-sm border">
-        <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><FileUp className="text-slate-700"/> POD Tracking & Management</h2>
-        <div className="flex flex-wrap gap-4 items-end">
-          <div className="flex-1 min-w-[250px]">
-            <input className="w-full border p-2.5 rounded-lg text-sm" list="pod-trip-numbers" placeholder="Search trip ID for POD update..." value={podUpdate.trip_id} onChange={(e) => setPodUpdate({...podUpdate, trip_id: e.target.value})} />
+      <section className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+        <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><FileUp className="text-blue-600"/> POD Tracking & Management</h2>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 items-end">
+          <div className="sm:col-span-2 lg:col-span-2">
+            <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" list="pod-trip-numbers" placeholder="Search trip ID for POD update..." value={podUpdate.trip_id} onChange={(e) => setPodUpdate({...podUpdate, trip_id: e.target.value})} />
             <datalist id="pod-trip-numbers">{activeTrips.map(t => <option key={t.trip_id} value={t.trip_id} label={t.tracking_number || t.trip_id} />)}</datalist>
           </div>
-          <select 
-             className="border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-100 outline-none w-48"
-             value={podUpdate.pod_status}
-             onChange={e => setPodUpdate({...podUpdate, pod_status: e.target.value})}
-          >
-             <option value="Pending">Pending</option>
-             <option value="Received">Received at Office</option>
-             <option value="Forwarded">Forwarded to Party</option>
-             <option value="Client Received">Received by Party</option>
-          </select>
-          <input type="date" className="border p-2.5 rounded-lg text-sm text-gray-500" title="Office Arrival Date" value={podUpdate.pod_arrived_office_date} onChange={(e) => setPodUpdate({...podUpdate, pod_arrived_office_date: e.target.value})} />
-          <input type="date" className="border p-2.5 rounded-lg text-sm text-gray-500" title="Forwarded to Client Date" value={podUpdate.pod_forwarded_client_date} onChange={(e) => setPodUpdate({...podUpdate, pod_forwarded_client_date: e.target.value})} />
-          <input type="date" className="border p-2.5 rounded-lg text-sm text-gray-500" title="Received by Client Date" value={podUpdate.pod_received_client_date} onChange={(e) => setPodUpdate({...podUpdate, pod_received_client_date: e.target.value})} />
-          
-          <button onClick={handleUpdatePOD} className="bg-slate-900 text-white px-5 py-2.5 rounded-lg font-bold hover:bg-slate-800 transition shadow-sm cursor-pointer">Update POD</button>
+
+          <div>
+            <select className="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-100 outline-none bg-white cursor-pointer" value={podUpdate.pod_status} onChange={(e) => setPodUpdate({...podUpdate, pod_status: e.target.value})}>
+              <option value="Pending">Pending</option>
+              <option value="Received">Received at Office</option>
+              <option value="Forwarded">Forwarded to Party</option>
+              <option value="Client Received">Received by Party</option>
+            </select>
+          </div>
+
+          <div>
+            <input type="date" className="w-full border p-2.5 rounded-lg text-sm text-gray-500 outline-none focus:ring-2 focus:ring-blue-100" title="Office Arrival Date" value={podUpdate.pod_arrived_office_date} onChange={(e) => setPodUpdate({...podUpdate, pod_arrived_office_date: e.target.value})} />
+          </div>
+          <div>
+            <input type="date" className="w-full border p-2.5 rounded-lg text-sm text-gray-500 outline-none focus:ring-2 focus:ring-blue-100" title="Forwarded to Client Date" value={podUpdate.pod_forwarded_client_date} onChange={(e) => setPodUpdate({...podUpdate, pod_forwarded_client_date: e.target.value})} />
+          </div>
+          <div className="sm:col-span-1 lg:col-span-1">
+            <button onClick={handleUpdatePOD} className="w-full bg-slate-900 text-white p-2.5 rounded-lg font-bold hover:bg-slate-800 transition shadow-sm cursor-pointer whitespace-nowrap">Update POD</button>
+          </div>
         </div>
       </section>
 
       {/* ACTIVE TRIPS LIST */}
       <section className="space-y-4">
-        <div className="flex flex-wrap gap-4 items-center justify-between bg-white p-4 rounded-2xl border shadow-sm">
+        <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
            <h2 className="text-xl font-bold text-slate-800">Active Trips List</h2>
-           <div className="flex items-center gap-3">
-             <div className="relative">
+           
+           <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+             <div className="relative w-full sm:w-auto">
                 <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <select 
                    value={sortBy} 
                    onChange={(e) => setSortBy(e.target.value)}
-                   className="border rounded-lg p-2 pl-9 pr-8 text-sm focus:ring-2 focus:ring-slate-100 outline-none text-slate-700 font-medium cursor-pointer appearance-none bg-white"
+                   className="w-full sm:w-auto border border-gray-200 rounded-lg p-2.5 pl-9 pr-8 text-sm focus:ring-2 focus:ring-slate-100 outline-none text-slate-700 font-medium cursor-pointer appearance-none bg-white"
                 >
                    <option value="newest">Latest Launch Date</option>
                    <option value="oldest">Oldest Launch Date</option>
@@ -388,43 +400,46 @@ function Trips() {
                 </select>
              </div>
              
-             <div className="relative w-72">
+             <div className="relative w-full sm:w-72">
                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-               <input type="text" placeholder="Search tracking, truck, or party..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full border rounded-lg p-2 pl-9 text-sm focus:ring-2 focus:ring-slate-100 outline-none" />
+               <input type="text" placeholder="Search tracking, truck, or party..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full border border-gray-200 rounded-lg p-2.5 pl-9 text-sm focus:ring-2 focus:ring-slate-100 outline-none" />
              </div>
            </div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
-          <table className="w-full text-sm text-left">
+        {/* RESPONSIVE TABLE WRAPPER FIX */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-x-auto relative">
+          <table className="w-full text-sm text-left whitespace-nowrap min-w-[1100px]">
             <thead className="bg-gray-50 border-b text-gray-600 font-semibold">
               <tr>
-                <th className="p-4">Trip / Tracking No.</th>
-                <th className="p-4">Route</th>
-                <th className="p-4">Vehicle</th>
-                <th className="p-4">POD Status</th>
-                <th className="p-4">Upload File</th>
-                <th className="p-4 text-center">Action</th>
+                <th className="p-4 w-1/5">Trip / Tracking No.</th>
+                <th className="p-4 w-1/5">Route</th>
+                <th className="p-4 w-1/6">Vehicle</th>
+                <th className="p-4 w-1/6">POD Status</th>
+                <th className="p-4 w-1/6">Upload File</th>
+                <th className="p-4 w-1/6 text-center">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {processedTrips.map(trip => (
                 <tr key={trip.trip_id} className="hover:bg-gray-50 transition">
                   <td className="p-4">
-                    <a href={`/trip-details/${trip.trip_id}`} className="text-slate-800 font-semibold hover:underline transition">{trip.tracking_number || `Trip #${trip.trip_id}`}</a>
+                    <a href={`/trip-details/${trip.trip_id}`} className="text-blue-600 font-bold hover:underline transition">{trip.tracking_number || `Trip #${trip.trip_id}`}</a>
                     <div className="text-xs text-gray-500 mt-1">{trip.party_name || '-'} {trip.owner_name ? `(Owner: ${trip.owner_name})` : ''}</div>
                   </td>
                   <td className="p-4 font-medium text-gray-700">{trip.source_city} → {trip.destination_city}</td>
                   <td className="p-4 font-bold text-slate-800">{trip.vehicle_number}</td>
-                  <td className="p-4"><StatusTag status={trip.pod_status} deliveryDate={trip.actual_delivery_date} /></td>
                   <td className="p-4">
-                    <input type="file" className="text-xs text-gray-500 file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 transition cursor-pointer" onChange={(e) => setPodFiles({...podFiles, [trip.trip_id]: e.target.files[0]})} />
+                      <StatusTag status={trip.pod_status} deliveryDate={trip.actual_delivery_date} />
+                  </td>
+                  <td className="p-4">
+                    <input type="file" className="w-48 text-xs text-gray-500 file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 transition cursor-pointer" onChange={(e) => setPodFiles({...podFiles, [trip.trip_id]: e.target.files[0]})} />
                   </td>
                   
                   <td className="p-4">
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-2 min-w-[140px]">
                         <div className="flex gap-2">
-                            <button onClick={() => setEditModal({isOpen: true, tripData: trip})} className="flex-1 bg-slate-50 text-slate-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-slate-100 shadow-sm text-xs transition flex items-center justify-center gap-1 border border-slate-200 cursor-pointer">
+                            <button onClick={() => setEditModal({isOpen: true, tripData: trip})} className="flex-1 bg-white text-slate-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-gray-50 shadow-sm text-xs transition flex items-center justify-center gap-1 border border-gray-200 cursor-pointer">
                                 <Edit className="h-3 w-3"/> Edit
                             </button>
                             <button onClick={() => handleForceDelete(trip.trip_id, trip.tracking_number)} className="bg-rose-50 text-rose-600 px-3 py-1.5 rounded-lg font-semibold hover:bg-rose-100 shadow-sm text-xs transition flex items-center justify-center border border-rose-200 cursor-pointer" title="Force Delete Trip">
@@ -485,11 +500,10 @@ function Trips() {
                    </div>
                 </label>
                 
-                {/* ADVANCED POD TRACKING WITHIN CHECKLIST */}
-                <div className="p-3 rounded-xl border border-gray-200 bg-gray-50 flex flex-col gap-2">
-                    <label className="font-bold text-slate-800 text-sm">POD Tracking Status</label>
+                <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50 flex flex-col gap-3 mt-2">
+                    <label className="font-bold text-blue-900 text-sm">POD Tracking Stage</label>
                     <select 
-                       className="border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-100 outline-none w-full"
+                       className="border border-blue-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-400 outline-none w-full bg-white font-semibold text-slate-700 cursor-pointer"
                        value={completeModal.pod_status}
                        onChange={e => setCompleteModal({...completeModal, pod_status: e.target.value})}
                     >
@@ -499,24 +513,26 @@ function Trips() {
                        <option value="Client Received">Received by Party</option>
                     </select>
 
-                    {completeModal.pod_status !== 'Pending' && (
-                        <div className="flex items-center gap-2 mt-2">
-                           <span className="text-xs text-gray-600 w-24">Office Arrival:</span>
-                           <input type="date" className="border rounded p-1.5 text-xs flex-1 text-gray-600" value={completeModal.pod_arrived_office_date} onChange={e => setCompleteModal({...completeModal, pod_arrived_office_date: e.target.value})} />
-                        </div>
-                    )}
-                    {['Forwarded', 'Client Received'].includes(completeModal.pod_status) && (
-                        <div className="flex items-center gap-2 mt-1">
-                           <span className="text-xs text-gray-600 w-24">Forwarded:</span>
-                           <input type="date" className="border rounded p-1.5 text-xs flex-1 text-gray-600" value={completeModal.pod_forwarded_client_date} onChange={e => setCompleteModal({...completeModal, pod_forwarded_client_date: e.target.value})} />
-                        </div>
-                    )}
-                    {completeModal.pod_status === 'Client Received' && (
-                        <div className="flex items-center gap-2 mt-1">
-                           <span className="text-xs text-gray-600 w-24">Client Received:</span>
-                           <input type="date" className="border rounded p-1.5 text-xs flex-1 text-gray-600" value={completeModal.pod_received_client_date} onChange={e => setCompleteModal({...completeModal, pod_received_client_date: e.target.value})} />
-                        </div>
-                    )}
+                    <div className="space-y-2 mt-1">
+                        {['Received', 'Forwarded', 'Client Received'].includes(completeModal.pod_status) && (
+                            <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm">
+                               <span className="text-xs font-semibold text-gray-600">Office Arrival:</span>
+                               <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={completeModal.pod_arrived_office_date} onChange={e => setCompleteModal({...completeModal, pod_arrived_office_date: e.target.value})} />
+                            </div>
+                        )}
+                        {['Forwarded', 'Client Received'].includes(completeModal.pod_status) && (
+                            <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm">
+                               <span className="text-xs font-semibold text-gray-600">Forwarded:</span>
+                               <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={completeModal.pod_forwarded_client_date} onChange={e => setCompleteModal({...completeModal, pod_forwarded_client_date: e.target.value})} />
+                            </div>
+                        )}
+                        {completeModal.pod_status === 'Client Received' && (
+                            <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm">
+                               <span className="text-xs font-semibold text-gray-600">Client Received:</span>
+                               <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={completeModal.pod_received_client_date} onChange={e => setCompleteModal({...completeModal, pod_received_client_date: e.target.value})} />
+                            </div>
+                        )}
+                    </div>
                 </div>
              </div>
 
@@ -598,7 +614,7 @@ function Trips() {
         </div>
       )}
 
-      {/* FINANCE RECEIPT MODAL WITH BANK SELECTOR & GST INCLUSION */}
+      {/* FINANCE RECEIPT MODAL WITH BANK SELECTOR "OTHER" OPTION */}
       {receiptModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] animate-in fade-in zoom-in-95 duration-200">
@@ -630,7 +646,7 @@ function Trips() {
                         <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Date of Dispatch:</span> <span className="font-bold">{receiptModal.trip.trip_start_date || '-'}</span></div>
                         <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Vehicle No:</span> <span className="font-bold text-base">{receiptModal.trip.vehicle_number}</span></div>
                         <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Route:</span> <span className="font-bold">{receiptModal.trip.source_city} → {receiptModal.trip.destination_city}</span></div>
-                        <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Bank Account:</span> <span className="font-bold text-blue-700">{finance.bank_account || 'JFC 7734'}</span></div>
+                        <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Bank Account:</span> <span className="font-bold text-blue-700">{finance.bank_account || 'N/A'}</span></div>
                       </div>
                       <div className="space-y-3">
                         <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Billed To (Party):</span> <span className="font-bold">{receiptModal.trip.party_name || 'N/A'}</span></div>
@@ -660,19 +676,34 @@ function Trips() {
                       </div>
                   </div>
 
-                  {/* BANK SELECTOR FOR PRINTING */}
-                  <div className="print:hidden mb-6 bg-blue-50 p-3 rounded-lg border border-blue-100 flex items-center justify-between">
-                     <label className="text-xs font-bold text-blue-900 uppercase">Select Deposit Bank Account:</label>
-                     <select 
-                        className="border border-blue-200 bg-white p-2 rounded-lg text-sm font-bold text-blue-800 outline-none cursor-pointer"
-                        value={finance.bank_account}
-                        onChange={e => setFinance({...finance, bank_account: e.target.value})}
-                     >
-                        <option value="JTA 0706">JTA 0706</option>
-                        <option value="JTA 0611">JTA 0611</option>
-                        <option value="JFC 7734">JFC 7734</option>
-                        <option value="JFC 1487">JFC 1487</option>
-                     </select>
+                  {/* BANK SELECTOR WITH 'OTHER' FOR PRINTING */}
+                  <div className="print:hidden mb-6 bg-blue-50 p-3 rounded-lg border border-blue-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                     <label className="text-xs font-bold text-blue-900 uppercase whitespace-nowrap">Select Deposit Bank Account:</label>
+                     <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                         <select 
+                            className="border border-blue-200 bg-white p-2 rounded-lg text-sm font-bold text-blue-800 outline-none cursor-pointer flex-1"
+                            value={isCustomBank ? 'Other' : finance.bank_account}
+                            onChange={e => {
+                                if (e.target.value === 'Other') setFinance({...finance, bank_account: ''});
+                                else setFinance({...finance, bank_account: e.target.value});
+                            }}
+                         >
+                            <option value="JTA 0706">JTA 0706</option>
+                            <option value="JTA 0611">JTA 0611</option>
+                            <option value="JFC 7734">JFC 7734</option>
+                            <option value="JFC 1487">JFC 1487</option>
+                            <option value="Other">Other (Custom)</option>
+                         </select>
+                         {isCustomBank && (
+                             <input 
+                                type="text" 
+                                placeholder="Enter custom bank name..." 
+                                className="border border-blue-300 p-2 rounded-lg text-sm font-bold text-blue-900 outline-none w-full sm:w-48 focus:ring-2 focus:ring-blue-200"
+                                value={finance.bank_account} 
+                                onChange={e => setFinance({...finance, bank_account: e.target.value})} 
+                             />
+                         )}
+                     </div>
                   </div>
 
                   <h3 className="font-bold text-base mb-4 text-slate-800 uppercase tracking-wide border-b pb-2">Financial Settlement</h3>

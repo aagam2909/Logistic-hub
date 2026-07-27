@@ -19,7 +19,8 @@ function TripHistory() {
   const [statusFilter, setStatusFilter] = useState('all');
 
   const [statusModal, setStatusModal] = useState({ 
-    isOpen: false, trip: null, originalTrip: null, trip_unloaded: false, amount_cleared: false, 
+    isOpen: false, trip: null, originalTrip: null, trip_unloaded: false, 
+    amount_cleared: false, cleared_amount: '', cleared_date: '',
     pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: ''
   });
 
@@ -43,9 +44,11 @@ function TripHistory() {
     setStatusModal({
       isOpen: true,
       trip: trip,
-      originalTrip: trip, // Stores original saved data to lock past dates
+      originalTrip: trip,
       trip_unloaded: trip.trip_unloaded || false,
       amount_cleared: trip.amount_cleared || false,
+      cleared_amount: trip.cleared_amount || '',
+      cleared_date: trip.cleared_date || '',
       pod_status: trip.pod_status || 'Pending',
       pod_arrived_office_date: trip.pod_arrived_office_date || '',
       pod_forwarded_client_date: trip.pod_forwarded_client_date || '',
@@ -58,13 +61,15 @@ function TripHistory() {
       await axios.put(`${API_BASE}/finances/${statusModal.trip.trip_id}/checklist`, {
         trip_unloaded: statusModal.trip_unloaded,
         amount_cleared: statusModal.amount_cleared,
+        cleared_amount: statusModal.amount_cleared ? (parseFloat(statusModal.cleared_amount) || 0) : 0,
+        cleared_date: statusModal.amount_cleared ? (statusModal.cleared_date || null) : null,
         pod_status: statusModal.pod_status,
         pod_arrived_office_date: statusModal.pod_arrived_office_date || null,
         pod_forwarded_client_date: statusModal.pod_forwarded_client_date || null,
         pod_received_client_date: statusModal.pod_received_client_date || null
       });
       alert("Status Updated Successfully!");
-      setStatusModal({ isOpen: false, trip: null, originalTrip: null, trip_unloaded: false, amount_cleared: false, pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: '' });
+      setStatusModal({ isOpen: false, trip: null, originalTrip: null, trip_unloaded: false, amount_cleared: false, cleared_amount: '', cleared_date: '', pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: '' });
       fetchHistory();
     } catch (err) {
       alert("Failed to update status.");
@@ -97,7 +102,7 @@ function TripHistory() {
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
       
       {/* HEADER & ANALYTICS SUMMARY */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
@@ -117,7 +122,7 @@ function TripHistory() {
       </div>
 
       {/* SEARCH, FILTER, & SORT TOOLBAR */}
-      <div className="flex flex-wrap gap-4 items-center justify-between bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
+      <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
          <div className="relative w-full md:flex-1 md:max-w-md">
            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
            <input 
@@ -129,13 +134,13 @@ function TripHistory() {
            />
          </div>
 
-         <div className="flex flex-wrap items-center gap-3">
-           <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5">
+         <div className="flex flex-col sm:flex-row flex-wrap items-center gap-3 w-full md:w-auto">
+           <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 w-full sm:w-auto">
                <Filter className="h-4 w-4 text-gray-500" />
                <select 
                   value={statusFilter} 
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="bg-transparent text-sm focus:outline-none text-slate-700 font-semibold cursor-pointer"
+                  className="bg-transparent text-sm focus:outline-none text-slate-700 font-semibold cursor-pointer w-full"
                >
                   <option value="all">All Statuses</option>
                   <option value="pending_amount">⚠️ Pending Amount</option>
@@ -147,7 +152,7 @@ function TripHistory() {
            <select 
               value={sortBy} 
               onChange={(e) => setSortBy(e.target.value)}
-              className="border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-slate-100 outline-none text-slate-700 font-medium cursor-pointer bg-white"
+              className="border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-slate-100 outline-none text-slate-700 font-medium cursor-pointer bg-white w-full sm:w-auto"
            >
               <option value="newest">Sort by: Latest Delivery</option>
               <option value="oldest">Sort by: Oldest Delivery</option>
@@ -155,76 +160,78 @@ function TripHistory() {
          </div>
       </div>
       
-      {/* COMPLETED TRIPS TABLE */}
-      <div className="overflow-x-auto rounded-2xl bg-white shadow-sm border border-gray-200">
+      {/* COMPLETED TRIPS TABLE WITH HORIZONTAL SCROLL FIX */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
         {loading ? (
           <p className="p-10 text-center text-gray-500 font-medium">Loading completed trips...</p>
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b bg-gray-50 text-gray-600 font-semibold">
-              <tr>
-                <th className="p-4">Tracking No. / LR</th>
-                <th className="p-4">Vehicle & Party</th>
-                <th className="p-4">Route & Date</th>
-                <th className="p-4">Checklist Status</th>
-                <th className="p-4 text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {processedTrips.map((trip) => (
-                <tr key={trip.trip_id} className="hover:bg-gray-50 transition-colors">
-                  <td className="p-4">
-                    <Link to={`/trip-details/${trip.trip_id}`} className="text-blue-600 font-bold hover:text-blue-800 hover:underline transition">
-                      {trip.tracking_number}
-                    </Link>
-                    <div className="text-xs text-gray-400 mt-0.5">LR: {trip.lr_no || 'N/A'}</div>
-                  </td>
-                  <td className="p-4">
-                    <div className="font-bold text-slate-800">{trip.vehicle_number}</div>
-                    <div className="text-xs text-gray-600 font-medium">{trip.party_name || '-'}</div>
-                  </td>
-                  <td className="p-4">
-                    <div className="font-medium text-gray-700">{trip.source_city} → {trip.destination_city}</div>
-                    <div className="text-xs text-emerald-600 font-bold mt-0.5">Delivered: {trip.actual_delivery_date || '-'}</div>
-                  </td>
-                  <td className="p-4">
-                    <div className="flex flex-col gap-1.5 items-start">
-                        <Badge active={trip.trip_unloaded} label="Unloaded" />
-                        <Badge active={trip.amount_cleared} label="Amount Cleared" />
-                        <Badge active={trip.pod_status === 'Client Received'} label={trip.pod_status || 'POD Pending'} />
-                    </div>
-                  </td>
-                  <td className="p-4">
-                    <div className="flex flex-col items-center justify-center gap-2">
-                        <Link 
-                          to={`/trip-details/${trip.trip_id}`}
-                          className="w-28 flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white px-3 py-2 rounded-lg font-bold text-xs shadow-sm transition cursor-pointer"
-                        >
-                          <Printer className="h-3.5 w-3.5" /> View Bill
-                        </Link>
-                        <button 
-                          onClick={() => openStatusModal(trip)}
-                          className="w-28 flex items-center justify-center gap-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg font-bold text-xs shadow-sm transition cursor-pointer"
-                        >
-                          <Edit className="h-3.5 w-3.5" /> Update Status
-                        </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {!processedTrips.length && (
+          <div className="overflow-x-auto w-full">
+            <table className="w-full text-left text-sm whitespace-nowrap min-w-[1000px]">
+              <thead className="border-b bg-gray-50 text-gray-600 font-semibold">
                 <tr>
-                  <td className="p-12 text-center text-gray-500" colSpan="6">
-                    No completed trips found matching your filters.
-                  </td>
+                  <th className="p-4 w-1/5">Tracking No. / LR</th>
+                  <th className="p-4 w-1/6">Vehicle & Party</th>
+                  <th className="p-4 w-1/5">Route & Date</th>
+                  <th className="p-4 w-1/5">Checklist Status</th>
+                  <th className="p-4 w-1/6 text-center">Actions</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {processedTrips.map((trip) => (
+                  <tr key={trip.trip_id} className="hover:bg-gray-50 transition-colors">
+                    <td className="p-4">
+                      <Link to={`/trip-details/${trip.trip_id}`} className="text-blue-600 font-bold hover:text-blue-800 hover:underline transition">
+                        {trip.tracking_number}
+                      </Link>
+                      <div className="text-xs text-gray-400 mt-0.5">LR: {trip.lr_no || 'N/A'}</div>
+                    </td>
+                    <td className="p-4">
+                      <div className="font-bold text-slate-800">{trip.vehicle_number}</div>
+                      <div className="text-xs text-gray-600 font-medium">{trip.party_name || '-'}</div>
+                    </td>
+                    <td className="p-4">
+                      <div className="font-medium text-gray-700">{trip.source_city} → {trip.destination_city}</div>
+                      <div className="text-xs text-emerald-600 font-bold mt-0.5">Delivered: {trip.actual_delivery_date || '-'}</div>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex flex-col gap-1.5 items-start">
+                          <Badge active={trip.trip_unloaded} label="Unloaded" />
+                          <Badge active={trip.amount_cleared} label="Amount Cleared" />
+                          <Badge active={trip.pod_status === 'Client Received'} label={trip.pod_status || 'POD Pending'} />
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex flex-col items-center justify-center gap-2">
+                          <Link 
+                            to={`/trip-details/${trip.trip_id}`}
+                            className="w-28 flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white px-3 py-2 rounded-lg font-bold text-xs shadow-sm transition cursor-pointer"
+                          >
+                            <Printer className="h-3.5 w-3.5" /> View Bill
+                          </Link>
+                          <button 
+                            onClick={() => openStatusModal(trip)}
+                            className="w-28 flex items-center justify-center gap-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg font-bold text-xs shadow-sm transition cursor-pointer"
+                          >
+                            <Edit className="h-3.5 w-3.5" /> Update Status
+                          </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {!processedTrips.length && (
+                  <tr>
+                    <td className="p-12 text-center text-gray-500" colSpan="6">
+                      No completed trips found matching your filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
-      {/* UPDATE STATUS MODAL */}
+      {/* UPDATE STATUS MODAL WITH EXACT AMOUNT CLEARED TRACKING */}
       {statusModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col p-6 space-y-5 animate-in fade-in zoom-in-95">
@@ -246,15 +253,36 @@ function TripHistory() {
                    <span className="font-bold text-slate-800 text-sm">Trip Unloaded</span>
                 </label>
 
-                <label className="flex items-center gap-3 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer hover:border-blue-300 transition">
-                   <input 
-                      type="checkbox" 
-                      className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer" 
-                      checked={statusModal.amount_cleared} 
-                      onChange={e => setStatusModal({...statusModal, amount_cleared: e.target.checked})} 
-                   />
-                   <span className="font-bold text-slate-800 text-sm">Amount Cleared</span>
-                </label>
+                {/* ADVANCED AMOUNT CLEARED TRACKING */}
+                <div className="p-3 rounded-xl border border-gray-200 bg-gray-50 flex flex-col gap-2 transition hover:border-blue-300">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                       <input 
+                          type="checkbox" 
+                          className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer" 
+                          checked={statusModal.amount_cleared} 
+                          onChange={e => setStatusModal({...statusModal, amount_cleared: e.target.checked})} 
+                       />
+                       <span className="font-bold text-slate-800 text-sm">Amount Cleared</span>
+                    </label>
+                    
+                    {statusModal.amount_cleared && (
+                       <div className="pl-8 flex gap-2 mt-1 animate-in fade-in slide-in-from-top-1">
+                          <input 
+                              type="number" 
+                              placeholder="Amount (₹)" 
+                              className="w-full border border-gray-300 rounded p-2 text-sm text-gray-700 outline-none focus:border-blue-400 font-bold" 
+                              value={statusModal.cleared_amount} 
+                              onChange={e => setStatusModal({...statusModal, cleared_amount: e.target.value})} 
+                          />
+                          <input 
+                              type="date" 
+                              className="w-full border border-gray-300 rounded p-2 text-sm text-gray-700 outline-none focus:border-blue-400" 
+                              value={statusModal.cleared_date} 
+                              onChange={e => setStatusModal({...statusModal, cleared_date: e.target.value})} 
+                          />
+                       </div>
+                    )}
+                </div>
 
                 {/* ADVANCED POD TRACKING WITHIN CHECKLIST */}
                 <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50 flex flex-col gap-3 mt-2">

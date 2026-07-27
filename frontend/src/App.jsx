@@ -58,10 +58,11 @@ function App() {
 
   return (
     <Router>
-      <div className="flex min-h-screen bg-gray-50 font-sans text-gray-900">
+      {/* 1. MASTER CONTAINER: Locks to screen height, hides global overflow */}
+      <div className="flex h-screen w-full bg-slate-50 overflow-hidden font-sans text-gray-900">
         
-        {/* SIDEBAR NAVIGATION (Width increased to w-72) */}
-        <nav className="w-72 bg-slate-900 text-gray-200 fixed h-screen flex flex-col p-5 z-10">
+        {/* 2. SIDEBAR: Fixed width (w-72), never shrinks (flex-shrink-0) */}
+        <aside className="w-72 bg-slate-900 text-gray-200 flex-shrink-0 flex flex-col p-5 z-20 shadow-xl hidden md:flex">
           <div className="text-lg font-bold text-white flex items-center gap-3 mb-10 mt-2 px-1">
             <Truck className="h-8 w-8 text-blue-500 shrink-0" />
             <span className="leading-tight">Jain Freight Carriers</span>
@@ -79,10 +80,10 @@ function App() {
             ))}
             <div className="text-xs text-slate-500 mt-6 text-center pb-2">© 2026 Jain Freight Carriers</div>
           </div>
-        </nav>
+        </aside>
 
-        {/* MAIN CONTENT AREA (Margin shifted to ml-72 to match new sidebar width) */}
-        <div className="flex-1 ml-72 flex flex-col min-h-screen">
+        {/* 3. MAIN CONTENT AREA: Takes remaining space (flex-1), allows internal scrolling, prevents blowout (min-w-0) */}
+        <div className="flex-1 flex flex-col min-w-0 h-full overflow-y-auto overflow-x-hidden relative scroll-smooth bg-gray-50">
           
           {/* TOP HEADER */}
           <header className="bg-white border-b sticky top-0 z-10 px-8 py-4 flex items-center justify-between shadow-sm">
@@ -99,8 +100,8 @@ function App() {
             </div>
           </header>
 
-          {/* DYNAMIC VIEWS */}
-          <main className="p-8 flex-1">
+          {/* DYNAMIC VIEWS WRAPPER: Centers content, restricts max width */}
+          <main className="w-full max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8">
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/fleet" element={<FleetRegistry />} />

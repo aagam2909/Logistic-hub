@@ -55,6 +55,8 @@ class TripCompleteUpdate(BaseModel):
 class ChecklistUpdate(BaseModel):
     trip_unloaded: bool
     amount_cleared: bool
+    cleared_amount: Optional[float] = 0.0
+    cleared_date: Optional[date] = None
     pod_status: Optional[str] = 'Pending'
     pod_arrived_office_date: Optional[date] = None
     pod_forwarded_client_date: Optional[date] = None
@@ -305,7 +307,7 @@ def get_trip_history():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT t.*, f.trip_unloaded, f.amount_cleared, f.pod_status, f.pod_arrived_office_date, f.pod_forwarded_client_date, f.pod_received_client_date 
+        SELECT t.*, f.trip_unloaded, f.amount_cleared, f.cleared_amount, f.cleared_date, f.pod_status, f.pod_arrived_office_date, f.pod_forwarded_client_date, f.pod_received_client_date 
         FROM trips t
         LEFT JOIN trip_finances f ON t.trip_id = f.trip_id
         WHERE t.actual_delivery_date IS NOT NULL
@@ -362,10 +364,10 @@ def update_checklist(trip_id: int, data: ChecklistUpdate):
     try:
         cursor.execute("""
             UPDATE trip_finances 
-            SET trip_unloaded = %s, amount_cleared = %s, pod_status = %s,
+            SET trip_unloaded = %s, amount_cleared = %s, cleared_amount = %s, cleared_date = %s, pod_status = %s,
                 pod_arrived_office_date = %s, pod_forwarded_client_date = %s, pod_received_client_date = %s
             WHERE trip_id = %s;
-        """, (data.trip_unloaded, data.amount_cleared, data.pod_status, data.pod_arrived_office_date, data.pod_forwarded_client_date, data.pod_received_client_date, trip_id))
+        """, (data.trip_unloaded, data.amount_cleared, data.cleared_amount, data.cleared_date, data.pod_status, data.pod_arrived_office_date, data.pod_forwarded_client_date, data.pod_received_client_date, trip_id))
         conn.commit()
         return {"status": "Success"}
     except Exception as e:
@@ -380,7 +382,7 @@ def get_track_data(trip_id: str):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT t.*, f.freight_amount, f.adv_amt, f.tds, f.balance_payment, f.loading_charge, f.gst, f.holding_charge, f.extra_deduction, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total, f.advance_details, f.bill_no, f.pod_status, f.pod_arrived_office_date, f.pod_forwarded_client_date, f.pod_received_client_date, f.trip_unloaded, f.amount_cleared, f.bank_account, f.gst_enabled, f.include_charges_in_gst
+        SELECT t.*, f.freight_amount, f.adv_amt, f.tds, f.balance_payment, f.loading_charge, f.gst, f.holding_charge, f.extra_deduction, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total, f.advance_details, f.bill_no, f.pod_status, f.pod_arrived_office_date, f.pod_forwarded_client_date, f.pod_received_client_date, f.trip_unloaded, f.amount_cleared, f.cleared_amount, f.cleared_date, f.bank_account, f.gst_enabled, f.include_charges_in_gst
         FROM trips t 
         LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
         WHERE t.tracking_number = %s;
@@ -627,7 +629,7 @@ def get_trip_details(trip_id: int):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT t.*, f.freight_amount, f.adv_amt, f.tds, f.balance_payment, f.bill_no, f.pod_status, f.loading_charge, f.gst, f.holding_charge, f.extra_deduction, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total, f.advance_details, f.pod_arrived_office_date, f.pod_forwarded_client_date, f.pod_received_client_date, f.trip_unloaded, f.amount_cleared, f.bank_account, f.gst_enabled, f.include_charges_in_gst
+        SELECT t.*, f.freight_amount, f.adv_amt, f.tds, f.balance_payment, f.bill_no, f.pod_status, f.loading_charge, f.gst, f.holding_charge, f.extra_deduction, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total, f.advance_details, f.pod_arrived_office_date, f.pod_forwarded_client_date, f.pod_received_client_date, f.trip_unloaded, f.amount_cleared, f.cleared_amount, f.cleared_date, f.bank_account, f.gst_enabled, f.include_charges_in_gst
         FROM trips t 
         LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
         WHERE t.trip_id = %s;
