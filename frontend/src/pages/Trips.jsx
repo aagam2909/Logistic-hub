@@ -35,7 +35,7 @@ function Trips() {
   const [receiptModal, setReceiptModal] = useState({ isOpen: false, trip: null });
   const [editModal, setEditModal] = useState({ isOpen: false, tripData: null });
   const [completeModal, setCompleteModal] = useState({ 
-    isOpen: false, trip: null, trip_unloaded: false, amount_cleared: false, 
+    isOpen: false, trip: null, trip_unloaded: false, cleared_amount: '', cleared_date: '',
     pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: ''
   });
 
@@ -127,7 +127,8 @@ function Trips() {
       isOpen: true,
       trip: trip,
       trip_unloaded: trip.trip_unloaded || false,
-      amount_cleared: trip.amount_cleared || false,
+      cleared_amount: '',
+      cleared_date: new Date().toISOString().split('T')[0],
       pod_status: trip.pod_status || 'Pending',
       pod_arrived_office_date: trip.pod_arrived_office_date || '',
       pod_forwarded_client_date: trip.pod_forwarded_client_date || '',
@@ -150,7 +151,9 @@ function Trips() {
           actual_delivery_date: new Date().toISOString().split('T')[0],
           pod_image_path: podPath,
           trip_unloaded: completeModal.trip_unloaded,
-          amount_cleared: completeModal.amount_cleared,
+          amount_cleared: false, 
+          cleared_amount: parseFloat(completeModal.cleared_amount) || 0,
+          cleared_date: completeModal.cleared_date || null,
           pod_status: completeModal.pod_status,
           pod_arrived_office_date: completeModal.pod_arrived_office_date || null,
           pod_forwarded_client_date: completeModal.pod_forwarded_client_date || null,
@@ -158,7 +161,7 @@ function Trips() {
       });
       
       alert("Trip Completed Successfully!");
-      setCompleteModal({ isOpen: false, trip: null, trip_unloaded: false, amount_cleared: false, pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: '' });
+      setCompleteModal({ isOpen: false, trip: null, trip_unloaded: false, cleared_amount: '', cleared_date: '', pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: '' });
       fetchTrips(); fetchAvailableTrucks();
     } catch (err) { alert("Failed to complete trip."); }
   };
@@ -307,6 +310,7 @@ function Trips() {
   }
 
   const isCustomBank = !PRESET_BANKS.includes(finance.bank_account) && finance.bank_account !== '';
+  const pendingBalance = parseFloat(completeModal.trip?.balance_payment ?? completeModal.trip?.freight_amount ?? 0);
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
@@ -407,7 +411,6 @@ function Trips() {
            </div>
         </div>
 
-        {/* RESPONSIVE TABLE WRAPPER FIX */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-x-auto relative">
           <table className="w-full text-sm text-left whitespace-nowrap min-w-[1100px]">
             <thead className="bg-gray-50 border-b text-gray-600 font-semibold">
@@ -487,18 +490,38 @@ function Trips() {
                    </div>
                 </label>
 
-                <label className="flex items-center gap-3 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer hover:border-blue-300 transition">
-                   <input 
-                      type="checkbox" 
-                      className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer" 
-                      checked={completeModal.amount_cleared} 
-                      onChange={e => setCompleteModal({...completeModal, amount_cleared: e.target.checked})} 
-                   />
-                   <div>
-                      <span className="font-bold text-slate-800 text-sm block">Amount Cleared</span>
-                      <span className="text-xs text-gray-500">Has the full net balance payment been settled?</span>
-                   </div>
-                </label>
+                {/* PRO PAYMENT LOGGING SYSTEM */}
+                <div className="p-3 rounded-xl border border-gray-200 bg-gray-50 flex flex-col gap-2 transition hover:border-blue-300">
+                    <span className="font-bold text-slate-800 text-sm">Log New Payment</span>
+                    <div className="flex flex-col gap-2 mt-1">
+                        <span className="text-xs text-slate-500 font-bold">Current Pending Balance: <span className="text-blue-600">₹{pendingBalance.toFixed(2)}</span></span>
+                        
+                        {pendingBalance <= 0 ? (
+                            <span className="text-xs font-bold text-emerald-700 bg-emerald-100 p-2 rounded-lg text-center block w-full mt-1 border border-emerald-200">
+                                ✓ Balance is fully paid.
+                            </span>
+                        ) : (
+                            <>
+                              <div className="flex gap-2">
+                                  <input 
+                                      type="number" 
+                                      placeholder="Amount Received (₹)" 
+                                      className="w-full border border-gray-300 rounded p-2 text-sm text-gray-700 outline-none focus:border-blue-400 font-bold"
+                                      value={completeModal.cleared_amount} 
+                                      onChange={e => setCompleteModal({...completeModal, cleared_amount: e.target.value})} 
+                                  />
+                                  <input 
+                                      type="date" 
+                                      className="w-full border border-gray-300 rounded p-2 text-sm text-gray-700 outline-none focus:border-blue-400" 
+                                      value={completeModal.cleared_date} 
+                                      onChange={e => setCompleteModal({...completeModal, cleared_date: e.target.value})} 
+                                  />
+                              </div>
+                              <p className="text-[10px] text-gray-500 leading-tight">Payments added here will automatically update the receipt and deduct from the balance.</p>
+                            </>
+                        )}
+                    </div>
+                </div>
                 
                 <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50 flex flex-col gap-3 mt-2">
                     <label className="font-bold text-blue-900 text-sm">POD Tracking Stage</label>
@@ -614,7 +637,7 @@ function Trips() {
         </div>
       )}
 
-      {/* FINANCE RECEIPT MODAL WITH BANK SELECTOR "OTHER" OPTION */}
+      {/* FINANCE RECEIPT MODAL */}
       {receiptModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] animate-in fade-in zoom-in-95 duration-200">
@@ -656,7 +679,6 @@ function Trips() {
                       </div>
                   </div>
 
-                  {/* UPDATED POD TRACKING BOX FOR BILL */}
                   <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-8 grid grid-cols-4 gap-4 text-xs">
                       <div>
                           <span className="text-gray-500 font-semibold block">POD STATUS</span>
@@ -676,7 +698,6 @@ function Trips() {
                       </div>
                   </div>
 
-                  {/* BANK SELECTOR WITH 'OTHER' FOR PRINTING */}
                   <div className="print:hidden mb-6 bg-blue-50 p-3 rounded-lg border border-blue-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                      <label className="text-xs font-bold text-blue-900 uppercase whitespace-nowrap">Select Deposit Bank Account:</label>
                      <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
@@ -717,7 +738,6 @@ function Trips() {
                           <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.freight_amount} onChange={e => handleFinanceChange('freight_amount', e.target.value)} />
                         </div>
 
-                        {/* LOADING CHARGE WITH GST INCLUSION TOGGLE */}
                         <div className="border-b border-gray-100 pb-2 mb-2">
                           <div className="flex justify-between items-center">
                             <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer">
@@ -736,7 +756,6 @@ function Trips() {
                           )}
                         </div>
 
-                        {/* HOLDING CHARGE WITH GST INCLUSION TOGGLE */}
                         <div className="border-b border-gray-100 pb-2 mb-2">
                           <div className="flex justify-between items-center">
                             <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer">
@@ -755,7 +774,6 @@ function Trips() {
                           )}
                         </div>
 
-                        {/* GST UNCHECKED BY DEFAULT */}
                         <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2 bg-slate-50/50 print:bg-transparent px-1 rounded">
                           <label className="flex items-center gap-2 text-sm font-bold text-gray-900 cursor-pointer">
                             <input type="checkbox" checked={finance.gst_enabled} onChange={e => handleFinanceChange('gst_enabled', e.target.checked)} className="rounded text-emerald-600 focus:ring-emerald-600 cursor-pointer print:hidden" />
@@ -840,7 +858,7 @@ function Trips() {
                </div>
             </div>
 
-            <div className="p-5 border-t bg-white flex justify-end gap-4">
+            <div className="p-5 border-t bg-white flex justify-end gap-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
                <button onClick={handlePrint} className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-2.5 rounded-lg font-bold transition cursor-pointer"><Printer className="h-5 w-5"/> Print Receipt</button>
                <button onClick={handleSaveFinance} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-2.5 rounded-lg font-bold shadow-sm transition cursor-pointer"><Save className="h-5 w-5"/> Save Financial Ledger</button>
             </div>

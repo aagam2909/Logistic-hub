@@ -47,6 +47,8 @@ class TripCompleteUpdate(BaseModel):
     pod_image_path: Optional[str] = None
     trip_unloaded: Optional[bool] = False
     amount_cleared: Optional[bool] = False
+    cleared_amount: Optional[float] = 0.0
+    cleared_date: Optional[date] = None
     pod_status: Optional[str] = 'Pending'
     pod_arrived_office_date: Optional[date] = None
     pod_forwarded_client_date: Optional[date] = None
@@ -93,8 +95,6 @@ class DriverSettleUpdate(BaseModel):
 
 def get_taabi_live_data(vehicle_number):
     url = "https://dev-api-dtwin.taabi.ai/graphql"
-    
-    # 1. UPDATED QUERY: Swapped ureaLevel for adblue_level
     query = """
     query getAllDeviceLocations($configs: Configs) {
         devices: getAllDeviceLocations(configs: $configs) {
@@ -119,7 +119,6 @@ def get_taabi_live_data(vehicle_number):
                     "lat": dev['latitude'], 
                     "lng": dev['longitude'],
                     "fuel_level": dev.get('fuelValueLtrs', 'N/A'), 
-                    # 2. UPDATED EXTRACTION: Look for adblue_level in the response
                     "urea_level": dev.get('adblue_level', 'N/A'),
                     "status": "Halted" if dev['haltStatus'] else "Moving"
                 }
@@ -127,7 +126,7 @@ def get_taabi_live_data(vehicle_number):
         return {"speed": 0, "fuel_level": "N/A", "urea_level": "N/A", "status": "Not Found"}
         
     except Exception as e:
-        print(f"Taabi API Error: {e}") # Added error logging for future debugging
+        print(f"Taabi API Error: {e}")
         return {"speed": 0, "fuel_level": "N/A", "urea_level": "N/A", "status": "Offline"}
 
 @app.get("/assets")
@@ -199,7 +198,6 @@ def delete_asset(vehicle_number: str):
     if not archived_vehicle:
         raise HTTPException(status_code=404, detail="Vehicle not found")
     return {"status": "Archived", "vehicle_number": archived_vehicle[0]}
-
 
 @app.post("/trips")
 def create_trip(trip: TripCreate):
@@ -317,7 +315,9 @@ def get_trip_history():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT t.*, f.trip_unloaded, f.amount_cleared, f.cleared_amount, f.cleared_date, f.pod_status, f.pod_arrived_office_date, f.pod_forwarded_client_date, f.pod_received_client_date 
+        SELECT t.*, f.trip_unloaded, f.amount_cleared, f.cleared_amount, f.cleared_date, 
+               f.pod_status, f.pod_arrived_office_date, f.pod_forwarded_client_date, 
+               f.pod_received_client_date, f.balance_payment, f.freight_amount, f.adv_amt
         FROM trips t
         LEFT JOIN trip_finances f ON t.trip_id = f.trip_id
         WHERE t.actual_delivery_date IS NOT NULL
@@ -345,39 +345,102 @@ def get_trips_by_truck(vehicle_no: str):
 def complete_trip(trip_id: int, data: TripCompleteUpdate):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("UPDATE trips SET actual_delivery_date = %s WHERE trip_id = %s RETURNING vehicle_number;", (data.actual_delivery_date, trip_id))
-    v_row = cursor.fetchone()
-    if v_row:
-        cursor.execute("UPDATE assets SET current_status = 'Available' WHERE vehicle_number = %s;", (v_row[0],))
-    
-    cursor.execute("""
-        INSERT INTO trip_finances (trip_id, pod_image_url, trip_unloaded, amount_cleared, pod_status, pod_arrived_office_date, pod_forwarded_client_date, pod_received_client_date) 
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s) 
-        ON CONFLICT (trip_id) DO UPDATE SET 
-        pod_image_url = COALESCE(EXCLUDED.pod_image_url, trip_finances.pod_image_url),
-        trip_unloaded = EXCLUDED.trip_unloaded, 
-        amount_cleared = EXCLUDED.amount_cleared,
-        pod_status = EXCLUDED.pod_status,
-        pod_arrived_office_date = EXCLUDED.pod_arrived_office_date,
-        pod_forwarded_client_date = EXCLUDED.pod_forwarded_client_date,
-        pod_received_client_date = EXCLUDED.pod_received_client_date;
-    """, (trip_id, data.pod_image_path, data.trip_unloaded, data.amount_cleared, data.pod_status, data.pod_arrived_office_date, data.pod_forwarded_client_date, data.pod_received_client_date))
-    
-    conn.commit()
-    cursor.close(); conn.close()
-    return {"status": "Success"}
+    try:
+        cursor.execute("UPDATE trips SET actual_delivery_date = %s WHERE trip_id = %s RETURNING vehicle_number;", (data.actual_delivery_date, trip_id))
+        v_row = cursor.fetchone()
+        if v_row:
+            cursor.execute("UPDATE assets SET current_status = 'Available' WHERE vehicle_number = %s;", (v_row[0],))
+        
+        # Pull ledger to append new payment
+        cursor.execute("SELECT advance_details, freight_amount, loading_charge, holding_charge, gst, tds, extra_deduction FROM trip_finances WHERE trip_id = %s", (trip_id,))
+        row = cursor.fetchone()
+        
+        if row:
+            adv_details = row[0] if row[0] else []
+            if isinstance(adv_details, str):
+                try: adv_details = json.loads(adv_details)
+                except: adv_details = []
+                
+            freight = float(row[1] or 0)
+            loading = float(row[2] or 0)
+            holding = float(row[3] or 0)
+            gst = float(row[4] or 0)
+            tds = float(row[5] or 0)
+            extra = float(row[6] or 0)
+
+            # Append the payment logged in the modal to the ledger arrays
+            if data.cleared_amount and data.cleared_amount > 0:
+                payment_date_str = data.cleared_date.isoformat() if data.cleared_date else date.today().isoformat()
+                adv_details.append({"date": payment_date_str, "amount": data.cleared_amount})
+            
+            total_adv = sum(float(adv.get('amount', 0) or 0) for adv in adv_details)
+            balance = (freight + loading + holding + gst) - (total_adv + tds + extra)
+            is_cleared = balance <= 0
+
+            cursor.execute("""
+                UPDATE trip_finances 
+                SET pod_image_url = COALESCE(%s, pod_image_url),
+                    trip_unloaded = %s, pod_status = %s,
+                    pod_arrived_office_date = %s, pod_forwarded_client_date = %s, pod_received_client_date = %s,
+                    advance_details = %s, adv_amt = %s, balance_payment = %s, amount_cleared = %s
+                WHERE trip_id = %s;
+            """, (
+                data.pod_image_path, data.trip_unloaded, data.pod_status,
+                data.pod_arrived_office_date, data.pod_forwarded_client_date, data.pod_received_client_date,
+                json.dumps(adv_details), total_adv, balance, is_cleared, trip_id
+            ))
+        conn.commit()
+        return {"status": "Success"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
 
 @app.put("/finances/{trip_id}/checklist")
 def update_checklist(trip_id: int, data: ChecklistUpdate):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("""
-            UPDATE trip_finances 
-            SET trip_unloaded = %s, amount_cleared = %s, cleared_amount = %s, cleared_date = %s, pod_status = %s,
-                pod_arrived_office_date = %s, pod_forwarded_client_date = %s, pod_received_client_date = %s
-            WHERE trip_id = %s;
-        """, (data.trip_unloaded, data.amount_cleared, data.cleared_amount, data.cleared_date, data.pod_status, data.pod_arrived_office_date, data.pod_forwarded_client_date, data.pod_received_client_date, trip_id))
+        # Pull ledger to append new payment
+        cursor.execute("SELECT advance_details, freight_amount, loading_charge, holding_charge, gst, tds, extra_deduction FROM trip_finances WHERE trip_id = %s", (trip_id,))
+        row = cursor.fetchone()
+        
+        if row:
+            adv_details = row[0] if row[0] else []
+            if isinstance(adv_details, str):
+                try: adv_details = json.loads(adv_details)
+                except: adv_details = []
+                
+            freight = float(row[1] or 0)
+            loading = float(row[2] or 0)
+            holding = float(row[3] or 0)
+            gst = float(row[4] or 0)
+            tds = float(row[5] or 0)
+            extra = float(row[6] or 0)
+
+            # Append the payment logged in the modal to the ledger arrays
+            if data.cleared_amount and data.cleared_amount > 0:
+                payment_date_str = data.cleared_date.isoformat() if data.cleared_date else date.today().isoformat()
+                adv_details.append({"date": payment_date_str, "amount": data.cleared_amount})
+            
+            total_adv = sum(float(adv.get('amount', 0) or 0) for adv in adv_details)
+            balance = (freight + loading + holding + gst) - (total_adv + tds + extra)
+            is_cleared = balance <= 0
+
+            cursor.execute("""
+                UPDATE trip_finances 
+                SET trip_unloaded = %s, pod_status = %s,
+                    pod_arrived_office_date = %s, pod_forwarded_client_date = %s, pod_received_client_date = %s,
+                    advance_details = %s, adv_amt = %s, balance_payment = %s, amount_cleared = %s
+                WHERE trip_id = %s;
+            """, (
+                data.trip_unloaded, data.pod_status,
+                data.pod_arrived_office_date, data.pod_forwarded_client_date, data.pod_received_client_date,
+                json.dumps(adv_details), total_adv, balance, is_cleared,
+                trip_id
+            ))
         conn.commit()
         return {"status": "Success"}
     except Exception as e:
@@ -405,7 +468,6 @@ def get_track_data(trip_id: str):
     cursor.close(); conn.close()
     res['telemetry'] = get_taabi_live_data(res['vehicle_number'])
     return res
-
 
 @app.post("/finances/calculate")
 def calculate_finance(data: dict):
