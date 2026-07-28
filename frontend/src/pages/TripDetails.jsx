@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useReactToPrint } from 'react-to-print';
@@ -7,7 +7,10 @@ import { Printer, ArrowLeft } from 'lucide-react';
 const API_BASE = import.meta.env.VITE_API_URL;
 
 function TripDetails() {
-  const { trip_id } = useParams();
+  // BULLETPROOF FIX: Grab all parameters and use whichever one your App.jsx provides
+  const params = useParams();
+  const activeId = params.id || params.trip_id; 
+  
   const navigate = useNavigate();
   const [trip, setTrip] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -17,9 +20,18 @@ function TripDetails() {
 
   useEffect(() => {
     const fetchDetails = async () => {
+      if (!activeId) return; // Failsafe
+      
       try {
-        const res = await axios.get(`${API_BASE}/trips/details/${trip_id}`);
-        setTrip(res.data);
+        // Using the activeId we safely extracted above
+        const res = await axios.get(`${API_BASE}/trips/details/${activeId}`);
+        const data = res.data;
+        
+        if (typeof data.advance_details === 'string') {
+            try { data.advance_details = JSON.parse(data.advance_details); }
+            catch { data.advance_details = []; }
+        }
+        setTrip(data);
       } catch (err) { 
         console.error("Error fetching details:", err); 
       } finally {
@@ -27,28 +39,26 @@ function TripDetails() {
       }
     };
     fetchDetails();
-  }, [trip_id]);
+  }, [activeId]);
 
-  if (loading) return <div className="p-10 text-center text-gray-500 font-medium">Loading Receipt...</div>;
-  if (!trip) return <div className="p-10 text-center text-rose-500 font-bold">Trip not found.</div>;
+  if (loading) return <div className="p-20 text-center font-semibold text-gray-500">Loading receipt...</div>;
+  if (!trip) return <div className="p-20 text-center font-bold text-rose-500">Error: Trip not found.</div>;
 
-  const advances = trip.advance_details 
-    ? (typeof trip.advance_details === 'string' ? JSON.parse(trip.advance_details) : trip.advance_details) 
-    : [];
+  const advances = Array.isArray(trip.advance_details) ? trip.advance_details : [];
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-6">
       
       <div className="print:hidden flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-        <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-gray-600 hover:text-gray-900 font-medium transition cursor-pointer">
-          <ArrowLeft className="h-5 w-5" /> Back to History
+        <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-gray-600 hover:text-blue-600 font-bold transition cursor-pointer">
+          <ArrowLeft className="h-5 w-5" /> Go Back
         </button>
         <button onClick={handlePrint} className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-6 py-2.5 rounded-lg font-bold shadow-sm transition cursor-pointer">
-          <Printer className="h-5 w-5"/> Print Receipt
+          <Printer className="h-5 w-5"/> Print Final Bill
         </button>
       </div>
 
-      <div className="bg-white shadow-lg border border-gray-200 rounded-xl overflow-hidden">
+      <div className="bg-white shadow-sm border border-gray-200 rounded-xl overflow-hidden">
         <div ref={receiptRef} className="p-10 bg-white print:p-0">
           
           <div className="border-b-2 border-slate-900 pb-6 mb-8 flex justify-between items-end">
@@ -70,7 +80,7 @@ function TripDetails() {
                 <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Date of Dispatch:</span> <span className="font-bold">{trip.trip_start_date || '-'}</span></div>
                 <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Vehicle No:</span> <span className="font-bold text-base">{trip.vehicle_number}</span></div>
                 <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Route:</span> <span className="font-bold">{trip.source_city} → {trip.destination_city}</span></div>
-                <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Delivery Date:</span> <span className="font-bold">{trip.actual_delivery_date || 'Pending'}</span></div>
+                <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Bank Account:</span> <span className="font-bold text-blue-700">{trip.bank_account || 'N/A'}</span></div>
               </div>
               <div className="space-y-3">
                 <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Billed To (Party):</span> <span className="font-bold">{trip.party_name || 'N/A'}</span></div>
@@ -80,19 +90,22 @@ function TripDetails() {
               </div>
           </div>
 
-          {/* POD INFO BOX DISPLAYED ON BILL */}
-          <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-8 grid grid-cols-3 gap-4 text-xs">
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-8 grid grid-cols-4 gap-4 text-xs">
               <div>
                   <span className="text-gray-500 font-semibold block">POD STATUS</span>
                   <span className="font-bold text-slate-800 text-sm">{trip.pod_status || 'Pending'}</span>
               </div>
               <div>
-                  <span className="text-gray-500 font-semibold block">POD OFFICE ARRIVAL</span>
-                  <span className="font-bold text-slate-800 text-sm">{trip.pod_arrived_office_date || 'Not Arrived'}</span>
+                  <span className="text-gray-500 font-semibold block">OFFICE ARRIVAL</span>
+                  <span className="font-bold text-slate-800 text-sm">{trip.pod_arrived_office_date || '-'}</span>
               </div>
               <div>
-                  <span className="text-gray-500 font-semibold block">FORWARDED TO CLIENT</span>
-                  <span className="font-bold text-slate-800 text-sm">{trip.pod_forwarded_client_date || 'Not Forwarded'}</span>
+                  <span className="text-gray-500 font-semibold block">FORWARDED TO PARTY</span>
+                  <span className="font-bold text-slate-800 text-sm">{trip.pod_forwarded_client_date || '-'}</span>
+              </div>
+              <div>
+                  <span className="text-gray-500 font-semibold block">PARTY RECEIVED</span>
+                  <span className="font-bold text-emerald-700 text-sm">{trip.pod_received_client_date || '-'}</span>
               </div>
           </div>
 
@@ -101,26 +114,30 @@ function TripDetails() {
               
               <div>
                   <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Additions (+)</h4>
+                  
                   <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
-                    <span className="text-sm font-semibold text-gray-700">Total Freight</span>
-                    <span className="font-bold">₹{trip.freight_amount || 0}</span>
+                    <span className="text-sm font-semibold text-gray-700">Total Freight (₹)</span>
+                    <span className="w-32 text-right font-bold text-slate-800">{trip.freight_amount || 0}</span>
                   </div>
+
                   {parseFloat(trip.loading_charge || 0) > 0 && (
                     <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
-                      <span className="text-sm font-semibold text-gray-700">Loading/Unloading</span>
-                      <span className="font-bold">₹{trip.loading_charge}</span>
+                      <span className="text-sm font-semibold text-gray-700">Loading/Unloading (₹)</span>
+                      <span className="w-32 text-right font-bold text-slate-800">{trip.loading_charge}</span>
                     </div>
                   )}
+
                   {parseFloat(trip.holding_charge || 0) > 0 && (
                     <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
-                      <span className="text-sm font-semibold text-gray-700">Holding Charge</span>
-                      <span className="font-bold">₹{trip.holding_charge}</span>
+                      <span className="text-sm font-semibold text-gray-700">Holding Charge (₹)</span>
+                      <span className="w-32 text-right font-bold text-slate-800">{trip.holding_charge}</span>
                     </div>
                   )}
+
                   {parseFloat(trip.gst || 0) > 0 && (
                     <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
-                      <span className="text-sm font-semibold text-gray-900">GST (18%)</span>
-                      <span className="font-bold text-emerald-600">₹{trip.gst}</span>
+                      <span className="text-sm font-bold text-gray-900">GST (18%) (₹)</span>
+                      <span className="w-32 text-right font-bold text-emerald-600">{trip.gst}</span>
                     </div>
                   )}
               </div>
@@ -128,25 +145,30 @@ function TripDetails() {
               <div>
                   <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Deductions (-)</h4>
                   
-                  {advances.map((adv, idx) => (
-                      <div key={idx} className="flex justify-between items-center border-b border-gray-50 pb-1 mb-1">
-                          <span className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                              Advance {adv.date && <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{adv.date}</span>}
-                          </span>
-                          <span className="font-bold text-rose-600">₹{adv.amount || 0}</span>
+                  <div className="border-b border-gray-100 pb-2 mb-2">
+                      <div className="flex justify-between items-center mb-2">
+                          <span className="text-sm font-semibold text-gray-700">Advance Received</span>
                       </div>
-                  ))}
+                      {advances.map((adv, idx) => (
+                          <div key={idx} className="flex justify-between items-center mb-1 gap-2 text-sm">
+                              <span className="text-gray-500 w-[110px]">{adv.date || '-'}</span>
+                              <span className="w-[100px] text-right font-bold text-rose-600">₹{adv.amount || 0}</span>
+                          </div>
+                      ))}
+                      {advances.length === 0 && <span className="text-xs text-gray-400 italic">No advances logged</span>}
+                  </div>
 
                   {parseFloat(trip.tds || 0) > 0 && (
                     <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2 mt-2">
-                      <span className="text-sm font-semibold text-gray-700">TDS Deduction</span>
-                      <span className="font-bold text-rose-600">₹{trip.tds}</span>
+                      <span className="text-sm font-semibold text-gray-700">TDS (₹)</span>
+                      <span className="w-[100px] text-right font-bold text-rose-600">{trip.tds}</span>
                     </div>
                   )}
+
                   {parseFloat(trip.extra_deduction || 0) > 0 && (
                     <div className="flex justify-between items-center border-b border-gray-100 pb-2 mt-2">
                       <span className="text-sm font-semibold text-gray-700">Extra Deduction</span>
-                      <span className="font-bold text-rose-600">₹{trip.extra_deduction}</span>
+                      <span className="w-[100px] text-right font-bold text-rose-600">{trip.extra_deduction}</span>
                     </div>
                   )}
               </div>
@@ -165,22 +187,22 @@ function TripDetails() {
           </div>
 
           <h3 className="font-bold text-base mb-4 mt-8 text-slate-800 uppercase tracking-wide border-b pb-2">Driver Settlement (Hisaab)</h3>
-          <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-6 grid grid-cols-2 gap-x-8 gap-y-4 print:bg-transparent print:border-none print:p-0">
+          <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-6 grid grid-cols-2 gap-x-8 gap-y-4 print:bg-transparent print:border-none print:p-0 text-sm">
               <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                <span className="text-sm font-semibold text-gray-700">Total KM Traveled</span>
-                <span className="font-bold text-blue-700">{trip.total_km || 0} KM</span>
+                <span className="font-semibold text-gray-700">Total KM Traveled</span>
+                <span className="w-32 text-right font-bold text-slate-700">{trip.total_km || 0} KM</span>
               </div>
               <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                <span className="text-sm font-semibold text-gray-700">Driver Advance (₹3.5/km)</span>
+                <span className="font-semibold text-gray-700">Driver Advance (₹3.5/km)</span>
                 <span className="font-bold text-slate-900">₹{trip.driver_advance || 0}</span>
               </div>
               <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                <span className="text-sm font-semibold text-gray-700">Remaining Balance (₹1.0/km)</span>
+                <span className="font-semibold text-gray-700">Remaining Balance (₹1.0/km)</span>
                 <span className="font-bold text-slate-900">₹{trip.driver_remaining || 0}</span>
               </div>
               <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                <span className="text-sm font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span>
-                <span className="font-extrabold text-blue-700">₹{trip.driver_total || 0}</span>
+                <span className="font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span>
+                <span className="font-extrabold text-slate-700">₹{trip.driver_total || 0}</span>
               </div>
           </div>
           
