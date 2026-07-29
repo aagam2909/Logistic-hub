@@ -4,6 +4,7 @@ import { useReactToPrint } from 'react-to-print';
 import { Printer, Search } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL;
+const PRESET_BANKS = ['JTA 0706', 'JTA 0611', 'JFC 7734', 'JFC 1487'];
 
 function Finance() {
   const [trackingNumber, setTrackingNumber] = useState('');
@@ -14,7 +15,6 @@ function Finance() {
   const receiptRef = useRef(null);
   const handlePrint = useReactToPrint({ contentRef: receiptRef });
 
-  // Fetch all trips so the search bar can autocomplete
   useEffect(() => {
     axios.get(`${API_BASE}/trips/all`)
       .then(res => setAllTrips(Array.isArray(res.data) ? res.data : []))
@@ -35,17 +35,27 @@ function Finance() {
     }
   };
 
-  // Safely parse the advance details array if it exists
   const advances = trip?.advance_details 
     ? (typeof trip.advance_details === 'string' ? JSON.parse(trip.advance_details) : trip.advance_details) 
     : [];
+
+  // DYNAMIC BANK OPTIONS LOGIC
+  const currentOwner = trip?.owner_name?.toUpperCase() || '';
+  const isOwnerJTA = ['JTA', 'JTA(A)'].includes(currentOwner);
+  const isOwnerJFC = currentOwner === 'JFC';
+  
+  let availablePresetBanks = PRESET_BANKS;
+  if (isOwnerJTA) availablePresetBanks = ['JTA 0706', 'JTA 0611'];
+  if (isOwnerJFC) availablePresetBanks = ['JFC 7734', 'JFC 1487'];
+
+  // ✅ FIXED "OTHER" LOGIC
+  const isCustomBank = trip?.bank_account === '' || !availablePresetBanks.includes(trip?.bank_account || '');
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       
       <h2 className="text-3xl font-bold text-slate-800">Automated Finance Ledger</h2>
 
-      {/* SEARCH BAR */}
       <div className="print:hidden bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row gap-4">
         <input
           className="border p-3 rounded-lg flex-1 bg-gray-50 focus:ring-2 focus:ring-slate-200 outline-none font-semibold text-slate-700"
@@ -66,7 +76,6 @@ function Finance() {
         </button>
       </div>
 
-      {/* READ-ONLY RECEIPT UI */}
       {trip && (
         <div className="space-y-4 animate-in fade-in duration-300">
           
@@ -80,7 +89,6 @@ function Finance() {
           <div className="bg-white shadow-lg border border-gray-200 rounded-xl overflow-hidden">
             <div ref={receiptRef} className="p-10 bg-white print:p-0">
               
-              {/* Header */}
               <div className="border-b-2 border-slate-900 pb-6 mb-8 flex justify-between items-end">
                   <div>
                     <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">JAIN FREIGHT CARRIERS</h1>
@@ -95,7 +103,6 @@ function Finance() {
                   </div>
               </div>
               
-              {/* Route & Party Info */}
               <div className="grid grid-cols-2 gap-8 mb-6 text-sm">
                   <div className="space-y-3">
                     <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Date of Dispatch:</span> <span className="font-bold">{trip.trip_start_date || '-'}</span></div>
@@ -105,13 +112,12 @@ function Finance() {
                   </div>
                   <div className="space-y-3">
                     <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Billed To (Party):</span> <span className="font-bold">{trip.party_name || 'N/A'}</span></div>
+                    <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Owner Name:</span> <span className="font-bold">{trip.owner_name || 'N/A'}</span></div>
                     <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">GTA Name:</span> <span className="font-bold">{trip.gta_name || 'N/A'}</span></div>
                     <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">LR / Bilty No:</span> <span className="font-bold">{trip.lr_no || 'N/A'}</span></div>
-                    <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">E-Way Bill:</span> <span className="font-bold">{trip.eway_bill || 'N/A'}</span></div>
                   </div>
               </div>
 
-              {/* PERFECTLY MATCHED POD TRACKING BOX */}
               <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mb-8 grid grid-cols-4 gap-4 text-xs">
                   <div>
                       <span className="text-gray-500 font-semibold block">POD STATUS</span>
@@ -131,10 +137,16 @@ function Finance() {
                   </div>
               </div>
 
+              {trip.bank_account && (
+                <div className="mb-6 flex justify-between border-b pb-2 text-sm">
+                   <span className="text-gray-500 font-bold uppercase tracking-wider">Deposit Bank Account</span> 
+                   <span className="font-bold text-blue-700">{trip.bank_account}</span>
+                </div>
+              )}
+
               <h3 className="font-bold text-base mb-4 text-slate-800 uppercase tracking-wide border-b pb-2">Financial Settlement</h3>
               <div className="grid grid-cols-2 gap-x-12 gap-y-4">
                   
-                  {/* Additions */}
                   <div>
                       <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Additions (+)</h4>
                       <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
@@ -161,7 +173,6 @@ function Finance() {
                       )}
                   </div>
 
-                  {/* Deductions (WITH DATED ADVANCES) */}
                   <div>
                       <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Deductions (-)</h4>
                       

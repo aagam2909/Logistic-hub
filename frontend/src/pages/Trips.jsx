@@ -16,6 +16,7 @@ const StatusTag = ({ status, deliveryDate }) => {
 
 function Trips() {
   const [activeTrips, setActiveTrips] = useState([]);
+  const [allHistoricalTrips, setAllHistoricalTrips] = useState([]);
   const [availableTrucks, setAvailableTrucks] = useState([]);
   const [parties, setParties] = useState([]);
   const [owners, setOwners] = useState([]);
@@ -46,19 +47,32 @@ function Trips() {
     loading_charge: 0, gst: 0, holding_charge: 0, extra_deduction: 0,
     total_km: 0, driver_advance: 0, driver_remaining: 0, driver_total: 0,
     advance_details: [{ date: '', amount: '' }], bill_no: '',
-    bank_account: 'JFC 7734', gst_enabled: false, include_charges_in_gst: false
+    bank_account: 'JFC 7734', gst_enabled: false, include_loading_in_gst: false, include_holding_in_gst: false
   });
   
   const receiptRef = useRef(null);
   const handlePrint = useReactToPrint({ contentRef: receiptRef });
 
-  useEffect(() => { fetchTrips(); fetchAvailableTrucks(); fetchParties(); fetchOwners(); }, []);
+  useEffect(() => { 
+    fetchTrips(); 
+    fetchAvailableTrucks(); 
+    fetchParties(); 
+    fetchOwners(); 
+    fetchAllHistoryForMemory();
+  }, []);
 
   const fetchTrips = async () => {
     try {
       const res = await axios.get(`${API_BASE}/trips/active`);
       setActiveTrips(Array.isArray(res.data) ? res.data : []);
     } catch (err) { setActiveTrips([]); }
+  };
+
+  const fetchAllHistoryForMemory = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/trips/all`);
+      setAllHistoricalTrips(Array.isArray(res.data) ? res.data : []);
+    } catch (err) { console.error(err); }
   };
 
   const fetchAvailableTrucks = async () => {
@@ -82,6 +96,19 @@ function Trips() {
     } catch (err) { setOwners([]); }
   };
 
+  useEffect(() => {
+    if (tripData.source_city && tripData.destination_city) {
+      const pastTrip = allHistoricalTrips.find(t => 
+        t.source_city.toLowerCase() === tripData.source_city.toLowerCase() &&
+        t.destination_city.toLowerCase() === tripData.destination_city.toLowerCase() &&
+        parseFloat(t.total_km) > 0
+      );
+      if (pastTrip && (!tripData.total_km || tripData.total_km === '')) {
+        setTripData(prev => ({ ...prev, total_km: pastTrip.total_km }));
+      }
+    }
+  }, [tripData.source_city, tripData.destination_city]);
+
   const uniqueSources = [...new Set(activeTrips.map(t => t.source_city).filter(Boolean))];
   const uniqueDestinations = [...new Set(activeTrips.map(t => t.destination_city).filter(Boolean))];
   const uniqueGtas = [...new Set(activeTrips.map(t => t.gta_name).filter(Boolean))];
@@ -100,7 +127,7 @@ function Trips() {
       await axios.post(`${API_BASE}/trips`, tripPayload);
       alert("Trip Launched Successfully! 🚀");
       setTripData({ vehicle_number: '', source_city: '', destination_city: '', party_name: '', owner_name: '', gta_name: '', lr_no: '', eway_bill: '', eway_bill_expiry: '', trip_start_date: '', lw: '', freight_amount: '', total_km: ''});
-      fetchTrips(); fetchParties(); fetchAvailableTrucks(); fetchOwners();
+      fetchTrips(); fetchParties(); fetchAvailableTrucks(); fetchOwners(); fetchAllHistoryForMemory();
     } catch (err) { alert("Failed to launch trip."); }
   };
 
@@ -186,7 +213,11 @@ function Trips() {
           : [];
 
       const gstActive = Boolean(tripData.gst_enabled);
-      const includeChargesActive = Boolean(tripData.include_charges_in_gst);
+      const incLoadingGst = Boolean(tripData.include_loading_in_gst);
+      const incHoldingGst = Boolean(tripData.include_holding_in_gst);
+
+      const isOwnerJTA = ['JTA', 'JTA(A)'].includes(tripData.owner_name?.toUpperCase());
+      const defaultBank = isOwnerJTA ? 'JTA 0706' : 'JFC 7734';
 
       setFinance({
         freight_amount: tripData.freight_amount || 0,
@@ -202,9 +233,10 @@ function Trips() {
         driver_total: tripData.driver_total || 0,
         advance_details: parsedAdvances.length > 0 ? parsedAdvances : [{ date: '', amount: '' }],
         bill_no: tripData.bill_no || '',
-        bank_account: tripData.bank_account || 'JFC 7734',
+        bank_account: tripData.bank_account || defaultBank,
         gst_enabled: gstActive,
-        include_charges_in_gst: includeChargesActive
+        include_loading_in_gst: incLoadingGst,
+        include_holding_in_gst: incHoldingGst
       });
 
       setActiveCharges({
@@ -222,13 +254,13 @@ function Trips() {
     let newFinance = { ...customFinance };
     if (field !== 'TOGGLE_ACTIVE') newFinance[field] = value;
 
-    if (['freight_amount', 'loading_charge', 'holding_charge', 'gst_enabled', 'include_charges_in_gst', 'TOGGLE_ACTIVE'].includes(field)) {
+    if (['freight_amount', 'loading_charge', 'holding_charge', 'gst_enabled', 'include_loading_in_gst', 'include_holding_in_gst', 'TOGGLE_ACTIVE'].includes(field)) {
         const freight = parseFloat(newFinance.freight_amount || 0);
         const loading = customActiveCharges.loading ? parseFloat(newFinance.loading_charge || 0) : 0;
         const holding = customActiveCharges.holding ? parseFloat(newFinance.holding_charge || 0) : 0;
         
         if (newFinance.gst_enabled) {
-            const base = freight + (newFinance.include_charges_in_gst ? loading + holding : 0);
+            const base = freight + (newFinance.include_loading_in_gst ? loading : 0) + (newFinance.include_holding_in_gst ? holding : 0);
             newFinance.gst = (base * 0.18).toFixed(2);
         } else {
             newFinance.gst = 0.00;
@@ -309,7 +341,17 @@ function Trips() {
       processedTrips = processedTrips.filter(t => parseFloat(t.freight_amount) > 0 && parseFloat(t.adv_amt || 0) === 0);
   }
 
-  const isCustomBank = !PRESET_BANKS.includes(finance.bank_account) && finance.bank_account !== '';
+  // DYNAMIC BANK OPTIONS LOGIC
+  const currentOwner = receiptModal.trip?.owner_name?.toUpperCase() || '';
+  const isOwnerJTA = ['JTA', 'JTA(A)'].includes(currentOwner);
+  const isOwnerJFC = currentOwner === 'JFC';
+  
+  let availablePresetBanks = PRESET_BANKS;
+  if (isOwnerJTA) availablePresetBanks = ['JTA 0706', 'JTA 0611'];
+  if (isOwnerJFC) availablePresetBanks = ['JFC 7734', 'JFC 1487'];
+
+  // ✅ FIXED "OTHER" LOGIC
+  const isCustomBank = finance.bank_account === '' || !availablePresetBanks.includes(finance.bank_account);
   const pendingBalance = parseFloat(completeModal.trip?.balance_payment ?? completeModal.trip?.freight_amount ?? 0);
 
   return (
@@ -709,10 +751,9 @@ function Trips() {
                                 else setFinance({...finance, bank_account: e.target.value});
                             }}
                          >
-                            <option value="JTA 0706">JTA 0706</option>
-                            <option value="JTA 0611">JTA 0611</option>
-                            <option value="JFC 7734">JFC 7734</option>
-                            <option value="JFC 1487">JFC 1487</option>
+                            {availablePresetBanks.map(bank => (
+                                <option key={bank} value={bank}>{bank}</option>
+                            ))}
                             <option value="Other">Other (Custom)</option>
                          </select>
                          {isCustomBank && (
@@ -738,6 +779,7 @@ function Trips() {
                           <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.freight_amount} onChange={e => handleFinanceChange('freight_amount', e.target.value)} />
                         </div>
 
+                        {/* NEW INDEPENDENT GST FOR LOADING */}
                         <div className="border-b border-gray-100 pb-2 mb-2">
                           <div className="flex justify-between items-center">
                             <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer">
@@ -750,12 +792,13 @@ function Trips() {
                           </div>
                           {activeCharges.loading && (
                               <label className="flex items-center gap-1.5 text-[11px] text-gray-500 mt-1 cursor-pointer print:hidden pl-5">
-                                  <input type="checkbox" checked={finance.include_charges_in_gst} onChange={e => handleFinanceChange('include_charges_in_gst', e.target.checked)} className="rounded cursor-pointer" />
+                                  <input type="checkbox" checked={finance.include_loading_in_gst} onChange={e => handleFinanceChange('include_loading_in_gst', e.target.checked)} className="rounded cursor-pointer" />
                                   Include in GST Taxable Base
                               </label>
                           )}
                         </div>
 
+                        {/* NEW INDEPENDENT GST FOR HOLDING */}
                         <div className="border-b border-gray-100 pb-2 mb-2">
                           <div className="flex justify-between items-center">
                             <label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer">
@@ -768,7 +811,7 @@ function Trips() {
                           </div>
                           {activeCharges.holding && (
                               <label className="flex items-center gap-1.5 text-[11px] text-gray-500 mt-1 cursor-pointer print:hidden pl-5">
-                                  <input type="checkbox" checked={finance.include_charges_in_gst} onChange={e => handleFinanceChange('include_charges_in_gst', e.target.checked)} className="rounded cursor-pointer" />
+                                  <input type="checkbox" checked={finance.include_holding_in_gst} onChange={e => handleFinanceChange('include_holding_in_gst', e.target.checked)} className="rounded cursor-pointer" />
                                   Include in GST Taxable Base
                               </label>
                           )}

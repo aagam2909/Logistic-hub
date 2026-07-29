@@ -455,7 +455,7 @@ def get_track_data(trip_id: str):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT t.*, f.freight_amount, f.adv_amt, f.tds, f.balance_payment, f.loading_charge, f.gst, f.holding_charge, f.extra_deduction, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total, f.advance_details, f.bill_no, f.pod_status, f.pod_arrived_office_date, f.pod_forwarded_client_date, f.pod_received_client_date, f.trip_unloaded, f.amount_cleared, f.cleared_amount, f.cleared_date, f.bank_account, f.gst_enabled, f.include_charges_in_gst
+        SELECT t.*, f.freight_amount, f.adv_amt, f.tds, f.balance_payment, f.loading_charge, f.gst, f.holding_charge, f.extra_deduction, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total, f.advance_details, f.bill_no, f.pod_status, f.pod_arrived_office_date, f.pod_forwarded_client_date, f.pod_received_client_date, f.trip_unloaded, f.amount_cleared, f.cleared_amount, f.cleared_date, f.bank_account, f.gst_enabled, f.include_loading_in_gst, f.include_holding_in_gst
         FROM trips t 
         LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
         WHERE t.tracking_number = %s;
@@ -482,9 +482,11 @@ def calculate_finance(data: dict):
     extra_deduction = float(data.get('extra_deduction', 0) or 0)
     
     gst_enabled = bool(data.get('gst_enabled', False))
-    include_charges_in_gst = bool(data.get('include_charges_in_gst', False))
+    include_loading_in_gst = bool(data.get('include_loading_in_gst', False))
+    include_holding_in_gst = bool(data.get('include_holding_in_gst', False))
     
-    taxable_base = freight + (loading if include_charges_in_gst else 0) + (holding if include_charges_in_gst else 0)
+    # INDEPENDENT GST MATH
+    taxable_base = freight + (loading if include_loading_in_gst else 0) + (holding if include_holding_in_gst else 0)
     gst = round(taxable_base * 0.18, 2) if gst_enabled else 0.0
     
     advances = data.get('advance_details', [])
@@ -517,9 +519,9 @@ def calculate_finance(data: dict):
             loading_charge, gst, holding_charge, extra_deduction,
             total_km, driver_advance, driver_remaining, driver_total,
             advance_details, bill_no, diesel_liters_needed, diesel_cost,
-            bank_account, gst_enabled, include_charges_in_gst
+            bank_account, gst_enabled, include_loading_in_gst, include_holding_in_gst
         ) 
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (trip_id) DO UPDATE SET 
         freight_amount = EXCLUDED.freight_amount, adv_amt = EXCLUDED.adv_amt, 
         tds = EXCLUDED.tds, balance_payment = EXCLUDED.balance_payment, finance_remarks = EXCLUDED.finance_remarks,
@@ -529,8 +531,9 @@ def calculate_finance(data: dict):
         driver_remaining = EXCLUDED.driver_remaining, driver_total = EXCLUDED.driver_total,
         advance_details = EXCLUDED.advance_details, bill_no = EXCLUDED.bill_no,
         diesel_liters_needed = EXCLUDED.diesel_liters_needed, diesel_cost = EXCLUDED.diesel_cost,
-        bank_account = EXCLUDED.bank_account, gst_enabled = EXCLUDED.gst_enabled, include_charges_in_gst = EXCLUDED.include_charges_in_gst;
-    """, (trip_id, freight, total_adv, tds, balance, finance_remarks, loading, gst, holding, extra_deduction, total_km, driver_advance, driver_remaining, driver_total, advance_details_json, bill_no, diesel_liters_needed, diesel_cost, bank_account, gst_enabled, include_charges_in_gst))
+        bank_account = EXCLUDED.bank_account, gst_enabled = EXCLUDED.gst_enabled, 
+        include_loading_in_gst = EXCLUDED.include_loading_in_gst, include_holding_in_gst = EXCLUDED.include_holding_in_gst;
+    """, (trip_id, freight, total_adv, tds, balance, finance_remarks, loading, gst, holding, extra_deduction, total_km, driver_advance, driver_remaining, driver_total, advance_details_json, bill_no, diesel_liters_needed, diesel_cost, bank_account, gst_enabled, include_loading_in_gst, include_holding_in_gst))
     
     conn.commit()
     cursor.close(); conn.close()
@@ -701,7 +704,7 @@ def get_trip_details(trip_id: int):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT t.*, f.freight_amount, f.adv_amt, f.tds, f.balance_payment, f.bill_no, f.pod_status, f.loading_charge, f.gst, f.holding_charge, f.extra_deduction, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total, f.advance_details, f.pod_arrived_office_date, f.pod_forwarded_client_date, f.pod_received_client_date, f.trip_unloaded, f.amount_cleared, f.cleared_amount, f.cleared_date, f.bank_account, f.gst_enabled, f.include_charges_in_gst
+        SELECT t.*, f.freight_amount, f.adv_amt, f.tds, f.balance_payment, f.bill_no, f.pod_status, f.loading_charge, f.gst, f.holding_charge, f.extra_deduction, f.total_km, f.driver_advance, f.driver_remaining, f.driver_total, f.advance_details, f.pod_arrived_office_date, f.pod_forwarded_client_date, f.pod_received_client_date, f.trip_unloaded, f.amount_cleared, f.cleared_amount, f.cleared_date, f.bank_account, f.gst_enabled, f.include_loading_in_gst, f.include_holding_in_gst
         FROM trips t 
         LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
         WHERE t.trip_id = %s;
@@ -737,3 +740,83 @@ def get_expiring_licenses():
                     "mobile_number": driver.get("mobile_number"), "dl_expiry_date": str(expiry_date), "status": status
                 })
     return expiring_soon
+
+@app.put("/trips/{trip_id}/locked-edit")
+def locked_edit_trip(trip_id: int, trip_data: dict):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # 1. Check if the trip is already locked
+        cursor.execute("SELECT is_locked FROM trips WHERE trip_id = %s", (trip_id,))
+        row = cursor.fetchone()
+        if row and row[0]:
+            raise HTTPException(status_code=400, detail="This trip has already been edited once and is now permanently locked.")
+
+        # 2. Update all launch details and lock the trip
+        cursor.execute("""
+            UPDATE trips 
+            SET vehicle_number = %s, source_city = %s, destination_city = %s, 
+                party_name = %s, owner_name = %s, gta_name = %s, lr_no = %s, eway_bill = %s, 
+                eway_bill_expiry = %s, trip_start_date = %s, lw = %s, is_locked = TRUE
+            WHERE trip_id = %s
+        """, (
+            trip_data.get('vehicle_number'), trip_data.get('source_city'), trip_data.get('destination_city'),
+            trip_data.get('party_name'), trip_data.get('owner_name'), trip_data.get('gta_name'), trip_data.get('lr_no'), 
+            trip_data.get('eway_bill'), trip_data.get('eway_bill_expiry'), 
+            trip_data.get('trip_start_date'), trip_data.get('lw'), trip_id
+        ))
+        
+        # 3. Recalculate Finances (Freight, KM, Driver Pay, GST, Net Balance)
+        new_km = float(trip_data.get('total_km', 0) or 0)
+        new_freight = float(trip_data.get('freight_amount', 0) or 0)
+        
+        driver_adv = new_km * 3.5
+        driver_rem = new_km * 1.0
+        driver_tot = new_km * 4.5
+        
+        cursor.execute("SELECT advance_details, loading_charge, holding_charge, gst, tds, extra_deduction, include_loading_in_gst, include_holding_in_gst, gst_enabled FROM trip_finances WHERE trip_id = %s", (trip_id,))
+        f_row = cursor.fetchone()
+        
+        if f_row:
+            adv_details = f_row[0] if f_row[0] else []
+            if isinstance(adv_details, str):
+                try: adv_details = json.loads(adv_details)
+                except: adv_details = []
+            total_adv = sum(float(adv.get('amount', 0) or 0) for adv in adv_details)
+            loading = float(f_row[1] or 0)
+            holding = float(f_row[2] or 0)
+            tds = float(f_row[4] or 0)
+            extra = float(f_row[5] or 0)
+            inc_load = bool(f_row[6])
+            inc_hold = bool(f_row[7])
+            gst_en = bool(f_row[8])
+            
+            # Recalculate GST & Balance
+            taxable_base = new_freight + (loading if inc_load else 0) + (holding if inc_hold else 0)
+            new_gst = round(taxable_base * 0.18, 2) if gst_en else 0.0
+            balance = (new_freight + loading + holding + new_gst) - (total_adv + tds + extra)
+            
+            # Recalculate Diesel
+            cursor.execute("SELECT a.mileage FROM trips t JOIN assets a ON t.vehicle_number = a.vehicle_number WHERE t.trip_id = %s", (trip_id,))
+            m_row = cursor.fetchone()
+            mileage = float(m_row[0]) if m_row and m_row[0] else 5.5
+            diesel_liters_needed = round(new_km / mileage, 2) if mileage > 0 else 0.0
+            diesel_cost = round(diesel_liters_needed * 90.0, 2)
+            
+            cursor.execute("""
+                UPDATE trip_finances 
+                SET freight_amount = %s, total_km = %s, gst = %s, balance_payment = %s, amount_cleared = %s,
+                    driver_advance = %s, driver_remaining = %s, driver_total = %s,
+                    diesel_liters_needed = %s, diesel_cost = %s
+                WHERE trip_id = %s
+            """, (new_freight, new_km, new_gst, balance, balance <= 0, driver_adv, driver_rem, driver_tot, diesel_liters_needed, diesel_cost, trip_id))
+
+        conn.commit()
+        return {"status": "Success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cursor.close(); conn.close()

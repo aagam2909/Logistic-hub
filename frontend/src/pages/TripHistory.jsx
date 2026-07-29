@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
-import { Search, Filter, Printer, CheckCircle2, X, Edit, AlertCircle, CheckCircle } from 'lucide-react';
+import { Search, Filter, Printer, CheckCircle2, X, Edit, AlertCircle, CheckCircle, FileSignature, Lock } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
@@ -23,6 +23,8 @@ function TripHistory() {
     cleared_amount: '', cleared_date: '',
     pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: ''
   });
+
+  const [editLogisticsModal, setEditLogisticsModal] = useState({ isOpen: false, tripData: null });
 
   useEffect(() => {
     fetchHistory();
@@ -72,6 +74,18 @@ function TripHistory() {
       fetchHistory();
     } catch (err) {
       alert("Failed to update status.");
+    }
+  };
+
+  const handleUpdateLockedEdit = async () => {
+    if (!window.confirm("⚠️ WARNING: This is a ONE-TIME edit. Once saved, this trip will be permanently locked. Are you absolutely sure?")) return;
+    try {
+      await axios.put(`${API_BASE}/trips/${editLogisticsModal.tripData.trip_id}/locked-edit`, editLogisticsModal.tripData);
+      alert("Trip Info Updated and Permanently Locked! 🔒");
+      setEditLogisticsModal({ isOpen: false, tripData: null });
+      fetchHistory();
+    } catch (err) { 
+      alert(err.response?.data?.detail || "Failed to update trip info."); 
     }
   };
 
@@ -168,9 +182,23 @@ function TripHistory() {
                   return (
                     <tr key={trip.trip_id} className={`transition-colors ${isFullyComplete ? 'bg-emerald-50/20 hover:bg-emerald-50/50' : 'hover:bg-gray-50'}`}>
                       <td className="p-4">
-                        <Link to={`/trip-details/${trip.trip_id}`} className="text-blue-600 font-bold hover:text-blue-800 hover:underline transition">
-                          {trip.tracking_number}
-                        </Link>
+                        <div className="flex items-center gap-2">
+                           <Link to={`/trip-details/${trip.trip_id}`} className="text-blue-600 font-bold hover:text-blue-800 hover:underline transition">
+                             {trip.tracking_number}
+                           </Link>
+                           
+                           {/* DYNAMIC LOCK ICON */}
+                           {trip.is_locked ? (
+                               <button disabled className="text-gray-300 cursor-not-allowed" title="Trip is Permanently Locked">
+                                 <Lock className="h-3.5 w-3.5" />
+                               </button>
+                           ) : (
+                               <button onClick={() => setEditLogisticsModal({isOpen: true, tripData: trip})} className="text-amber-500 hover:text-amber-700 transition" title="One-Time Final Edit">
+                                 <FileSignature className="h-3.5 w-3.5" />
+                               </button>
+                           )}
+                           
+                        </div>
                         <div className="text-xs text-gray-400 mt-0.5">LR: {trip.lr_no || 'N/A'}</div>
                       </td>
                       <td className="p-4">
@@ -217,7 +245,7 @@ function TripHistory() {
         )}
       </div>
 
-      {/* UPDATE STATUS MODAL */}
+      {/* UPDATE STATUS MODAL (Unchanged) */}
       {statusModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col p-6 space-y-5 animate-in fade-in zoom-in-95">
@@ -225,21 +253,16 @@ function TripHistory() {
                 <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><AlertCircle className="h-5 w-5 text-blue-600"/> Update Status</h3>
                 <button onClick={() => setStatusModal({isOpen: false, trip: null})} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 cursor-pointer"><X className="h-5 w-5"/></button>
              </div>
-             
              <p className="text-sm text-gray-600">Update checklist for <strong>{statusModal.trip?.tracking_number}</strong>:</p>
-
              <div className="space-y-3">
                 <label className="flex items-center gap-3 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer hover:border-blue-300 transition">
                    <input type="checkbox" className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer" checked={statusModal.trip_unloaded} onChange={e => setStatusModal({...statusModal, trip_unloaded: e.target.checked})} />
                    <span className="font-bold text-slate-800 text-sm">Trip Unloaded</span>
                 </label>
-
-                {/* PRO PAYMENT LOGGING SYSTEM */}
                 <div className="p-3 rounded-xl border border-gray-200 bg-gray-50 flex flex-col gap-2 transition hover:border-blue-300">
                     <span className="font-bold text-slate-800 text-sm">Log New Payment</span>
                     <div className="flex flex-col gap-2 mt-1">
                         <span className="text-xs text-slate-500 font-bold">Current Pending Balance: <span className="text-blue-600">₹{pendingBalance.toFixed(2)}</span></span>
-                        
                         {pendingBalance <= 0 ? (
                             <span className="text-xs font-bold text-emerald-700 bg-emerald-100 p-2 rounded-lg text-center block w-full mt-1 border border-emerald-200">
                                 ✓ Balance is fully paid.
@@ -247,26 +270,13 @@ function TripHistory() {
                         ) : (
                             <>
                               <div className="flex gap-2">
-                                  <input 
-                                      type="number" 
-                                      placeholder="Amount Received (₹)" 
-                                      className="w-full border border-gray-300 rounded p-2 text-sm text-gray-700 outline-none focus:border-blue-400 font-bold"
-                                      value={statusModal.cleared_amount} 
-                                      onChange={e => setStatusModal({...statusModal, cleared_amount: e.target.value})} 
-                                  />
-                                  <input 
-                                      type="date" 
-                                      className="w-full border border-gray-300 rounded p-2 text-sm text-gray-700 outline-none focus:border-blue-400" 
-                                      value={statusModal.cleared_date} 
-                                      onChange={e => setStatusModal({...statusModal, cleared_date: e.target.value})} 
-                                  />
+                                  <input type="number" placeholder="Amount Received (₹)" className="w-full border border-gray-300 rounded p-2 text-sm text-gray-700 outline-none focus:border-blue-400 font-bold" value={statusModal.cleared_amount} onChange={e => setStatusModal({...statusModal, cleared_amount: e.target.value})} />
+                                  <input type="date" className="w-full border border-gray-300 rounded p-2 text-sm text-gray-700 outline-none focus:border-blue-400" value={statusModal.cleared_date} onChange={e => setStatusModal({...statusModal, cleared_date: e.target.value})} />
                               </div>
-                              <p className="text-[10px] text-gray-500 leading-tight">Payments added here will automatically update the receipt and deduct from the balance.</p>
                             </>
                         )}
                     </div>
                 </div>
-
                 <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50 flex flex-col gap-3 mt-2">
                     <label className="font-bold text-blue-900 text-sm">POD Tracking Stage</label>
                     <select className="border border-blue-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-400 outline-none w-full bg-white font-semibold text-slate-700 cursor-pointer" value={statusModal.pod_status} onChange={e => setStatusModal({...statusModal, pod_status: e.target.value})}>
@@ -275,16 +285,13 @@ function TripHistory() {
                        <option value="Forwarded">Forwarded to Party</option>
                        <option value="Client Received">Received by Party</option>
                     </select>
-
                     <div className="space-y-2 mt-1">
                         {['Received', 'Forwarded', 'Client Received'].includes(statusModal.pod_status) && (
                             <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm">
                                <span className="text-xs font-semibold text-gray-600">Office Arrival:</span>
                                {statusModal.originalTrip?.pod_arrived_office_date ? (
                                    <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">✓ {statusModal.originalTrip.pod_arrived_office_date}</span>
-                               ) : (
-                                   <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_arrived_office_date} onChange={e => setStatusModal({...statusModal, pod_arrived_office_date: e.target.value})} />
-                               )}
+                               ) : <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_arrived_office_date} onChange={e => setStatusModal({...statusModal, pod_arrived_office_date: e.target.value})} />}
                             </div>
                         )}
                         {['Forwarded', 'Client Received'].includes(statusModal.pod_status) && (
@@ -292,9 +299,7 @@ function TripHistory() {
                                <span className="text-xs font-semibold text-gray-600">Forwarded:</span>
                                {statusModal.originalTrip?.pod_forwarded_client_date ? (
                                    <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">✓ {statusModal.originalTrip.pod_forwarded_client_date}</span>
-                               ) : (
-                                   <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_forwarded_client_date} onChange={e => setStatusModal({...statusModal, pod_forwarded_client_date: e.target.value})} />
-                               )}
+                               ) : <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_forwarded_client_date} onChange={e => setStatusModal({...statusModal, pod_forwarded_client_date: e.target.value})} />}
                             </div>
                         )}
                         {statusModal.pod_status === 'Client Received' && (
@@ -302,19 +307,93 @@ function TripHistory() {
                                <span className="text-xs font-semibold text-gray-600">Client Received:</span>
                                {statusModal.originalTrip?.pod_received_client_date ? (
                                    <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">✓ {statusModal.originalTrip.pod_received_client_date}</span>
-                               ) : (
-                                   <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_received_client_date} onChange={e => setStatusModal({...statusModal, pod_received_client_date: e.target.value})} />
-                               )}
+                               ) : <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_received_client_date} onChange={e => setStatusModal({...statusModal, pod_received_client_date: e.target.value})} />}
                             </div>
                         )}
                     </div>
                 </div>
              </div>
-
              <div className="flex justify-end gap-3 pt-4 border-t">
                 <button onClick={() => setStatusModal({isOpen: false, trip: null})} className="px-4 py-2 rounded-lg font-semibold text-gray-600 hover:bg-gray-100 text-sm cursor-pointer">Cancel</button>
                 <button onClick={handleUpdateStatus} className="text-white px-6 py-2 rounded-lg font-bold text-sm shadow-sm transition bg-blue-600 hover:bg-blue-700 cursor-pointer">Save Status</button>
              </div>
+          </div>
+        </div>
+      )}
+
+      {/* ONE-TIME FINAL EDIT MODAL */}
+      {editLogisticsModal.isOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="flex justify-between items-center p-5 border-b bg-rose-50">
+               <div>
+                   <h3 className="font-bold text-lg text-rose-900 flex items-center gap-2"><AlertCircle className="h-5 w-5"/> Final One-Time Edit</h3>
+                   <p className="text-xs text-rose-700 font-semibold mt-0.5">You can only edit this completed trip ONCE. Review all details carefully.</p>
+               </div>
+               <button onClick={() => setEditLogisticsModal({isOpen: false, tripData: null})} className="p-2 hover:bg-rose-100 rounded-lg text-rose-500 transition cursor-pointer"><X className="h-5 w-5" /></button>
+            </div>
+            
+            <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4 h-[60vh] overflow-y-auto bg-gray-50">
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">Vehicle Number</label>
+                    <input className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.vehicle_number} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, vehicle_number: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">Launch Date</label>
+                    <input type="date" className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.trip_start_date || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, trip_start_date: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">Source City</label>
+                    <input className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.source_city} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, source_city: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">Destination City</label>
+                    <input className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.destination_city} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, destination_city: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">Party Name</label>
+                    <input className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.party_name || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, party_name: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">Owner Name</label>
+                    <input className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.owner_name || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, owner_name: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">GTA Name</label>
+                    <input className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.gta_name || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, gta_name: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">LR / Bilty No</label>
+                    <input className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.lr_no || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, lr_no: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">E-Way Bill</label>
+                    <input className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.eway_bill || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, eway_bill: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">E-Way Bill Expiry</label>
+                    <input type="date" className="w-full border border-gray-300 p-2.5 rounded-lg text-sm text-gray-500 bg-white" value={editLogisticsModal.tripData.eway_bill_expiry || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, eway_bill_expiry: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">Estimated Route KM</label>
+                    <input type="number" className="w-full border border-blue-300 p-2.5 rounded-lg text-sm bg-blue-50 font-bold" value={editLogisticsModal.tripData.total_km || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, total_km: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-600">Rough Freight (₹)</label>
+                    <input type="number" className="w-full border border-emerald-300 p-2.5 rounded-lg text-sm bg-emerald-50 font-bold" value={editLogisticsModal.tripData.freight_amount || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, freight_amount: e.target.value}})} />
+                </div>
+                <div className="space-y-1 md:col-span-3">
+                    <label className="text-xs font-semibold text-gray-600">L/W Details</label>
+                    <input className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.lw || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, lw: e.target.value}})} />
+                </div>
+            </div>
+            
+            <div className="p-5 border-t bg-white flex justify-end gap-3">
+               <button onClick={() => setEditLogisticsModal({isOpen: false, tripData: null})} className="px-5 py-2.5 rounded-lg font-semibold text-gray-600 hover:bg-gray-100 transition cursor-pointer">Cancel</button>
+               <button onClick={handleUpdateLockedEdit} className="bg-rose-600 hover:bg-rose-700 text-white px-8 py-2.5 rounded-lg font-bold shadow-sm transition cursor-pointer flex items-center gap-2">
+                 <AlertCircle className="h-4 w-4"/> Permanently Save & Lock
+               </button>
+            </div>
           </div>
         </div>
       )}
