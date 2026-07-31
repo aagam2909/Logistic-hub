@@ -315,8 +315,17 @@ function Trips() {
                <div ref={receiptRef} className="bg-white p-10 mx-auto shadow-sm border border-gray-200 rounded-xl max-w-3xl">
                   
                   <div className="border-b-2 border-slate-900 pb-6 mb-8 flex justify-between items-end">
-                      <div><h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">JAIN FREIGHT CARRIERS</h1><p className="text-gray-500 mt-1 font-medium text-sm">Logistics & Transportation Services</p></div>
-                      <div className="text-right"><h2 className="text-xl font-bold text-gray-800">FREIGHT RECEIPT</h2><p className="text-sm font-semibold text-gray-500 mt-1">TRK: {receiptModal.trip.tracking_number}</p>{activeCharges.bill_no && finance.bill_no && (<p className="text-sm font-bold text-blue-700 mt-1 uppercase tracking-wide">BILL NO: {finance.bill_no}</p>)}</div>
+                      <div>
+                        <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">JAIN FREIGHT CARRIERS</h1>
+                        <p className="text-gray-500 mt-1 font-medium text-sm">Logistics & Transportation Services</p>
+                      </div>
+                      <div className="text-right">
+                        <h2 className="text-xl font-bold text-gray-800">FREIGHT RECEIPT</h2>
+                        <p className="text-sm font-semibold text-gray-500 mt-1">TRK: {receiptModal.trip.tracking_number}</p>
+                        {activeCharges.bill_no && finance.bill_no && (
+                          <p className="text-sm font-bold text-blue-700 mt-1 uppercase tracking-wide">BILL NO: {finance.bill_no}</p>
+                        )}
+                      </div>
                   </div>
                   
                   <div className="grid grid-cols-2 gap-8 mb-6 text-sm">
@@ -390,7 +399,7 @@ function Trips() {
                           <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Diesel & Fastag (Estimates)</h4>
                           <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2"><label className="text-sm font-semibold text-gray-700">Total KM Traveled</label><input className="border p-1.5 rounded w-24 text-right font-bold text-slate-700 print:border-none" type="number" value={finance.total_km || ''} onChange={handleKmChange} /></div>
                           <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Diesel Required (Est)</span><span className="font-bold text-slate-900">{finance.diesel_liters_needed || 0} Liters</span></div>
-                          <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="text-sm font-semibold text-gray-700">Fastag (Est @ ₹5.75/km)</span><span className="font-bold text-slate-900">₹{(finance.fastag_estimate || 0).toFixed(2)}</span></div>
+                          <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="text-sm font-semibold text-gray-700">Fastag (Est @ ₹5.75/km)</span><span className="font-bold text-slate-900">₹{parseFloat(finance.fastag_estimate || 0).toFixed(2)}</span></div>
                       </div>
 
                       <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 print:p-0 print:border-none">
@@ -413,7 +422,7 @@ function Trips() {
                   </div>
 
                   <h3 className="font-bold text-base mb-4 mt-8 text-slate-800 uppercase tracking-wide border-b pb-2">Driver Settlement (Hisaab)</h3>
-                  <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-6 grid grid-cols-2 gap-x-8 gap-y-4 print:bg-transparent text-sm">
+                  <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-6 grid grid-cols-2 gap-x-8 gap-y-4 print:bg-transparent print:border-none print:p-0 text-sm">
                       <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Driver Advance (₹3.5/km)</span><span className="font-bold text-slate-900">₹{finance.driver_advance || 0}</span></div>
                       <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Remaining Balance (₹1.0/km)</span><span className="font-bold text-slate-900">₹{finance.driver_remaining || 0}</span></div>
                       <div className="flex justify-between items-center border-b border-gray-200 pb-2 col-span-2 bg-blue-100 p-2 rounded"><span className="font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span><span className="font-extrabold text-slate-700">₹{finance.driver_total || 0}</span></div>
@@ -427,6 +436,86 @@ function Trips() {
                <button onClick={handleSaveFinance} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-2.5 rounded-lg font-bold shadow-sm transition cursor-pointer"><Save className="h-5 w-5"/> Save Financial Ledger</button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* COMPLETE TRIP STATUS MODAL */}
+      {completeModal.isOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col p-6 space-y-5 animate-in fade-in zoom-in-95">
+             <div className="flex justify-between items-center border-b pb-4">
+                <h3 className="font-bold text-lg text-slate-800">Complete Trip Checklist</h3>
+                <button onClick={() => setCompleteModal({isOpen: false, trip: null})} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 cursor-pointer"><X className="h-5 w-5"/></button>
+             </div>
+             
+             <p className="text-sm text-gray-600">Confirm status for trip <strong>{completeModal.trip?.tracking_number}</strong> before marking as completed:</p>
+
+             <div className="space-y-4">
+                <label className="flex items-center gap-3 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer hover:border-blue-300 transition">
+                   <input type="checkbox" className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer" checked={completeModal.trip_unloaded} onChange={e => setCompleteModal({...completeModal, trip_unloaded: e.target.checked})} />
+                   <div>
+                      <span className="font-bold text-slate-800 text-sm block">Trip Unloaded</span>
+                      <span className="text-xs text-gray-500">Has the vehicle been unloaded at destination?</span>
+                   </div>
+                </label>
+
+                <div className="p-3 rounded-xl border border-gray-200 bg-gray-50 flex flex-col gap-2 transition hover:border-blue-300">
+                    <span className="font-bold text-slate-800 text-sm">Log Final Payment</span>
+                    <div className="flex flex-col gap-2 mt-1">
+                        <span className="text-xs text-slate-500 font-bold">Current Pending Balance: <span className="text-blue-600">₹{parseFloat(completeModal.trip?.balance_payment ?? completeModal.trip?.freight_amount ?? 0).toFixed(2)}</span></span>
+                        {parseFloat(completeModal.trip?.balance_payment ?? completeModal.trip?.freight_amount ?? 0) <= 0 ? (
+                            <span className="text-xs font-bold text-emerald-700 bg-emerald-100 p-2 rounded-lg text-center block w-full mt-1 border border-emerald-200">
+                                ✓ Balance is fully paid.
+                            </span>
+                        ) : (
+                            <>
+                              <div className="flex gap-2">
+                                  <input type="number" placeholder="Amount Received (₹)" className="w-full border border-gray-300 rounded p-2 text-sm text-gray-700 outline-none focus:border-blue-400 font-bold" value={completeModal.cleared_amount} onChange={e => setCompleteModal({...completeModal, cleared_amount: e.target.value})} />
+                                  <input type="date" className="w-full border border-gray-300 rounded p-2 text-sm text-gray-700 outline-none focus:border-blue-400" value={completeModal.cleared_date} onChange={e => setCompleteModal({...completeModal, cleared_date: e.target.value})} />
+                              </div>
+                              <p className="text-[10px] text-gray-500 leading-tight">Payments added here will automatically update the receipt and deduct from the balance.</p>
+                            </>
+                        )}
+                    </div>
+                </div>
+                
+                <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50 flex flex-col gap-3 mt-2">
+                    <label className="font-bold text-blue-900 text-sm">POD Tracking Stage</label>
+                    <select className="border border-blue-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-400 outline-none w-full bg-white font-semibold text-slate-700 cursor-pointer" value={completeModal.pod_status} onChange={e => setCompleteModal({...completeModal, pod_status: e.target.value})}>
+                       <option value="Pending">Pending (Not received yet)</option>
+                       <option value="Received">Received at Office</option>
+                       <option value="Forwarded">Forwarded to Party</option>
+                       <option value="Client Received">Received by Party</option>
+                    </select>
+
+                    <div className="space-y-2 mt-1">
+                        {['Received', 'Forwarded', 'Client Received'].includes(completeModal.pod_status) && (
+                            <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm">
+                               <span className="text-xs font-semibold text-gray-600">Office Arrival:</span>
+                               <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={completeModal.pod_arrived_office_date} onChange={e => setCompleteModal({...completeModal, pod_arrived_office_date: e.target.value})} />
+                            </div>
+                        )}
+                        {['Forwarded', 'Client Received'].includes(completeModal.pod_status) && (
+                            <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm">
+                               <span className="text-xs font-semibold text-gray-600">Forwarded:</span>
+                               <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={completeModal.pod_forwarded_client_date} onChange={e => setCompleteModal({...completeModal, pod_forwarded_client_date: e.target.value})} />
+                            </div>
+                        )}
+                        {completeModal.pod_status === 'Client Received' && (
+                            <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm">
+                               <span className="text-xs font-semibold text-gray-600">Client Received:</span>
+                               <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={completeModal.pod_received_client_date} onChange={e => setCompleteModal({...completeModal, pod_received_client_date: e.target.value})} />
+                            </div>
+                        )}
+                    </div>
+                </div>
+             </div>
+
+             <div className="flex justify-end gap-3 pt-4 border-t">
+                <button onClick={() => setCompleteModal({isOpen: false, trip: null})} className="px-4 py-2 rounded-lg font-semibold text-gray-600 hover:bg-gray-100 text-sm cursor-pointer">Cancel</button>
+                <button onClick={handleConfirmCompleteTrip} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-lg font-bold text-sm shadow-sm transition cursor-pointer">Confirm & Complete</button>
+             </div>
           </div>
         </div>
       )}
