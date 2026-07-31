@@ -39,6 +39,17 @@ function Finance() {
     ? (typeof trip.advance_details === 'string' ? JSON.parse(trip.advance_details) : trip.advance_details) 
     : [];
 
+  // Parse Fastag Details
+  const parsedFastag = trip?.fastag_details 
+    ? (typeof trip.fastag_details === 'string' ? JSON.parse(trip.fastag_details) : trip.fastag_details) 
+    : [];
+
+  const km = parseFloat(trip?.total_km) || 0;
+  const mileage = parseFloat(trip?.mileage) || 5.5;
+  const displayDiesel = parseFloat(trip?.diesel_liters_needed) || (km > 0 ? (km / mileage).toFixed(2) : 0);
+  const displayFastagEst = parseFloat(trip?.fastag_estimate) || (km > 0 ? km * 5.75 : 0);
+  const totalFastagActual = parsedFastag.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
+
   // DYNAMIC BANK OPTIONS LOGIC
   const currentOwner = trip?.owner_name?.toUpperCase() || '';
   const isOwnerJTA = ['JTA', 'JTA(A)'].includes(currentOwner);
@@ -47,9 +58,6 @@ function Finance() {
   let availablePresetBanks = PRESET_BANKS;
   if (isOwnerJTA) availablePresetBanks = ['JTA 0706', 'JTA 0611'];
   if (isOwnerJFC) availablePresetBanks = ['JFC 7734', 'JFC 1487'];
-
-  // ✅ FIXED "OTHER" LOGIC
-  const isCustomBank = trip?.bank_account === '' || !availablePresetBanks.includes(trip?.bank_account || '');
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
@@ -216,12 +224,46 @@ function Finance() {
                   )}
               </div>
 
+              {/* 🌟 OPERATIONAL TRACKING INJECTION */}
+              <h3 className="font-bold text-base mb-4 mt-8 text-slate-800 uppercase tracking-wide border-b pb-2">Operational Tracking (Internal)</h3>
+              <div className="grid grid-cols-2 gap-x-8 gap-y-4">
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 print:p-0 print:border-none">
+                      <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Diesel & Fastag (Estimates)</h4>
+                      <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2">
+                        <span className="text-sm font-semibold text-gray-700">Total KM Traveled</span>
+                        <span className="font-bold text-slate-700">{km} KM</span>
+                      </div>
+                      <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2">
+                        <span className="text-sm font-semibold text-gray-700">Diesel Required (Est)</span>
+                        <span className="font-bold text-slate-900">{displayDiesel} Liters</span>
+                      </div>
+                      <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                        <span className="text-sm font-semibold text-gray-700">Fastag (Est @ ₹5.75/km)</span>
+                        <span className="font-bold text-slate-900">₹{parseFloat(displayFastagEst).toFixed(2)}</span>
+                      </div>
+                  </div>
+
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 print:p-0 print:border-none">
+                      <div className="flex justify-between items-center mb-3">
+                          <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider">Actual Fastag Logs</h4>
+                      </div>
+                      {parsedFastag.map((f, idx) => (
+                          <div key={idx} className="flex justify-between items-center mb-1.5 gap-2 text-sm">
+                             <span className="text-gray-500 w-[95px]">{f.date || '-'}</span>
+                             <span className="text-gray-700 flex-1">{f.place || 'Unknown Location'}</span>
+                             <span className="font-bold text-rose-600">₹{f.amount || 0}</span>
+                          </div>
+                      ))}
+                      {parsedFastag.length === 0 && <span className="text-xs text-gray-400 italic">No toll logs added</span>}
+                      <div className="flex justify-between items-center mt-3 pt-2 border-t border-amber-300">
+                         <span className="text-sm font-extrabold text-amber-900">Total Actual Fastag</span>
+                         <span className="font-extrabold text-rose-600">₹{totalFastagActual}</span>
+                      </div>
+                  </div>
+              </div>
+
               <h3 className="font-bold text-base mb-4 mt-8 text-slate-800 uppercase tracking-wide border-b pb-2">Driver Settlement (Hisaab)</h3>
               <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-6 grid grid-cols-2 gap-x-8 gap-y-4 print:bg-transparent print:border-none print:p-0 text-sm">
-                  <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                    <span className="font-semibold text-gray-700">Total KM Traveled</span>
-                    <span className="w-32 text-right font-bold text-slate-700">{trip.total_km || 0} KM</span>
-                  </div>
                   <div className="flex justify-between items-center border-b border-gray-200 pb-2">
                     <span className="font-semibold text-gray-700">Driver Advance (₹3.5/km)</span>
                     <span className="font-bold text-slate-900">₹{trip.driver_advance || 0}</span>
@@ -230,7 +272,7 @@ function Finance() {
                     <span className="font-semibold text-gray-700">Remaining Balance (₹1.0/km)</span>
                     <span className="font-bold text-slate-900">₹{trip.driver_remaining || 0}</span>
                   </div>
-                  <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                  <div className="flex justify-between items-center border-b border-gray-200 pb-2 col-span-2 bg-blue-100 p-2 rounded print:bg-transparent print:p-0">
                     <span className="font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span>
                     <span className="font-extrabold text-blue-700">₹{trip.driver_total || 0}</span>
                   </div>
