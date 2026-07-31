@@ -41,14 +41,31 @@ function DriversHistory() {
     setNewDriver({ name: '', dl_number: '', aadhaar_number: '', mobile_number: '', dl_expiry_date: '' });
   };
 
+  // 🌟 FIX: Clean payload & show exact backend error (e.g. "Driver already exists")
   const saveDriver = async () => {
     if (!newDriver.name || !newDriver.dl_number) return alert("Name and DL number are required.");
-    const payload = { ...newDriver, mobile_number: newDriver.mobile_number || null, dl_expiry_date: newDriver.dl_expiry_date || null };
+    
+    const payload = { 
+        name: newDriver.name.trim(), 
+        dl_number: newDriver.dl_number.trim(), 
+        aadhaar_number: newDriver.aadhaar_number ? newDriver.aadhaar_number.trim() : null, 
+        mobile_number: newDriver.mobile_number ? newDriver.mobile_number.trim() : null, 
+        dl_expiry_date: newDriver.dl_expiry_date || null 
+    };
+
     try {
-      if (editingDriver) await axios.put(`${API_BASE}/drivers/${editingDriver.driver_id}`, payload);
-      else await axios.post(`${API_BASE}/drivers`, payload);
-      await fetchDrivers(); resetDriverForm(); setShowForm(false);
-    } catch (err) { alert("Error saving driver."); }
+      if (editingDriver) {
+          await axios.put(`${API_BASE}/drivers/${editingDriver.driver_id}`, payload);
+      } else {
+          await axios.post(`${API_BASE}/drivers`, payload);
+      }
+      await fetchDrivers(); 
+      resetDriverForm(); 
+      setShowForm(false);
+    } catch (err) { 
+      console.error("Backend Error:", err.response?.data);
+      alert(err.response?.data?.detail || "Error saving driver. Check console for details."); 
+    }
   };
 
   const startEditingDriver = (driver, e) => {
@@ -254,17 +271,18 @@ function DriversHistory() {
                 </div>
             </div>
 
-            {/* 🌟 HORIZONTAL SCROLL WRAPPER ADDED HERE */}
+            {/* HORIZONTAL SCROLL WRAPPER */}
             <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
-                <div className="p-5 border-b bg-gray-50"><h3 className="font-bold text-gray-900">Complete Trip History & Diesel Breakdown</h3></div>
+                <div className="p-5 border-b bg-gray-50"><h3 className="font-bold text-gray-900">Complete Trip History, Diesel & Fastag Breakdown</h3></div>
                 <div className="overflow-x-auto w-full">
-                    <table className="w-full text-sm text-left whitespace-nowrap min-w-[950px]">
+                    <table className="w-full text-sm text-left whitespace-nowrap min-w-[1050px]">
                         <thead className="border-b text-gray-600 bg-white">
                             <tr>
                                 <th className="p-4">Trip ID</th>
                                 <th className="p-4">Vehicle</th>
                                 <th className="p-4">Route / KM</th>
                                 <th className="p-4">Diesel Needed</th>
+                                <th className="p-4">Fastag Est.</th>
                                 <th className="p-4">Driver Pay Status</th>
                                 <th className="p-4 text-center">Status</th>
                             </tr>
@@ -274,6 +292,7 @@ function DriversHistory() {
                                 const km = parseFloat(h.total_km) || 0;
                                 const mileage = parseFloat(h.mileage) || 5.5;
                                 const dieselNeeded = parseFloat(h.diesel_liters_needed) || (km > 0 ? (km / mileage).toFixed(2) : 0);
+                                const fastagEst = parseFloat(h.fastag_estimate) || (km > 0 ? (km * 5.75).toFixed(2) : 0);
                                 const driverRemaining = parseFloat(h.driver_remaining) || (km * 1.0);
 
                                 return (
@@ -286,6 +305,7 @@ function DriversHistory() {
                                         <td className="p-4 font-bold text-gray-900">{h.vehicle_number}</td>
                                         <td className="p-4 text-gray-600">{h.source_city} → {h.destination_city} ({km} km)</td>
                                         <td className="p-4 font-semibold text-amber-600">{dieselNeeded} L</td>
+                                        <td className="p-4 font-semibold text-slate-700">₹{fastagEst}</td>
                                         <td className="p-4">
                                             {h.driver_paid ? (
                                                 <span className="text-xs bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-bold">Paid on {h.driver_payment_date}</span>
@@ -297,7 +317,7 @@ function DriversHistory() {
                                     </tr>
                                 );
                             })}
-                            {!history.length && <tr><td colSpan="6" className="p-8 text-center text-gray-500">No trips recorded for this driver.</td></tr>}
+                            {!history.length && <tr><td colSpan="7" className="p-8 text-center text-gray-500">No trips recorded for this driver.</td></tr>}
                         </tbody>
                     </table>
                 </div>
@@ -334,12 +354,13 @@ function DriversHistory() {
                       </div>
                   </div>
 
-                  <h3 className="font-bold text-sm mb-4 text-slate-800 uppercase tracking-wide border-b pb-2">Trip & Diesel Breakdown</h3>
+                  <h3 className="font-bold text-sm mb-4 text-slate-800 uppercase tracking-wide border-b pb-2">Trip, Diesel & Fastag Breakdown</h3>
                   
                   {history.map(trip => {
                       const km = parseFloat(trip.total_km) || 0;
                       const mileage = parseFloat(trip.mileage) || 5.5;
                       const dieselNeeded = parseFloat(trip.diesel_liters_needed) || (km > 0 ? (km / mileage).toFixed(2) : 0);
+                      const fastagEst = parseFloat(trip.fastag_estimate) || (km > 0 ? (km * 5.75).toFixed(2) : 0);
                       const driverAdvance = parseFloat(trip.driver_advance) || (km * 3.5);
                       const driverRemaining = parseFloat(trip.driver_remaining) || (km * 1.0);
 
@@ -352,9 +373,10 @@ function DriversHistory() {
                             <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
                                 <div className="flex justify-between"><span className="text-gray-600">Total KM:</span> <span className="font-bold">{km} km</span></div>
                                 <div className="flex justify-between"><span className="text-gray-600">Diesel Needed:</span> <span className="font-bold text-amber-600">{dieselNeeded} L</span></div>
+                                <div className="flex justify-between"><span className="text-gray-600">Fastag Est:</span> <span className="font-bold text-slate-700">₹{fastagEst}</span></div>
                                 <div className="flex justify-between"><span className="text-gray-600">Driver Advance:</span> <span className="font-bold text-slate-900">₹{driverAdvance}</span></div>
                                 <div className="flex justify-between"><span className="text-gray-600">Remaining Balance:</span> <span className="font-bold text-slate-900">₹{driverRemaining}</span></div>
-                                <div className="flex justify-between col-span-2 bg-blue-50/50 print:bg-transparent p-1.5 rounded">
+                                <div className="flex justify-between col-span-2 bg-blue-50/50 print:bg-transparent p-1.5 rounded mt-1">
                                     <span className="font-extrabold text-gray-900">Payment Status:</span>
                                     <span className={`font-extrabold ${trip.driver_paid ? 'text-emerald-600' : 'text-rose-600'}`}>
                                         {trip.driver_paid ? `Paid on ${trip.driver_payment_date}` : `Pending (₹${driverRemaining})`}
