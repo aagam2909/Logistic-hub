@@ -167,29 +167,40 @@ function PartyHistory() {
                </div>
             </div>
 
-            {/* FULL WORK HISTORY TABLE */}
+            {/* 🌟 HORIZONTAL SCROLL WRAPPER ADDED HERE */}
             <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
               <div className="p-5 border-b bg-gray-50"><h3 className="font-bold text-gray-900">Complete Work History & Logistics Log</h3></div>
-              <table className="w-full text-sm text-left">
-                <thead className="border-b text-gray-600 bg-white">
-                    <tr><th className="p-4">Trip ID</th><th className="p-4">Vehicle</th><th className="p-4">Date</th><th className="p-4 text-center">Status</th></tr>
-                </thead>
-                <tbody>
-                  {partyTrips.map(h => (
-                    <tr key={h.trip_id} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="p-4">
-                        <a href={`/trip-details/${h.trip_id}`} className="font-semibold text-blue-600 hover:underline">
-                          {h.tracking_number}
-                        </a>
-                      </td>
-                      <td className="p-4 font-bold text-gray-900">{h.vehicle_number}</td>
-                      <td className="p-4 text-gray-600">{h.trip_start_date || '-'}</td>
-                      <td className="p-4 text-center"><span className={`px-2 py-1 rounded text-xs font-semibold ${h.actual_delivery_date ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{h.actual_delivery_date ? "Completed" : "Active"}</span></td>
-                    </tr>
-                  ))}
-                  {!partyTrips.length && <tr><td colSpan="4" className="p-8 text-center text-gray-500">No active or past shipments found for this client.</td></tr>}
-                </tbody>
-              </table>
+              <div className="overflow-x-auto w-full">
+                <table className="w-full text-sm text-left whitespace-nowrap min-w-[800px]">
+                  <thead className="border-b text-gray-600 bg-white">
+                      <tr>
+                        <th className="p-4">Trip ID</th>
+                        <th className="p-4">Vehicle</th>
+                        <th className="p-4">Date</th>
+                        <th className="p-4 text-center">Status</th>
+                      </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {partyTrips.map(h => (
+                      <tr key={h.trip_id} className="hover:bg-gray-50">
+                        <td className="p-4">
+                          <a href={`/trip-details/${h.trip_id}`} className="font-semibold text-blue-600 hover:underline">
+                            {h.tracking_number}
+                          </a>
+                        </td>
+                        <td className="p-4 font-bold text-gray-900">{h.vehicle_number}</td>
+                        <td className="p-4 text-gray-600">{h.trip_start_date || '-'}</td>
+                        <td className="p-4 text-center">
+                            <span className={`px-2.5 py-1 rounded-md text-xs font-semibold ${h.actual_delivery_date ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                {h.actual_delivery_date ? "Completed" : "Active"}
+                            </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {!partyTrips.length && <tr><td colSpan="4" className="p-10 text-center text-gray-500">No active or past shipments found for this client.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </>
         ) : (

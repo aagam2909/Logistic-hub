@@ -92,9 +92,16 @@ function DriversHistory() {
 
   const filteredDrivers = drivers.filter(d => d.name?.toLowerCase().includes(searchQuery.toLowerCase()) || d.mobile_number?.includes(searchQuery));
 
-  // --- DRIVER LEDGER MATH ---
-  const unpaidTrips = history.filter(h => !h.driver_paid && parseFloat(h.driver_remaining || 0) > 0);
-  const totalDriverDue = unpaidTrips.reduce((sum, h) => sum + parseFloat(h.driver_remaining || 0), 0);
+  // --- SMART DRIVER LEDGER MATH ---
+  const unpaidTrips = history.filter(h => {
+      const remaining = parseFloat(h.driver_remaining) || (parseFloat(h.total_km || 0) * 1.0);
+      return !h.driver_paid && remaining > 0;
+  });
+  
+  const totalDriverDue = unpaidTrips.reduce((sum, h) => {
+      const remaining = parseFloat(h.driver_remaining) || (parseFloat(h.total_km || 0) * 1.0);
+      return sum + remaining;
+  }, 0);
 
   return (
     <div className="flex flex-col lg:flex-row h-[85vh] gap-6 p-6">
@@ -187,34 +194,38 @@ function DriversHistory() {
                <div className="p-5 bg-white">
                   {unpaidTrips.length > 0 ? (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {unpaidTrips.map(trip => (
-                              <div key={trip.trip_id} className="border border-gray-200 p-4 rounded-xl shadow-sm bg-gray-50 flex flex-col justify-between space-y-3">
-                                  <div>
-                                     <span className="font-bold text-blue-700 text-xs">{trip.tracking_number}</span>
-                                     <p className="text-xs text-gray-500 mt-0.5">{trip.source_city} → {trip.destination_city}</p>
-                                     <div className="flex justify-between items-center mt-2">
-                                         <span className="text-xs text-gray-600">Remaining Pay:</span>
-                                         <span className="font-extrabold text-base text-rose-600">₹{trip.driver_remaining}</span>
-                                     </div>
-                                  </div>
+                          {unpaidTrips.map(trip => {
+                              const km = parseFloat(trip.total_km) || 0;
+                              const driverRemaining = parseFloat(trip.driver_remaining) || (km * 1.0);
+                              return (
+                                <div key={trip.trip_id} className="border border-gray-200 p-4 rounded-xl shadow-sm bg-gray-50 flex flex-col justify-between space-y-3">
+                                    <div>
+                                       <span className="font-bold text-blue-700 text-xs">{trip.tracking_number}</span>
+                                       <p className="text-xs text-gray-500 mt-0.5">{trip.source_city} → {trip.destination_city}</p>
+                                       <div className="flex justify-between items-center mt-2">
+                                           <span className="text-xs text-gray-600">Remaining Pay:</span>
+                                           <span className="font-extrabold text-base text-rose-600">₹{driverRemaining}</span>
+                                       </div>
+                                    </div>
 
-                                  {/* SETTLEMENT CONTROLS */}
-                                  <div className="pt-2 border-t border-gray-200 flex items-center gap-2">
-                                      <input 
-                                          type="date" 
-                                          className="border p-1.5 rounded text-xs bg-white text-gray-700 flex-1 font-medium"
-                                          value={settleDates[trip.trip_id] || new Date().toISOString().split('T')[0]}
-                                          onChange={(e) => setSettleDates({...settleDates, [trip.trip_id]: e.target.value})}
-                                      />
-                                      <button 
-                                          onClick={() => handleSettleDriver(trip.trip_id)}
-                                          className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded text-xs font-bold transition shadow-sm cursor-pointer flex items-center gap-1"
-                                      >
-                                          <CheckCircle className="h-3.5 w-3.5"/> Done
-                                      </button>
-                                  </div>
-                              </div>
-                          ))}
+                                    {/* SETTLEMENT CONTROLS */}
+                                    <div className="pt-2 border-t border-gray-200 flex items-center gap-2">
+                                        <input 
+                                            type="date" 
+                                            className="border p-1.5 rounded text-xs bg-white text-gray-700 flex-1 font-medium"
+                                            value={settleDates[trip.trip_id] || new Date().toISOString().split('T')[0]}
+                                            onChange={(e) => setSettleDates({...settleDates, [trip.trip_id]: e.target.value})}
+                                        />
+                                        <button 
+                                            onClick={() => handleSettleDriver(trip.trip_id)}
+                                            className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded text-xs font-bold transition shadow-sm cursor-pointer flex items-center gap-1"
+                                        >
+                                            <CheckCircle className="h-3.5 w-3.5"/> Done
+                                        </button>
+                                    </div>
+                                </div>
+                              );
+                          })}
                       </div>
                   ) : (
                       <div className="text-center p-6 bg-emerald-50 rounded-xl border border-emerald-100">
@@ -243,39 +254,53 @@ function DriversHistory() {
                 </div>
             </div>
 
+            {/* 🌟 HORIZONTAL SCROLL WRAPPER ADDED HERE */}
             <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
                 <div className="p-5 border-b bg-gray-50"><h3 className="font-bold text-gray-900">Complete Trip History & Diesel Breakdown</h3></div>
-                <table className="w-full text-sm">
-                    <thead className="border-b text-gray-600 bg-white">
-                        <tr className="text-left">
-                            <th className="p-4">Trip ID</th>
-                            <th className="p-4">Vehicle</th>
-                            <th className="p-4">Route / KM</th>
-                            <th className="p-4">Diesel Needed</th>
-                            <th className="p-4">Driver Pay Status</th>
-                            <th className="p-4 text-center">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {history.map((h, idx) => (
-                            <tr key={idx} className="border-b last:border-0 hover:bg-gray-50">
-                                <td className="p-4 font-semibold text-blue-600">{h.tracking_number}</td>
-                                <td className="p-4 font-bold text-gray-900">{h.vehicle_number}</td>
-                                <td className="p-4 text-gray-600">{h.source_city} → {h.destination_city} ({h.total_km || 0} km)</td>
-                                <td className="p-4 font-semibold text-amber-600">{h.diesel_liters_needed || 0} L (₹{h.diesel_cost || 0})</td>
-                                <td className="p-4">
-                                    {h.driver_paid ? (
-                                        <span className="text-xs bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-bold">Paid on {h.driver_payment_date}</span>
-                                    ) : (
-                                        <span className="text-xs bg-rose-100 text-rose-800 px-2.5 py-1 rounded-full font-bold">Due: ₹{h.driver_remaining}</span>
-                                    )}
-                                </td>
-                                <td className="p-4 text-center"><HistoryTag completed={h.actual_delivery_date} /></td>
+                <div className="overflow-x-auto w-full">
+                    <table className="w-full text-sm text-left whitespace-nowrap min-w-[950px]">
+                        <thead className="border-b text-gray-600 bg-white">
+                            <tr>
+                                <th className="p-4">Trip ID</th>
+                                <th className="p-4">Vehicle</th>
+                                <th className="p-4">Route / KM</th>
+                                <th className="p-4">Diesel Needed</th>
+                                <th className="p-4">Driver Pay Status</th>
+                                <th className="p-4 text-center">Status</th>
                             </tr>
-                        ))}
-                        {!history.length && <tr><td colSpan="6" className="p-8 text-center text-gray-500">No trips recorded for this driver.</td></tr>}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                            {history.map((h, idx) => {
+                                const km = parseFloat(h.total_km) || 0;
+                                const mileage = parseFloat(h.mileage) || 5.5;
+                                const dieselNeeded = parseFloat(h.diesel_liters_needed) || (km > 0 ? (km / mileage).toFixed(2) : 0);
+                                const driverRemaining = parseFloat(h.driver_remaining) || (km * 1.0);
+
+                                return (
+                                    <tr key={idx} className="hover:bg-gray-50">
+                                        <td className="p-4 font-semibold text-blue-600">
+                                            <a href={`/trip-details/${h.trip_id}`} className="hover:underline hover:text-blue-800">
+                                                {h.tracking_number}
+                                            </a>
+                                        </td>
+                                        <td className="p-4 font-bold text-gray-900">{h.vehicle_number}</td>
+                                        <td className="p-4 text-gray-600">{h.source_city} → {h.destination_city} ({km} km)</td>
+                                        <td className="p-4 font-semibold text-amber-600">{dieselNeeded} L</td>
+                                        <td className="p-4">
+                                            {h.driver_paid ? (
+                                                <span className="text-xs bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-bold">Paid on {h.driver_payment_date}</span>
+                                            ) : (
+                                                <span className="text-xs bg-rose-100 text-rose-800 px-2.5 py-1 rounded-full font-bold">Due: ₹{driverRemaining}</span>
+                                            )}
+                                        </td>
+                                        <td className="p-4 text-center"><HistoryTag completed={h.actual_delivery_date} /></td>
+                                    </tr>
+                                );
+                            })}
+                            {!history.length && <tr><td colSpan="6" className="p-8 text-center text-gray-500">No trips recorded for this driver.</td></tr>}
+                        </tbody>
+                    </table>
+                </div>
             </div>
           </>
         ) : (
@@ -311,26 +336,34 @@ function DriversHistory() {
 
                   <h3 className="font-bold text-sm mb-4 text-slate-800 uppercase tracking-wide border-b pb-2">Trip & Diesel Breakdown</h3>
                   
-                  {history.map(trip => (
-                      <div key={trip.trip_id} className="mb-6 p-4 border border-gray-200 rounded-lg bg-slate-50 print:bg-transparent print:border-b">
-                          <div className="flex justify-between mb-3 text-sm border-b pb-2">
-                              <span className="font-bold text-slate-800">TRK: {trip.tracking_number}</span>
-                              <span className="font-semibold text-gray-600">{trip.source_city} → {trip.destination_city}</span>
-                          </div>
-                          <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
-                              <div className="flex justify-between"><span className="text-gray-600">Total KM:</span> <span className="font-bold">{trip.total_km || 0} km</span></div>
-                              <div className="flex justify-between"><span className="text-gray-600">Diesel Needed:</span> <span className="font-bold text-amber-600">{trip.diesel_liters_needed || 0} L</span></div>
-                              <div className="flex justify-between"><span className="text-gray-600">Driver Advance:</span> <span className="font-bold text-slate-900">₹{trip.driver_advance || 0}</span></div>
-                              <div className="flex justify-between"><span className="text-gray-600">Remaining Balance:</span> <span className="font-bold text-slate-900">₹{trip.driver_remaining || 0}</span></div>
-                              <div className="flex justify-between col-span-2 bg-blue-50/50 print:bg-transparent p-1.5 rounded">
-                                  <span className="font-extrabold text-gray-900">Payment Status:</span>
-                                  <span className={`font-extrabold ${trip.driver_paid ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                      {trip.driver_paid ? `Paid on ${trip.driver_payment_date}` : `Pending (₹${trip.driver_remaining})`}
-                                  </span>
-                              </div>
-                          </div>
-                      </div>
-                  ))}
+                  {history.map(trip => {
+                      const km = parseFloat(trip.total_km) || 0;
+                      const mileage = parseFloat(trip.mileage) || 5.5;
+                      const dieselNeeded = parseFloat(trip.diesel_liters_needed) || (km > 0 ? (km / mileage).toFixed(2) : 0);
+                      const driverAdvance = parseFloat(trip.driver_advance) || (km * 3.5);
+                      const driverRemaining = parseFloat(trip.driver_remaining) || (km * 1.0);
+
+                      return (
+                        <div key={trip.trip_id} className="mb-6 p-4 border border-gray-200 rounded-lg bg-slate-50 print:bg-transparent print:border-b">
+                            <div className="flex justify-between mb-3 text-sm border-b pb-2">
+                                <span className="font-bold text-slate-800">TRK: {trip.tracking_number}</span>
+                                <span className="font-semibold text-gray-600">{trip.source_city} → {trip.destination_city}</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
+                                <div className="flex justify-between"><span className="text-gray-600">Total KM:</span> <span className="font-bold">{km} km</span></div>
+                                <div className="flex justify-between"><span className="text-gray-600">Diesel Needed:</span> <span className="font-bold text-amber-600">{dieselNeeded} L</span></div>
+                                <div className="flex justify-between"><span className="text-gray-600">Driver Advance:</span> <span className="font-bold text-slate-900">₹{driverAdvance}</span></div>
+                                <div className="flex justify-between"><span className="text-gray-600">Remaining Balance:</span> <span className="font-bold text-slate-900">₹{driverRemaining}</span></div>
+                                <div className="flex justify-between col-span-2 bg-blue-50/50 print:bg-transparent p-1.5 rounded">
+                                    <span className="font-extrabold text-gray-900">Payment Status:</span>
+                                    <span className={`font-extrabold ${trip.driver_paid ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                        {trip.driver_paid ? `Paid on ${trip.driver_payment_date}` : `Pending (₹${driverRemaining})`}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                      );
+                  })}
 
                   {!history.length && <p className="text-center text-gray-500 py-4">No trips recorded for this driver.</p>}
 
