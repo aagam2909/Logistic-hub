@@ -70,7 +70,7 @@ class PODUpdate(BaseModel):
 class DriverCreate(BaseModel):
     name: str
     dl_number: str
-    aadhaar_number: str
+    aadhaar_number: Optional[str] = None
     mobile_number: Optional[str] = None
     dl_expiry_date: Optional[date] = None
 
@@ -195,7 +195,6 @@ def update_trip(trip_id: int, trip_data: dict):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # SAFE PARSING: Prevent crashes from empty text boxes
         start_date = trip_data.get('trip_start_date')
         start_date = None if start_date == '' else start_date
         
@@ -210,7 +209,6 @@ def update_trip(trip_id: int, trip_data: dict):
 
         fastag_est = new_km * 5.75
         
-        # 1. Update Core Trip Info safely
         cursor.execute("""
             UPDATE trips 
             SET vehicle_number=%s, source_city=%s, destination_city=%s, party_name=%s, 
@@ -223,7 +221,6 @@ def update_trip(trip_id: int, trip_data: dict):
             trip_data.get('lr_no'), trip_data.get('eway_bill'), exp_date, start_date, trip_data.get('lw'), trip_id
         ))
         
-        # 2. Update Finance Ledger and Overwrite Balances
         cursor.execute("SELECT advance_details, loading_charge, holding_charge, gst, tds, extra_deduction, include_loading_in_gst, include_holding_in_gst, gst_enabled FROM trip_finances WHERE trip_id = %s", (trip_id,))
         f_row = cursor.fetchone()
         if f_row:
@@ -255,7 +252,6 @@ def update_trip(trip_id: int, trip_data: dict):
         return {"message": "Success"}
     except Exception as e:
         conn.rollback()
-        print(f"Edit Crash Prevented: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         cursor.close(); conn.close()
@@ -268,7 +264,6 @@ def locked_edit_trip(trip_id: int, trip_data: dict):
         cursor.execute("SELECT is_locked FROM trips WHERE trip_id = %s", (trip_id,))
         if cursor.fetchone()[0]: raise HTTPException(status_code=400, detail="Permanently locked.")
         
-        # SAFE PARSING
         start_date = trip_data.get('trip_start_date')
         start_date = None if start_date == '' else start_date
         
@@ -413,7 +408,6 @@ def update_checklist(trip_id: int, data: ChecklistUpdate):
 def get_track_data(trip_id: str):
     conn = get_db_connection()
     cursor = conn.cursor()
-    # ADDED a.mileage so the frontend can calculate diesel accurately!
     cursor.execute("""
         SELECT t.*, a.mileage, f.* 
         FROM trips t 
@@ -448,7 +442,8 @@ def calculate_finance(data: dict):
     taxable_base = freight + (loading if bool(data.get('include_loading_in_gst', False)) else 0) + (holding if bool(data.get('include_holding_in_gst', False)) else 0)
     gst = round(taxable_base * 0.18, 2) if gst_en else 0.0
     
-    advances = data.get('advance_details', []); total_adv = sum(float(a.get('amount', 0)) for a in advances)
+    advances = data.get('advance_details', [])
+    total_adv = sum(float(a.get('amount', 0)) for a in advances)
     fastag_det = data.get('fastag_details', [])
     balance = (freight + loading + holding + gst) - (total_adv + tds + extra)
     
@@ -494,7 +489,8 @@ def get_all_drivers():
     conn = get_db_connection(); cursor = conn.cursor()
     cursor.execute("SELECT * FROM drivers;")
     res = [dict(zip([d[0] for d in cursor.description], row)) for row in cursor.fetchall()]
-    cursor.close(); conn.close(); return res
+    cursor.close(); conn.close()
+    return res
 
 @app.post("/drivers")
 def add_driver(driver: DriverCreate):
@@ -503,8 +499,30 @@ def add_driver(driver: DriverCreate):
         cursor.execute("INSERT INTO drivers (name, dl_number, aadhaar_number, mobile_number, dl_expiry_date) VALUES (%s, %s, %s, %s, %s);", (driver.name, driver.dl_number, driver.aadhaar_number, driver.mobile_number, driver.dl_expiry_date))
         conn.commit(); return {"status": "Success"}
     except errors.UniqueViolation:
-        conn.rollback(); raise HTTPException(status_code=400, detail="Already registered.")
+        conn.rollback(); raise HTTPException(status_code=400, detail="Driver with this DL Number or Aadhaar already registered.")
     finally: cursor.close(); conn.close()
+
+@app.put("/drivers/{driver_id}")
+def update_driver(driver_id: int, driver: DriverUpdate):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE drivers 
+            SET name = %s, dl_number = %s, aadhaar_number = %s, mobile_number = %s, dl_expiry_date = %s 
+            WHERE driver_id = %s RETURNING driver_id;
+        """, (driver.name, driver.dl_number, driver.aadhaar_number, driver.mobile_number, driver.dl_expiry_date, driver_id))
+        updated = cursor.fetchone()
+        conn.commit()
+        if not updated:
+            raise HTTPException(status_code=404, detail="Driver not found")
+        return {"status": "Success"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
 
 @app.get("/drivers/expiring-licenses")
 def get_expiring_licenses():

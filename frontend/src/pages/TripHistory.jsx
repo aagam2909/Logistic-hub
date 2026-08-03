@@ -18,7 +18,6 @@ function TripHistory() {
   const [sortBy, setSortBy] = useState('newest');
   const [statusFilter, setStatusFilter] = useState('all');
 
-  // --- MODAL STATES ---
   const [receiptModal, setReceiptModal] = useState({ isOpen: false, trip: null });
   const [editLogisticsModal, setEditLogisticsModal] = useState({ isOpen: false, tripData: null });
   const [statusModal, setStatusModal] = useState({ 
@@ -39,14 +38,12 @@ function TripHistory() {
       const res = await axios.get(`${API_BASE}/trips/history`);
       setTrips(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
-      console.error('Error fetching trip history:', err);
       setTrips([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // 🌟 NEW: OPEN UNIFIED READ-ONLY RECEIPT MODAL
   const openReceiptModal = async (trip) => {
     try {
       const res = await axios.get(`${API_BASE}/track/${encodeURIComponent(trip.tracking_number)}`);
@@ -180,7 +177,6 @@ function TripHistory() {
                     <tr key={trip.trip_id || `hist-${index}`} className={`transition-colors ${isFullyComplete ? 'bg-emerald-50/20 hover:bg-emerald-50/50' : 'hover:bg-gray-50'}`}>
                       <td className="p-4">
                         <div className="flex items-center gap-2">
-                           {/* 🌟 THIS HYPERLINK NOW OPENS THE MASTER RECEIPT POPUP */}
                            <button onClick={() => openReceiptModal(trip)} className="text-blue-600 font-bold hover:text-blue-800 hover:underline transition cursor-pointer text-left">
                              {trip.tracking_number}
                            </button>
@@ -215,7 +211,6 @@ function TripHistory() {
                       </td>
                       <td className="p-4">
                         <div className="flex flex-col items-center justify-center gap-2">
-                            {/* 🌟 THIS BUTTON NOW OPENS THE MASTER RECEIPT POPUP */}
                             <button onClick={() => openReceiptModal(trip)} className="w-28 flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white px-3 py-2 rounded-lg font-bold text-xs shadow-sm transition cursor-pointer">
                               <Printer className="h-3.5 w-3.5" /> View Bill
                             </button>
@@ -236,7 +231,7 @@ function TripHistory() {
         )}
       </div>
 
-      {/* 🌟 UNIFIED READ-ONLY RECEIPT MODAL (Identical to active trips but non-editable) */}
+      {/* 🌟 UNIFIED READ-ONLY RECEIPT MODAL */}
       {receiptModal.isOpen && receiptModal.trip && (() => {
           const trip = receiptModal.trip;
           const advances = trip?.advance_details ? (typeof trip.advance_details === 'string' ? JSON.parse(trip.advance_details) : trip.advance_details) : [];
