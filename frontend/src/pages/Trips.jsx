@@ -2,6 +2,17 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { Search, FileUp, PlusCircle, X, Printer, Save, Edit, Filter, Trash2, CheckSquare } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
+import { MapContainer, TileLayer, Marker } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+
+// Fix for default Leaflet icon paths in React
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
 
 const API_BASE = import.meta.env.VITE_API_URL;
 const PRESET_BANKS = ['JTA 0706', 'JTA 0611', 'JFC 7734', 'JFC 1487'];
@@ -163,7 +174,6 @@ function Trips() {
     setActiveCharges(newActive); handleFinanceChange('TOGGLE_ACTIVE', null, newActive, finance);
   };
 
-  // 🌟 FIX: Proper deep copy of array elements to force React to update instantly without swallowing keystrokes
   const handleArrayChange = (arrayName, index, field, value) => {
     const newArr = [...finance[arrayName]];
     newArr[index] = { ...newArr[index], [field]: value };
@@ -421,6 +431,27 @@ function Trips() {
                       <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Remaining Balance (₹1.0/km)</span><span className="font-bold text-slate-900">₹{finance.driver_remaining || 0}</span></div>
                       <div className="flex justify-between items-center border-b border-gray-200 pb-2 col-span-2 bg-blue-100 p-2 rounded"><span className="font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span><span className="font-extrabold text-slate-700">₹{finance.driver_total || 0}</span></div>
                   </div>
+
+                  {/* 🌟 PRINTABLE MAP EMBEDDED IN RECEIPT */}
+                  {receiptModal.trip?.telemetry?.lat && (
+                    <div className="mt-8 border-2 border-slate-900 rounded-lg p-4 bg-white print:border-2 print:border-slate-900 print:break-inside-avoid">
+                        <h3 className="font-bold text-base mb-3 text-slate-800 uppercase tracking-wide border-b border-slate-200 pb-2">Geospatial Tracking Record</h3>
+                        <div className="flex flex-col sm:flex-row gap-4">
+                            <div className="w-full sm:w-1/2 h-[200px] border border-gray-300 rounded overflow-hidden z-0 relative">
+                                <MapContainer center={[receiptModal.trip.telemetry.lat, receiptModal.trip.telemetry.lng]} zoom={13} style={{ height: "100%", width: "100%", zIndex: 0 }} zoomControl={false} dragging={false} scrollWheelZoom={false}>
+                                   <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                                   <Marker position={[receiptModal.trip.telemetry.lat, receiptModal.trip.telemetry.lng]} />
+                                </MapContainer>
+                            </div>
+                            <div className="w-full sm:w-1/2 space-y-2 text-sm text-slate-700">
+                                <div className="flex justify-between border-b pb-1"><strong>Status:</strong> <span className="font-bold text-emerald-600">{receiptModal.trip.telemetry.status}</span></div>
+                                <div className="flex justify-between border-b pb-1"><strong>Speed:</strong> <span>{receiptModal.trip.telemetry.speed} km/h</span></div>
+                                <div className="flex justify-between border-b pb-1"><strong>Fuel Level:</strong> <span className="font-bold">{receiptModal.trip.telemetry.fuel_level} L</span></div>
+                                <div className="flex justify-between pb-1"><strong>Coordinates:</strong> <span>{receiptModal.trip.telemetry.lat.toFixed(4)}, {receiptModal.trip.telemetry.lng.toFixed(4)}</span></div>
+                            </div>
+                        </div>
+                    </div>
+                  )}
 
                </div>
             </div>

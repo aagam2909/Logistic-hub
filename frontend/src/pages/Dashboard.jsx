@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Truck, Users, MapPin, Receipt, ArrowRight, Loader2, AlertCircle, X, Download, FileSpreadsheet, FileText, CheckCircle2, BriefcaseBusiness, Settings2, Table } from 'lucide-react';
+import { Truck, Users, MapPin, Receipt, ArrowRight, Loader2, AlertCircle, X, Download, FileSpreadsheet, FileText, BriefcaseBusiness, Settings2, Table, Navigation } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
@@ -23,7 +23,7 @@ function Dashboard() {
   const [expiringDrivers, setExpiringDrivers] = useState([]);
 
   // --- REPORTING ENGINE STATE ---
-  const [exportType, setExportType] = useState('master'); 
+  const [exportType, setExportType] = useState('tracking_sheet'); 
   const [customStatus, setCustomStatus] = useState('All');
   const [exportCols, setExportCols] = useState({
     tracking_number: true, 
@@ -36,7 +36,10 @@ function Dashboard() {
     diesel_needed: true, 
     diesel_left: true, 
     fastag_est: true, 
-    fastag_act: true
+    fastag_act: true,
+    actual_fuel_consumed: true, 
+    refuels: true, 
+    thefts: true
   });
 
   const colLabels = {
@@ -47,10 +50,13 @@ function Dashboard() {
     party_name: "Party Name", 
     freight_amount: "Total Freight",
     balance_payment: "Pending Balance", 
-    diesel_needed: "Diesel Needed (Liters)", 
+    diesel_needed: "Diesel Needed (Est)", 
     diesel_left: "Diesel Left (Taabi)", 
     fastag_est: "Fastag Est (Rs)", 
-    fastag_act: "Fastag Actual (Rs)"
+    fastag_act: "Fastag Actual (Rs)",
+    actual_fuel_consumed: "Actual Consumed (L)", 
+    refuels: "Total Refuel Vol (L)", 
+    thefts: "Total Stolen Vol (L)"
   };
 
   useEffect(() => { 
@@ -109,7 +115,6 @@ function Dashboard() {
       
       const allTrips = [...active, ...history].map(trip => {
           const asset = assets.find(a => a.vehicle_number === trip.vehicle_number);
-          // Attach truck mileage directly to the trip for fallback math
           return { 
               ...trip, 
               driver_name: asset?.driver_name || 'Unknown',
@@ -117,18 +122,24 @@ function Dashboard() {
           };
       });
 
-      // ALWAYS FETCH LIVE TAABI DIESEL DATA FOR EXCEL
       let taabiData = {};
+      let taabiFuelV3 = {};
       try { 
           taabiData = (await axios.get(`${API_BASE}/taabi/bulk`)).data || {}; 
+          taabiFuelV3 = (await axios.get(`${API_BASE}/taabi/bulk-fuel-active`)).data || {};
       } catch(e) {
-          console.error("Failed to fetch Taabi data");
+          console.error("Failed to fetch Taabi API integrations");
       }
 
-      // 🌟 SMART FALLBACK CALCULATIONS FOR EXCEL
+      // Fallback telemetry helper
       const getTelemetry = (trip) => {
           const cleanVN = (trip.vehicle_number || '').replace(/[- ]/g, '').toUpperCase();
-          const dLeft = trip.actual_delivery_date ? 'Trip Complete' : (taabiData[cleanVN] || 'N/A');
+          const tData = taabiData[cleanVN] || {};
+          const fData = taabiFuelV3[cleanVN] || {};
+          
+          const fuelLevel = typeof tData === 'object' ? tData.fuel : tData;
+          const dLeft = trip.actual_delivery_date ? 'Trip Complete' : (fuelLevel || 'N/A');
+          
           let fastagAct = 0;
           try {
               const fDetails = typeof trip.fastag_details === 'string' ? JSON.parse(trip.fastag_details) : (trip.fastag_details || []);
@@ -138,15 +149,18 @@ function Dashboard() {
           const km = parseFloat(trip.total_km) || 0;
           const mileage = parseFloat(trip.mileage) || 5.5;
 
-          // Auto-calculate if database says 0
           const dieselNeeded = parseFloat(trip.diesel_liters_needed) || (km > 0 ? (km / mileage).toFixed(2) : 0);
           const fastagEst = parseFloat(trip.fastag_estimate) || (km > 0 ? (km * 5.75).toFixed(2) : 0);
 
-          return {
-              dieselNeeded: dieselNeeded,
-              dieselLeft: dLeft,
-              fastagEst: fastagEst,
-              fastagAct: fastagAct
+          return { 
+              dieselNeeded, 
+              dieselLeft: dLeft, 
+              fastagEst, 
+              fastagAct,
+              actualConsumed: fData.fuelConsumed || 0,
+              actualDistance: fData.distance || km,
+              theftVolume: fData.pilfregeVolume || 0,
+              refuelVolume: fData.refuelVolume || 0,
           };
       };
 
@@ -154,7 +168,46 @@ function Dashboard() {
       let filename = "Report.csv";
       const todayStr = new Date().toISOString().split('T')[0];
 
-      if (exportType === 'master') {
+      // 🌟 NEW EXACT FORMAT EXPORT (WITH V3 FUEL METRICS)
+      if (exportType === 'tracking_sheet') {
+         filename = `Daily_Tracking_Sheet_${todayStr}.csv`;
+         csvData = active.map((trip, idx) => {
+            const cleanVN = (trip.vehicle_number || '').replace(/[- ]/g, '').toUpperCase();
+            const taabi = taabiData[cleanVN] || {};
+            const isObj = typeof taabi === 'object';
+            
+            const liveStatus = isObj && taabi.status ? (taabi.status === 'Moving' ? `Moving (${taabi.speed}km/h)` : 'Halted') : 'Offline';
+            const liveLocation = isObj && taabi.lat ? `[${taabi.lat}, ${taabi.lng}]` : '-';
+            
+            const tele = getTelemetry(trip);
+            const advAmt = parseFloat(trip.adv_amt || 0);
+
+            return {
+                'SR': idx + 1,
+                'VEH': trip.vehicle_number || '-',
+                'LOADING DATE': trip.trip_start_date || '-',
+                'PARTY': trip.party_name || '-',
+                'FROM': trip.source_city || '-',
+                'TO': trip.destination_city || '-',
+                'M LOCATION': liveLocation,
+                'STATUS': trip.pod_status === 'Pending' ? liveStatus : trip.pod_status,
+                'YSD KMS': tele.actualDistance, 
+                'REASON': '', 
+                'L/R & PAPER CHECK': trip.lr_no || '-',
+                'ADVANCE Y/N': advAmt > 0 ? 'Y' : 'N',
+                'adv': advAmt,
+                'ADV ROUND OFF': advAmt,
+                'Adv paid': advAmt,
+                'Adv pending': 0,
+                'HSD': tele.actualConsumed || tele.dieselNeeded,
+                'ALLOUN D HSD': tele.dieselNeeded,
+                'HSD IN TANK': tele.dieselLeft,
+                'HSD Issued': tele.refuelVolume || '',
+                'HSD pending': tele.theftVolume > 0 ? `THEFT: ${tele.theftVolume}` : ''
+            };
+         });
+      }
+      else if (exportType === 'master') {
          filename = `Detailed_Trip_Report_${todayStr}.csv`;
          let filtered = allTrips;
          if (customStatus === 'Active') filtered = active;
@@ -172,7 +225,6 @@ function Dashboard() {
             const holding = parseFloat(trip.holding_charge) || 0;
             const gst = parseFloat(trip.gst) || 0;
             const totalFreight = freight + loading + holding + gst;
-
             const tele = getTelemetry(trip);
 
             return {
@@ -192,7 +244,10 @@ function Dashboard() {
                 'TDS': trip.tds || 0,
                 'EXTRA DEDUCTION': trip.extra_deduction || 0,
                 'BALANCE': trip.balance_payment || 0,
-                'DIESEL NEEDED (L)': tele.dieselNeeded,
+                'DIESEL NEEDED (Est)': tele.dieselNeeded,
+                'ACTUAL FUEL CONSUMED (L)': tele.actualConsumed,
+                'TOTAL THEFT/PILFERAGE (L)': tele.theftVolume,
+                'TOTAL REFUELS (L)': tele.refuelVolume,
                 'DIESEL LEFT (Taabi)': tele.dieselLeft,
                 'FASTAG EST (Rs)': tele.fastagEst,
                 'FASTAG ACTUAL (Rs)': tele.fastagAct,
@@ -216,47 +271,7 @@ function Dashboard() {
                 'Freight (Rs)': trip.freight_amount || 0, 
                 'Pending Balance (Rs)': trip.balance_payment || 0, 
                 'Diesel Needed (L)': tele.dieselNeeded,
-                'Diesel Left (Taabi)': tele.dieselLeft,
-                'Fastag Est (Rs)': tele.fastagEst,
-                'Fastag Actual (Rs)': tele.fastagAct,
-                'POD Status': trip.pod_status || 'Pending'
-            };
-         });
-      }
-      else if (exportType === 'active') {
-         filename = `Active_Fleet_Report_${todayStr}.csv`;
-         csvData = active.map(trip => {
-            const tele = getTelemetry(trip);
-            return {
-                'Tracking No': trip.tracking_number || '-', 
-                'Launch Date': trip.trip_start_date || '-', 
-                'Vehicle': trip.vehicle_number || '-', 
-                'Route': `${trip.source_city} to ${trip.destination_city}`,
-                'Party Name': trip.party_name || '-', 
-                'Freight (Rs)': trip.freight_amount || 0, 
-                'Pending Balance (Rs)': trip.balance_payment || 0, 
-                'Diesel Needed (L)': tele.dieselNeeded,
-                'Diesel Left (Taabi)': tele.dieselLeft,
-                'Fastag Est (Rs)': tele.fastagEst,
-                'Fastag Actual (Rs)': tele.fastagAct,
-                'POD Status': trip.pod_status || 'Pending'
-            };
-         });
-      }
-      else if (exportType === 'completed') {
-         filename = `Completed_Trips_History_${todayStr}.csv`;
-         csvData = history.map(trip => {
-            const tele = getTelemetry(trip);
-            return {
-                'Tracking No': trip.tracking_number || '-', 
-                'Launch Date': trip.trip_start_date || '-', 
-                'Delivery Date': trip.actual_delivery_date || '-',
-                'Vehicle': trip.vehicle_number || '-', 
-                'Route': `${trip.source_city} to ${trip.destination_city}`,
-                'Party Name': trip.party_name || '-', 
-                'Freight (Rs)': trip.freight_amount || 0, 
-                'Pending Balance (Rs)': trip.balance_payment || 0, 
-                'Diesel Needed (L)': tele.dieselNeeded,
+                'Actual Consumed (L)': tele.actualConsumed,
                 'Diesel Left (Taabi)': tele.dieselLeft,
                 'Fastag Est (Rs)': tele.fastagEst,
                 'Fastag Actual (Rs)': tele.fastagAct,
@@ -312,8 +327,10 @@ function Dashboard() {
             if (exportCols.party_name) row['Party Name'] = trip.party_name || '-';
             if (exportCols.freight_amount) row['Freight (Rs)'] = trip.freight_amount || 0;
             if (exportCols.balance_payment) row['Pending Due (Rs)'] = trip.balance_payment || 0;
-            if (exportCols.pod_status) row['POD Status'] = trip.pod_status || 'Pending';
             if (exportCols.diesel_needed) row['Diesel Needed (Liters)'] = tele.dieselNeeded;
+            if (exportCols.actual_fuel_consumed) row['Actual Consumed (Liters)'] = tele.actualConsumed;
+            if (exportCols.refuels) row['Refuel Volume (Liters)'] = tele.refuelVolume;
+            if (exportCols.thefts) row['Theft Volume (Liters)'] = tele.theftVolume;
             if (exportCols.diesel_left) row['Diesel Left (Taabi)'] = tele.dieselLeft;
             if (exportCols.fastag_est) row['Fastag Est (Rs)'] = tele.fastagEst;
             if (exportCols.fastag_act) row['Fastag Actual (Rs)'] = tele.fastagAct;
@@ -349,6 +366,12 @@ function Dashboard() {
 
   // --- EXCEL PREVIEW GENERATOR ---
   const getPreviewData = () => {
+      if (exportType === 'tracking_sheet') {
+          return {
+              headers: ['SR', 'VEH', 'LOADING DATE', 'PARTY', 'FROM', 'TO', 'M LOCATION', 'STATUS', 'YSD KMS', 'REASON', 'L/R & PAPER CHECK', 'ADVANCE Y/N', 'adv', 'HSD IN TANK'],
+              rows: [['1', 'RJ14-1438', '30/07/2026', 'MAHAVEERA', 'BANGALORE', 'DURG', 'Live: [28.2, 75.3]', 'Moving (45km/h)', '120.5', '', '5425', 'Y', '5425', '215 L']]
+          };
+      }
       if (exportType === 'master') {
           return {
               headers: ['DATE', 'FROM', 'TO', 'VEHICLE NO', 'PARTY', 'TOTAL FREIGHT', 'BALANCE', 'DIESEL NEEDED (L)', 'DIESEL LEFT (Taabi)', 'FASTAG EST (Rs)', 'FASTAG ACTUAL (Rs)'],
@@ -359,12 +382,6 @@ function Dashboard() {
           return {
               headers: ['Client Name', 'Total Trips', 'Business (Rs)', 'Pending (Rs)', 'Diesel Needed (L)', 'Fastag Est (Rs)', 'Fastag Actual (Rs)', 'Status'],
               rows: [['GODREJ INDUSTRIES', '45', '850,000.00', '45,000.00', '6500.00', '70000.00', '78500.00', 'Payment Pending']]
-          };
-      }
-      if (['today', 'active', 'completed'].includes(exportType)) {
-          return {
-              headers: ['Tracking No', 'Launch Date', 'Vehicle', 'Route', 'Party Name', 'Freight (Rs)', 'Diesel Needed (L)', 'Diesel Left (Taabi)', 'Fastag Est (Rs)', 'Fastag Actual (Rs)'],
-              rows: [['RJ14-GODR-020426-1', '2026-04-02', 'RJ14-8674', 'BHIWADI to JAIPUR', 'GODREJ', '17000', '150', '250.5', '1725', '1800']]
           };
       }
       if (exportType === 'custom') {
@@ -382,9 +399,12 @@ function Dashboard() {
           if (exportCols.diesel_left) row.push('250.5');
           if (exportCols.fastag_est) row.push('1725');
           if (exportCols.fastag_act) row.push('1800');
+          if (exportCols.actual_fuel_consumed) row.push('145.2');
+          if (exportCols.refuels) row.push('200');
+          if (exportCols.thefts) row.push('0');
           return { headers, rows: [row] };
       }
-      return { headers: [], rows: [] };
+      return { headers: ['Tracking No', 'Launch Date', 'Vehicle', 'Route', 'Party Name', 'Freight (Rs)', 'Diesel Needed (L)', 'Diesel Left (Taabi)', 'Fastag Est (Rs)', 'Fastag Actual (Rs)'], rows: [['RJ14-GODR-020426-1', '2026-04-02', 'RJ14-8674', 'BHIWADI to JAIPUR', 'GODREJ', '17000', '150', '250.5', '1725', '1800']] };
   };
 
   const kpiCards = [
@@ -481,16 +501,15 @@ function Dashboard() {
       {/* EXCEL REPORT MODAL */}
       {showExportModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border w-full max-w-5xl overflow-hidden flex flex-col md:flex-row animate-in fade-in zoom-in-95 duration-200 h-[85vh] md:h-auto">
+          <div className="bg-white rounded-2xl shadow-2xl border w-full max-w-6xl overflow-hidden flex flex-col md:flex-row animate-in fade-in zoom-in-95 duration-200 h-[85vh] md:h-[600px]">
             
             {/* Left Sidebar */}
             <div className="w-full md:w-1/3 bg-gray-50 border-r border-gray-200 p-5 flex flex-col gap-2 overflow-y-auto">
                <h3 className="font-bold text-gray-900 mb-2 uppercase text-xs tracking-wider">Select Report Type</h3>
                {[
+                 { id: 'tracking_sheet', icon: Navigation, title: "Daily Live Tracking", desc: "Matches exact daily operations format." },
                  { id: 'master', icon: Table, title: "Detailed Trip Report", desc: "Complete financial ledger." },
                  { id: 'today', icon: FileText, title: "Today's Dispatches", desc: "Trips launched today." },
-                 { id: 'active', icon: MapPin, title: "Active Routes", desc: "Currently running trips." },
-                 { id: 'completed', icon: CheckCircle2, title: "Completed Trips", desc: "Full delivery history." },
                  { id: 'party', icon: BriefcaseBusiness, title: "Client Ledger", desc: "0-Balance vs Pending clients." },
                  { id: 'custom', icon: Settings2, title: "Custom Telemetry", desc: "Fastag & Taabi Diesel data." }
                ].map(opt => (
@@ -531,7 +550,7 @@ function Dashboard() {
                           </div>
                           <div>
                               <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block">2. Select Telemetry Data to Export</label>
-                              <div className="grid grid-cols-2 gap-2">
+                              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                                   {Object.keys(exportCols).map(key => (
                                       <label key={key} className="flex items-center gap-2 p-2 rounded-lg border border-gray-100 bg-gray-50 hover:bg-emerald-50 hover:border-emerald-200 cursor-pointer transition">
                                           <input type="checkbox" className="h-4 w-4 rounded text-emerald-600 cursor-pointer" checked={exportCols[key]} onChange={(e) => setExportCols({...exportCols, [key]: e.target.checked})} />

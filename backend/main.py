@@ -9,6 +9,8 @@ from psycopg2 import errors
 import requests
 import shutil
 import json
+import time
+import concurrent.futures
 from dotenv import load_dotenv
 from typing import Optional
 
@@ -23,6 +25,14 @@ app.add_middleware(
 )
 
 os.makedirs("uploads", exist_ok=True)
+
+def safe_float(val):
+    try:
+        if val is None or val == '': 
+            return 0.0
+        return float(val)
+    except (ValueError, TypeError):
+        return 0.0
 
 class TripCreate(BaseModel):
     vehicle_number: str
@@ -88,8 +98,10 @@ class DriverSettleUpdate(BaseModel):
     trip_id: int
     payment_date: date
 
+# --- TAABI TELEMETRY & V3 FUEL API ---
 def get_taabi_live_data(vehicle_number):
     url = "https://dev-api-dtwin.taabi.ai/graphql"
+    # 🌟 Reverted to the strict, safe GraphQL query so the API stops crashing and comes back online
     query = "query getAllDeviceLocations($configs: Configs) { devices: getAllDeviceLocations(configs: $configs) { vehicleNumber, speed, haltStatus, latitude, longitude, fuelValueLtrs, adblue_level } }"
     payload = {"query": query, "variables": {"configs": {}}}
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {TAABI_API_KEY}"}
@@ -101,18 +113,55 @@ def get_taabi_live_data(vehicle_number):
             api_clean = str(dev['vehicleNumber']).replace("-", "").replace(" ", "").upper()
             if db_clean in api_clean or api_clean in db_clean:
                 return {
+                    "internal_id": dev.get('vehicleNumber', vehicle_number),
                     "speed": dev['speed'], "lat": dev['latitude'], "lng": dev['longitude'],
                     "fuel_level": dev.get('fuelValueLtrs', 'N/A'), "urea_level": dev.get('adblue_level', 'N/A'),
                     "status": "Halted" if dev['haltStatus'] else "Moving"
                 }
-        return {"speed": 0, "fuel_level": "N/A", "urea_level": "N/A", "status": "Not Found"}
+        return {"internal_id": vehicle_number, "speed": 0, "fuel_level": "N/A", "urea_level": "N/A", "status": "Not Found"}
     except Exception:
-        return {"speed": 0, "fuel_level": "N/A", "urea_level": "N/A", "status": "Offline"}
+        return {"internal_id": vehicle_number, "speed": 0, "fuel_level": "N/A", "urea_level": "N/A", "status": "Offline"}
+
+def get_taabi_fuel_analytics(internal_device_id: str, start_date, end_date):
+    url = "https://dev-api-dtwin.taabi.ai/graphql"
+    try:
+        if isinstance(start_date, date):
+            from_time = int(datetime.combine(start_date, datetime.min.time()).timestamp())
+        elif isinstance(start_date, str):
+            from_time = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp())
+        else:
+            from_time = int(time.time()) - (86400 * 7)
+
+        if end_date and isinstance(end_date, date):
+            to_time = int(datetime.combine(end_date, datetime.max.time()).timestamp())
+        elif end_date and isinstance(end_date, str):
+            to_time = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp())
+        else:
+            to_time = int(time.time())
+
+        query = """query GetFuelDataV3($uniqueid: String!, $fromTime: Int!, $toTime: Int!, $timezone: String, $isEstimatedLoss: Boolean) {
+            getFuelData: getFuelDataV3(uniqueid: $uniqueid, fromTime: $fromTime, toTime: $toTime, timezone: $timezone, isEstimatedLoss: $isEstimatedLoss) {
+                fuelConsumed mileage distance refuelVolume pilfregeVolume noOfRefuels noOfPilfreges
+                events { refuelEvents { alertvalue start_address eventstarttime } pilferageEvents { alertvalue start_address eventstarttime } }
+            }
+        }"""
+        
+        payload = {
+            "query": query,
+            "variables": { "uniqueid": str(internal_device_id).strip(), "fromTime": from_time, "toTime": to_time, "timezone": "Asia/Kolkata", "isEstimatedLoss": False }
+        }
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {TAABI_API_KEY}"}
+        
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        data = response.json().get("data", {})
+        return data.get("getFuelData") if data else {}
+    except Exception as e:
+        return {}
 
 @app.get("/taabi/bulk")
 def get_bulk_taabi():
     url = "https://dev-api-dtwin.taabi.ai/graphql"
-    query = "query getAllDeviceLocations($configs: Configs) { devices: getAllDeviceLocations(configs: $configs) { vehicleNumber, fuelValueLtrs } }"
+    query = "query getAllDeviceLocations($configs: Configs) { devices: getAllDeviceLocations(configs: $configs) { vehicleNumber, fuelValueLtrs, speed, haltStatus, latitude, longitude } }"
     payload = {"query": query, "variables": {"configs": {}}}
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {TAABI_API_KEY}"}
     try:
@@ -120,10 +169,42 @@ def get_bulk_taabi():
         fuel_map = {}
         for dev in devices:
             clean_vn = str(dev['vehicleNumber']).replace("-", "").replace(" ", "").upper()
-            fuel_map[clean_vn] = dev.get('fuelValueLtrs', 'N/A')
+            fuel_map[clean_vn] = {
+                "internal_id": dev.get('vehicleNumber', clean_vn),
+                "fuel": dev.get('fuelValueLtrs', 'N/A'), "speed": dev.get('speed', 0),
+                "status": "Halted" if dev.get('haltStatus') else "Moving",
+                "lat": dev.get('latitude', ''), "lng": dev.get('longitude', '')
+            }
         return fuel_map
     except Exception:
         return {}
+
+@app.get("/taabi/bulk-fuel-active")
+def get_bulk_fuel_active():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT vehicle_number, trip_start_date FROM trips WHERE actual_delivery_date IS NULL;")
+    active_trips = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    bulk_live = get_bulk_taabi()
+    results = {}
+    
+    def fetch_for_vehicle(vn, s_date):
+        clean_vn = vn.replace("-", "").replace(" ", "").upper()
+        internal_id = bulk_live.get(clean_vn, {}).get("internal_id", vn)
+        return vn, get_taabi_fuel_analytics(internal_id, s_date, None)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(fetch_for_vehicle, row[0], row[1]) for row in active_trips]
+        for future in concurrent.futures.as_completed(futures):
+            vn, data = future.result()
+            clean_vn = vn.replace("-", "").replace(" ", "").upper()
+            results[clean_vn] = data
+    return results
+
+# --- CORE ENDPOINTS ---
 
 @app.get("/assets")
 def get_all_assets():
@@ -201,11 +282,8 @@ def update_trip(trip_id: int, trip_data: dict):
         exp_date = trip_data.get('eway_bill_expiry')
         exp_date = None if exp_date == '' else exp_date
         
-        try: new_km = float(trip_data.get('total_km') or 0)
-        except: new_km = 0.0
-        
-        try: new_freight = float(trip_data.get('freight_amount') or 0)
-        except: new_freight = 0.0
+        new_km = safe_float(trip_data.get('total_km'))
+        new_freight = safe_float(trip_data.get('freight_amount'))
 
         fastag_est = new_km * 5.75
         
@@ -225,14 +303,14 @@ def update_trip(trip_id: int, trip_data: dict):
         f_row = cursor.fetchone()
         if f_row:
             adv_details = json.loads(f_row[0]) if isinstance(f_row[0], str) else (f_row[0] or [])
-            total_adv = sum(float(a.get('amount', 0)) for a in adv_details)
-            loading = float(f_row[1] or 0)
-            holding = float(f_row[2] or 0)
+            total_adv = sum(safe_float(a.get('amount')) for a in adv_details if isinstance(a, dict))
+            loading = safe_float(f_row[1])
+            holding = safe_float(f_row[2])
             gst_en = bool(f_row[8])
             
             taxable_base = new_freight + (loading if bool(f_row[6]) else 0) + (holding if bool(f_row[7]) else 0)
             new_gst = round(taxable_base * 0.18, 2) if gst_en else 0.0
-            balance = (new_freight + loading + holding + new_gst) - (total_adv + float(f_row[4] or 0) + float(f_row[5] or 0))
+            balance = (new_freight + loading + holding + new_gst) - (total_adv + safe_float(f_row[4]) + safe_float(f_row[5]))
             
             cursor.execute("SELECT a.mileage FROM trips t JOIN assets a ON t.vehicle_number = a.vehicle_number WHERE t.trip_id = %s", (trip_id,))
             m_row = cursor.fetchone()
@@ -270,11 +348,8 @@ def locked_edit_trip(trip_id: int, trip_data: dict):
         exp_date = trip_data.get('eway_bill_expiry')
         exp_date = None if exp_date == '' else exp_date
         
-        try: new_km = float(trip_data.get('total_km') or 0)
-        except: new_km = 0.0
-        
-        try: new_freight = float(trip_data.get('freight_amount') or 0)
-        except: new_freight = 0.0
+        new_km = safe_float(trip_data.get('total_km'))
+        new_freight = safe_float(trip_data.get('freight_amount'))
 
         fastag_est = new_km * 5.75
 
@@ -294,13 +369,13 @@ def locked_edit_trip(trip_id: int, trip_data: dict):
         f_row = cursor.fetchone()
         if f_row:
             adv_details = json.loads(f_row[0]) if isinstance(f_row[0], str) else (f_row[0] or [])
-            total_adv = sum(float(a.get('amount', 0)) for a in adv_details)
-            loading = float(f_row[1] or 0)
-            holding = float(f_row[2] or 0)
+            total_adv = sum(safe_float(a.get('amount')) for a in adv_details if isinstance(a, dict))
+            loading = safe_float(f_row[1])
+            holding = safe_float(f_row[2])
             
             taxable = new_freight + (loading if bool(f_row[6]) else 0) + (holding if bool(f_row[7]) else 0)
             new_gst = round(taxable * 0.18, 2) if bool(f_row[8]) else 0.0
-            balance = (new_freight + loading + holding + new_gst) - (total_adv + float(f_row[4] or 0) + float(f_row[5] or 0))
+            balance = (new_freight + loading + holding + new_gst) - (total_adv + safe_float(f_row[4]) + safe_float(f_row[5]))
             
             cursor.execute("SELECT a.mileage FROM trips t JOIN assets a ON t.vehicle_number = a.vehicle_number WHERE t.trip_id = %s", (trip_id,))
             m_row = cursor.fetchone()
@@ -374,10 +449,10 @@ def complete_trip(trip_id: int, data: TripCompleteUpdate):
         row = cursor.fetchone()
         if row:
             adv_details = json.loads(row[0]) if isinstance(row[0], str) else (row[0] or [])
-            if data.cleared_amount and data.cleared_amount > 0:
-                adv_details.append({"date": (data.cleared_date or date.today()).isoformat(), "amount": data.cleared_amount})
-            total_adv = sum(float(a.get('amount', 0)) for a in adv_details)
-            balance = (float(row[1] or 0) + float(row[2] or 0) + float(row[3] or 0) + float(row[4] or 0)) - (total_adv + float(row[5] or 0) + float(row[6] or 0))
+            if data.cleared_amount and safe_float(data.cleared_amount) > 0:
+                adv_details.append({"date": (data.cleared_date or date.today()).isoformat(), "amount": safe_float(data.cleared_amount)})
+            total_adv = sum(safe_float(a.get('amount')) for a in adv_details if isinstance(a, dict))
+            balance = (safe_float(row[1]) + safe_float(row[2]) + safe_float(row[3]) + safe_float(row[4])) - (total_adv + safe_float(row[5]) + safe_float(row[6]))
             cursor.execute("UPDATE trip_finances SET pod_image_url=COALESCE(%s, pod_image_url), trip_unloaded=%s, pod_status=%s, pod_arrived_office_date=%s, pod_forwarded_client_date=%s, pod_received_client_date=%s, advance_details=%s, adv_amt=%s, balance_payment=%s, amount_cleared=%s WHERE trip_id=%s;", (data.pod_image_path, data.trip_unloaded, data.pod_status, data.pod_arrived_office_date, data.pod_forwarded_client_date, data.pod_received_client_date, json.dumps(adv_details), total_adv, balance, balance<=0, trip_id))
         conn.commit(); return {"status": "Success"}
     except Exception as e:
@@ -393,10 +468,10 @@ def update_checklist(trip_id: int, data: ChecklistUpdate):
         row = cursor.fetchone()
         if row:
             adv_details = json.loads(row[0]) if isinstance(row[0], str) else (row[0] or [])
-            if data.cleared_amount and data.cleared_amount > 0:
-                adv_details.append({"date": (data.cleared_date or date.today()).isoformat(), "amount": data.cleared_amount})
-            total_adv = sum(float(a.get('amount', 0)) for a in adv_details)
-            balance = (float(row[1] or 0) + float(row[2] or 0) + float(row[3] or 0) + float(row[4] or 0)) - (total_adv + float(row[5] or 0) + float(row[6] or 0))
+            if data.cleared_amount and safe_float(data.cleared_amount) > 0:
+                adv_details.append({"date": (data.cleared_date or date.today()).isoformat(), "amount": safe_float(data.cleared_amount)})
+            total_adv = sum(safe_float(a.get('amount')) for a in adv_details if isinstance(a, dict))
+            balance = (safe_float(row[1]) + safe_float(row[2]) + safe_float(row[3]) + safe_float(row[4])) - (total_adv + safe_float(row[5]) + safe_float(row[6]))
             cursor.execute("UPDATE trip_finances SET trip_unloaded=%s, pod_status=%s, pod_arrived_office_date=%s, pod_forwarded_client_date=%s, pod_received_client_date=%s, advance_details=%s, adv_amt=%s, balance_payment=%s, amount_cleared=%s WHERE trip_id=%s;", (data.trip_unloaded, data.pod_status, data.pod_arrived_office_date, data.pod_forwarded_client_date, data.pod_received_client_date, json.dumps(adv_details), total_adv, balance, balance<=0, trip_id))
         conn.commit(); return {"status": "Success"}
     except Exception as e:
@@ -419,7 +494,12 @@ def get_track_data(trip_id: str):
     if not row: raise HTTPException(status_code=404, detail="Trip not found")
     res = dict(zip([d[0] for d in cursor.description], row))
     cursor.close(); conn.close()
-    res['telemetry'] = get_taabi_live_data(res['vehicle_number'])
+    
+    telemetry_data = get_taabi_live_data(res['vehicle_number'])
+    internal_id = telemetry_data.get('internal_id', res['vehicle_number'])
+    
+    res['telemetry'] = telemetry_data
+    res['fuel_analytics'] = get_taabi_fuel_analytics(internal_id, res['trip_start_date'], res.get('actual_delivery_date'))
     return res
 
 @app.get("/trips/details/{trip_id}")
@@ -434,30 +514,61 @@ def get_trip_details(trip_id: int):
 
 @app.post("/finances/calculate")
 def calculate_finance(data: dict):
-    conn = get_db_connection(); cursor = conn.cursor()
-    trip_id = data.get('trip_id')
-    freight = float(data.get('freight_amount', 0) or 0); tds = float(data.get('tds', 0) or 0)
-    loading = float(data.get('loading_charge', 0) or 0); holding = float(data.get('holding_charge', 0) or 0)
-    extra = float(data.get('extra_deduction', 0) or 0); gst_en = bool(data.get('gst_enabled', False))
-    taxable_base = freight + (loading if bool(data.get('include_loading_in_gst', False)) else 0) + (holding if bool(data.get('include_holding_in_gst', False)) else 0)
-    gst = round(taxable_base * 0.18, 2) if gst_en else 0.0
-    
-    advances = data.get('advance_details', [])
-    total_adv = sum(float(a.get('amount', 0)) for a in advances)
-    fastag_det = data.get('fastag_details', [])
-    balance = (freight + loading + holding + gst) - (total_adv + tds + extra)
-    
-    total_km = float(data.get('total_km', 0) or 0)
-    cursor.execute("SELECT a.mileage FROM trips t JOIN assets a ON t.vehicle_number = a.vehicle_number WHERE t.trip_id = %s;", (trip_id,))
-    m_row = cursor.fetchone()
-    mile = float(m_row[0]) if m_row and m_row[0] else 5.5
-    
-    cursor.execute("""
-        UPDATE trip_finances SET freight_amount=%s, adv_amt=%s, tds=%s, balance_payment=%s, finance_remarks=%s, loading_charge=%s, gst=%s, holding_charge=%s, extra_deduction=%s, total_km=%s, driver_advance=%s, driver_remaining=%s, driver_total=%s, advance_details=%s, fastag_details=%s, fastag_estimate=%s, bill_no=%s, diesel_liters_needed=%s, bank_account=%s, gst_enabled=%s, include_loading_in_gst=%s, include_holding_in_gst=%s WHERE trip_id=%s
-    """, (freight, total_adv, tds, balance, data.get('finance_remarks', ''), loading, gst, holding, extra, total_km, total_km*3.5, total_km*1.0, total_km*4.5, json.dumps(advances), json.dumps(fastag_det), total_km*5.75, data.get('bill_no', ''), round(total_km/mile, 2) if mile>0 else 0, data.get('bank_account', ''), gst_en, bool(data.get('include_loading_in_gst', False)), bool(data.get('include_holding_in_gst', False)), trip_id))
-    
-    conn.commit(); cursor.close(); conn.close()
-    return {"status": "Success"}
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        trip_id = data.get('trip_id')
+        
+        freight = safe_float(data.get('freight_amount'))
+        tds = safe_float(data.get('tds'))
+        loading = safe_float(data.get('loading_charge'))
+        holding = safe_float(data.get('holding_charge'))
+        extra = safe_float(data.get('extra_deduction'))
+        gst_en = bool(data.get('gst_enabled', False))
+        
+        taxable_base = freight + (loading if bool(data.get('include_loading_in_gst', False)) else 0) + (holding if bool(data.get('include_holding_in_gst', False)) else 0)
+        gst = round(taxable_base * 0.18, 2) if gst_en else 0.0
+        
+        advances = data.get('advance_details', [])
+        total_adv = sum(safe_float(a.get('amount')) for a in advances if isinstance(a, dict))
+        
+        fastag_det = data.get('fastag_details', [])
+        balance = (freight + loading + holding + gst) - (total_adv + tds + extra)
+        
+        total_km = safe_float(data.get('total_km'))
+        
+        cursor.execute("SELECT a.mileage FROM trips t JOIN assets a ON t.vehicle_number = a.vehicle_number WHERE t.trip_id = %s;", (trip_id,))
+        m_row = cursor.fetchone()
+        mile = float(m_row[0]) if m_row and m_row[0] else 5.5
+        
+        diesel_needed = round(total_km / mile, 2) if mile > 0 else 0
+        
+        cursor.execute("""
+            UPDATE trip_finances 
+            SET freight_amount=%s, adv_amt=%s, tds=%s, balance_payment=%s, finance_remarks=%s, 
+                loading_charge=%s, gst=%s, holding_charge=%s, extra_deduction=%s, total_km=%s, 
+                driver_advance=%s, driver_remaining=%s, driver_total=%s, advance_details=%s, 
+                fastag_details=%s, fastag_estimate=%s, bill_no=%s, diesel_liters_needed=%s, 
+                bank_account=%s, gst_enabled=%s, include_loading_in_gst=%s, include_holding_in_gst=%s 
+            WHERE trip_id=%s
+        """, (
+            freight, total_adv, tds, balance, data.get('finance_remarks', ''), 
+            loading, gst, holding, extra, total_km, 
+            total_km * 3.5, total_km * 1.0, total_km * 4.5, 
+            json.dumps(advances), json.dumps(fastag_det), total_km * 5.75, 
+            data.get('bill_no', ''), diesel_needed, data.get('bank_account', ''), 
+            gst_en, bool(data.get('include_loading_in_gst', False)), bool(data.get('include_holding_in_gst', False)), 
+            trip_id
+        ))
+        
+        conn.commit()
+        return {"status": "Success"}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
 
 @app.put("/finances/{trip_id}/pod")
 def update_pod(trip_id: int, data: PODUpdate):
