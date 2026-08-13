@@ -12,51 +12,30 @@ function Dashboard() {
   const [showExportModal, setShowExportModal] = useState(false);
   
   const [stats, setStats] = useState({
-    activeTrucks: 0, 
-    availableTrucks: 0, 
-    totalDrivers: 0, 
-    activeTrips: 0, 
-    pendingPods: 0,
+    activeTrucks: 0, availableTrucks: 0, totalDrivers: 0, activeTrips: 0, pendingPods: 0,
   });
 
   const [recentTrips, setRecentTrips] = useState([]);
   const [expiringDrivers, setExpiringDrivers] = useState([]);
 
   // --- REPORTING ENGINE STATE ---
-  const [exportType, setExportType] = useState('tracking_sheet'); 
+  const [exportType, setExportType] = useState('finance_ledger'); 
   const [customStatus, setCustomStatus] = useState('All');
+  
+  // RESTORED: Custom Columns State
   const [exportCols, setExportCols] = useState({
-    tracking_number: true, 
-    trip_start_date: true, 
-    vehicle_number: true, 
-    route: true, 
-    party_name: true, 
-    freight_amount: true, 
-    balance_payment: true, 
-    diesel_needed: true, 
-    diesel_left: true, 
-    fastag_est: true, 
-    fastag_act: true,
-    actual_fuel_consumed: true, 
-    refuels: true, 
-    thefts: true
+    tracking_number: true, trip_start_date: true, vehicle_number: true, route: true, 
+    party_name: true, freight_amount: true, balance_payment: true, diesel_needed: true, 
+    diesel_left: true, fastag_est: true, fastag_act: true, actual_fuel_consumed: true, 
+    refuels: true, thefts: true
   });
 
   const colLabels = {
-    tracking_number: "Tracking No", 
-    trip_start_date: "Launch Date", 
-    vehicle_number: "Vehicle",
-    route: "Route (Src -> Dest)", 
-    party_name: "Party Name", 
-    freight_amount: "Total Freight",
-    balance_payment: "Pending Balance", 
-    diesel_needed: "Diesel Needed (Est)", 
-    diesel_left: "Diesel Left (Taabi)", 
-    fastag_est: "Fastag Est (Rs)", 
-    fastag_act: "Fastag Actual (Rs)",
-    actual_fuel_consumed: "Actual Consumed (L)", 
-    refuels: "Total Refuel Vol (L)", 
-    thefts: "Total Stolen Vol (L)"
+    tracking_number: "Tracking No", trip_start_date: "Launch Date", vehicle_number: "Vehicle",
+    route: "Route (Src -> Dest)", party_name: "Party Name", freight_amount: "Total Freight",
+    balance_payment: "Pending Balance", diesel_needed: "Diesel Needed (Est)", diesel_left: "Diesel Left (Taabi)", 
+    fastag_est: "Fastag Est (Rs)", fastag_act: "Fastag Actual (Rs)", actual_fuel_consumed: "Actual Consumed (L)", 
+    refuels: "Total Refuel Vol (L)", thefts: "Total Stolen Vol (L)"
   };
 
   useEffect(() => { 
@@ -81,17 +60,11 @@ function Dashboard() {
       const pendingPods = activeTrips.filter(t => t.pod_status === 'Pending' || !t.pod_status).length;
 
       setStats({ 
-        activeTrucks: inTransit, 
-        availableTrucks: available, 
-        totalDrivers: drivers.length, 
-        activeTrips: activeTrips.length, 
-        pendingPods: pendingPods 
+        activeTrucks: inTransit, availableTrucks: available, totalDrivers: drivers.length, activeTrips: activeTrips.length, pendingPods: pendingPods 
       });
 
       setRecentTrips([...activeTrips].reverse().slice(0, 5));
-      if (Array.isArray(expiringRes.data)) {
-          setExpiringDrivers(expiringRes.data);
-      }
+      if (Array.isArray(expiringRes.data)) setExpiringDrivers(expiringRes.data);
     } catch (error) { 
         console.error("Error fetching dashboard data:", error); 
     } finally { 
@@ -99,7 +72,6 @@ function Dashboard() {
     }
   };
 
-  // --- EXCEL GENERATOR ---
   const generateReport = async () => {
     setLoading(true);
     try {
@@ -115,11 +87,7 @@ function Dashboard() {
       
       const allTrips = [...active, ...history].map(trip => {
           const asset = assets.find(a => a.vehicle_number === trip.vehicle_number);
-          return { 
-              ...trip, 
-              driver_name: asset?.driver_name || 'Unknown',
-              mileage: asset?.mileage || 5.5 
-          };
+          return { ...trip, driver_name: asset?.driver_name || 'Unknown', mileage: asset?.mileage || 5.5 };
       });
 
       let taabiData = {};
@@ -127,18 +95,15 @@ function Dashboard() {
       try { 
           taabiData = (await axios.get(`${API_BASE}/taabi/bulk`)).data || {}; 
           taabiFuelV3 = (await axios.get(`${API_BASE}/taabi/bulk-fuel-active`)).data || {};
-      } catch(e) {
-          console.error("Failed to fetch Taabi API integrations");
-      }
+      } catch(e) {}
 
-      // Fallback telemetry helper
       const getTelemetry = (trip) => {
           const cleanVN = (trip.vehicle_number || '').replace(/[- ]/g, '').toUpperCase();
           const tData = taabiData[cleanVN] || {};
           const fData = taabiFuelV3[cleanVN] || {};
           
           const fuelLevel = typeof tData === 'object' ? tData.fuel : tData;
-          const dLeft = trip.actual_delivery_date ? 'Trip Complete' : (fuelLevel || 'N/A');
+          const dLeft = trip.actual_delivery_date ? 'Complete' : (fuelLevel || 'N/A');
           
           let fastagAct = 0;
           try {
@@ -149,16 +114,12 @@ function Dashboard() {
           const km = parseFloat(trip.total_km) || 0;
           const mileage = parseFloat(trip.mileage) || 5.5;
 
-          const dieselNeeded = parseFloat(trip.diesel_liters_needed) || (km > 0 ? (km / mileage).toFixed(2) : 0);
-          const fastagEst = parseFloat(trip.fastag_estimate) || (km > 0 ? (km * 5.75).toFixed(2) : 0);
-
           return { 
-              dieselNeeded, 
+              dieselNeeded: parseFloat(trip.diesel_liters_needed) || (km > 0 ? (km / mileage).toFixed(2) : 0), 
               dieselLeft: dLeft, 
-              fastagEst, 
+              fastagEst: parseFloat(trip.fastag_estimate) || (km > 0 ? (km * 5.75).toFixed(2) : 0), 
               fastagAct,
               actualConsumed: fData.fuelConsumed || 0,
-              actualDistance: fData.distance || km,
               theftVolume: fData.pilfregeVolume || 0,
               refuelVolume: fData.refuelVolume || 0,
           };
@@ -168,52 +129,35 @@ function Dashboard() {
       let filename = "Report.csv";
       const todayStr = new Date().toISOString().split('T')[0];
 
-      // 🌟 NEW EXACT FORMAT EXPORT (WITH V3 FUEL METRICS)
-      if (exportType === 'tracking_sheet') {
-         filename = `Daily_Tracking_Sheet_${todayStr}.csv`;
-         csvData = active.map((trip, idx) => {
+      let targetTrips = allTrips;
+      if (customStatus === 'Active') targetTrips = active;
+      if (customStatus === 'Completed') targetTrips = history;
+
+      if (exportType === 'finance_ledger') {
+         filename = `Finance_Ledger_BLUE_${todayStr}.csv`; 
+         csvData = targetTrips.map((trip, idx) => {
             const cleanVN = (trip.vehicle_number || '').replace(/[- ]/g, '').toUpperCase();
             const taabi = taabiData[cleanVN] || {};
             const isObj = typeof taabi === 'object';
             
             const liveStatus = isObj && taabi.status ? (taabi.status === 'Moving' ? `Moving (${taabi.speed}km/h)` : 'Halted') : 'Offline';
             const liveLocation = isObj && taabi.lat ? `[${taabi.lat}, ${taabi.lng}]` : '-';
-            
             const tele = getTelemetry(trip);
             const advAmt = parseFloat(trip.adv_amt || 0);
 
             return {
-                'SR': idx + 1,
-                'VEH': trip.vehicle_number || '-',
-                'LOADING DATE': trip.trip_start_date || '-',
-                'PARTY': trip.party_name || '-',
-                'FROM': trip.source_city || '-',
-                'TO': trip.destination_city || '-',
-                'M LOCATION': liveLocation,
-                'STATUS': trip.pod_status === 'Pending' ? liveStatus : trip.pod_status,
-                'YSD KMS': tele.actualDistance, 
-                'REASON': '', 
-                'L/R & PAPER CHECK': trip.lr_no || '-',
-                'ADVANCE Y/N': advAmt > 0 ? 'Y' : 'N',
-                'adv': advAmt,
-                'ADV ROUND OFF': advAmt,
-                'Adv paid': advAmt,
-                'Adv pending': 0,
-                'HSD': tele.actualConsumed || tele.dieselNeeded,
-                'ALLOUN D HSD': tele.dieselNeeded,
-                'HSD IN TANK': tele.dieselLeft,
-                'HSD Issued': tele.refuelVolume || '',
-                'HSD pending': tele.theftVolume > 0 ? `THEFT: ${tele.theftVolume}` : ''
+                'SR': idx + 1, 'VEH': trip.vehicle_number || '-', 'LOADING DATE': trip.trip_start_date || '-', 'PARTY': trip.party_name || '-',
+                'FROM': trip.source_city || '-', 'TO': trip.destination_city || '-', 'M LOCATION': liveLocation, 'STATUS': trip.pod_status === 'Pending' ? liveStatus : trip.pod_status,
+                'YSD KMS': '', 'REASON': '', 'L/R & PAPER CHECK': trip.lr_no || '-', 'ADVANCE Y/N': advAmt > 0 ? 'Y' : 'N',
+                'adv': advAmt, 'ADV ROUND OFF': advAmt, 'Adv paid': advAmt, 'Adv pending': '',
+                'HSD': tele.actualConsumed || tele.dieselNeeded, 'ALLOUN D HSD': tele.dieselNeeded, 'HSD IN TANK': tele.dieselLeft, 'HSD Issued': tele.refuelVolume || '',
+                'HSD pending': tele.theftVolume > 0 ? `THEFT: ${tele.theftVolume}` : '', 'ICICI': '', 'idfc': '', 'AXIS': '', 'provider': ''
             };
          });
       }
-      else if (exportType === 'master') {
-         filename = `Detailed_Trip_Report_${todayStr}.csv`;
-         let filtered = allTrips;
-         if (customStatus === 'Active') filtered = active;
-         if (customStatus === 'Completed') filtered = history;
-
-         csvData = filtered.map(trip => {
+      else if (exportType === 'detailed') {
+         filename = `Detailed_Ledger_ORANGE_${todayStr}.csv`; 
+         csvData = targetTrips.map(trip => {
             let advDate = '';
             try {
                 const advList = typeof trip.advance_details === 'string' ? JSON.parse(trip.advance_details) : (trip.advance_details || []);
@@ -225,58 +169,43 @@ function Dashboard() {
             const holding = parseFloat(trip.holding_charge) || 0;
             const gst = parseFloat(trip.gst) || 0;
             const totalFreight = freight + loading + holding + gst;
-            const tele = getTelemetry(trip);
 
             return {
-                'DATE': trip.trip_start_date || '-',
-                'FROM': trip.source_city || '-',
-                'TO': trip.destination_city || '-',
-                'VEHICLE NO': trip.vehicle_number || '-',
-                'PARTY': trip.party_name || '-',
-                'OWNER NAME': trip.owner_name || '-',
-                'FREIGHT': freight,
-                'UNLOADING': loading,
-                'HOLDING': holding,
-                'GST': gst,
-                'TOTAL FREIGHT': totalFreight.toFixed(2),
-                'ADVANCE': trip.adv_amt || 0,
-                'ADVANCE DATE': advDate,
-                'TDS': trip.tds || 0,
-                'EXTRA DEDUCTION': trip.extra_deduction || 0,
-                'BALANCE': trip.balance_payment || 0,
-                'DIESEL NEEDED (Est)': tele.dieselNeeded,
-                'ACTUAL FUEL CONSUMED (L)': tele.actualConsumed,
-                'TOTAL THEFT/PILFERAGE (L)': tele.theftVolume,
-                'TOTAL REFUELS (L)': tele.refuelVolume,
-                'DIESEL LEFT (Taabi)': tele.dieselLeft,
-                'FASTAG EST (Rs)': tele.fastagEst,
-                'FASTAG ACTUAL (Rs)': tele.fastagAct,
-                'POD RECEIVED DATE': trip.pod_received_client_date || '-',
-                'GTA': trip.gta_name || '-',
-                'L R NO.': trip.lr_no || '-',
-                'EWAY BILL': trip.eway_bill || '-'
+                'DATE': trip.trip_start_date || '-', 'FROM': trip.source_city || '-', 'TO': trip.destination_city || '-', 'VEHICLE NO': trip.vehicle_number || '-',
+                'PARTY': trip.party_name || '-', 'OWNER NAME': trip.owner_name || '-', 'FREIGHT': freight, 'UNLOADING': loading, 'HOLDING': holding, 'GST': gst,
+                'TOTAL FREIGHT': totalFreight.toFixed(2), 'ADVANCE': trip.adv_amt || 0, 'ADVANCE DATE': advDate, 'TDS': trip.tds || 0,
+                '200': trip.extra_deduction || 0, 'BALANCE': trip.balance_payment || 0, 'POD RECEIVED DATE': trip.pod_received_client_date || '-', 'GTA': trip.gta_name || '-',
+                'L R NO.': trip.lr_no || '-', 'EWAY BILL': trip.eway_bill || '-'
             };
          });
       }
+      // 🌟 UPDATED: "Today's Activity" - Captures both launches and deliveries on today's date
       else if (exportType === 'today') {
-         filename = `Todays_Dispatches_${todayStr}.csv`;
-         csvData = allTrips.filter(t => t.trip_start_date === todayStr).map(trip => {
-            const tele = getTelemetry(trip);
-            return {
-                'Tracking No': trip.tracking_number || '-', 
-                'Launch Date': trip.trip_start_date || '-', 
-                'Vehicle': trip.vehicle_number || '-', 
-                'Route': `${trip.source_city} to ${trip.destination_city}`,
-                'Party Name': trip.party_name || '-', 
-                'Freight (Rs)': trip.freight_amount || 0, 
-                'Pending Balance (Rs)': trip.balance_payment || 0, 
-                'Diesel Needed (L)': tele.dieselNeeded,
-                'Actual Consumed (L)': tele.actualConsumed,
-                'Diesel Left (Taabi)': tele.dieselLeft,
-                'Fastag Est (Rs)': tele.fastagEst,
-                'Fastag Actual (Rs)': tele.fastagAct,
-                'POD Status': trip.pod_status || 'Pending'
-            };
+         filename = `Todays_Activity_${todayStr}.csv`;
+         
+         const tripsToday = allTrips.filter(t => t.trip_start_date === todayStr || t.actual_delivery_date === todayStr);
+         
+         csvData = tripsToday.map((trip, idx) => {
+             const cleanVN = (trip.vehicle_number || '').replace(/[- ]/g, '').toUpperCase();
+             const taabi = taabiData[cleanVN] || {};
+             const liveLocation = typeof taabi === 'object' && taabi.lat ? `[${taabi.lat}, ${taabi.lng}]` : '-';
+             
+             let actionToday = 'Ongoing';
+             if (trip.trip_start_date === todayStr && trip.actual_delivery_date === todayStr) actionToday = 'Launched & Delivered Today';
+             else if (trip.trip_start_date === todayStr) actionToday = 'Launched Today';
+             else if (trip.actual_delivery_date === todayStr) actionToday = 'Delivered Today';
+
+             return {
+                'SR': idx + 1,
+                'VEHICLE': trip.vehicle_number || '-',
+                'EVENT TODAY': actionToday,
+                'FROM': trip.source_city || '-',
+                'TO': trip.destination_city || '-',
+                'PARTY': trip.party_name || '-',
+                'FREIGHT': trip.freight_amount || 0,
+                'STATUS': trip.pod_status || 'Pending',
+                'LOCATION': liveLocation
+             }
          });
       }
       else if (exportType === 'party') {
@@ -284,39 +213,43 @@ function Dashboard() {
          const partyMap = {};
          allTrips.forEach(trip => {
              const pName = trip.party_name || 'UNKNOWN PARTY';
-             if (!partyMap[pName]) partyMap[pName] = { total: 0, active: 0, completed: 0, pendingRs: 0, totalFreight: 0, dieselNeeded: 0, fastagEst: 0, fastagAct: 0 };
+             if (!partyMap[pName]) partyMap[pName] = { total: 0, active: 0, completed: 0, pendingRs: 0, totalFreight: 0 };
              partyMap[pName].total += 1;
              partyMap[pName].totalFreight += parseFloat(trip.freight_amount || 0);
              partyMap[pName].pendingRs += parseFloat(trip.balance_payment || 0);
              if (trip.actual_delivery_date) partyMap[pName].completed += 1;
              else partyMap[pName].active += 1;
-
-             const tele = getTelemetry(trip);
-             partyMap[pName].dieselNeeded += parseFloat(tele.dieselNeeded || 0);
-             partyMap[pName].fastagEst += parseFloat(tele.fastagEst || 0);
-             partyMap[pName].fastagAct += parseFloat(tele.fastagAct || 0);
          });
          
          csvData = Object.keys(partyMap).map(key => ({
-             'Client / Party Name': key,
-             'Total Trips Managed': partyMap[key].total,
-             'Currently Active Routes': partyMap[key].active,
-             'Completed Routes': partyMap[key].completed,
-             'Total Business (Rs)': partyMap[key].totalFreight.toFixed(2),
-             'Total Outstanding Due (Rs)': partyMap[key].pendingRs.toFixed(2),
-             'Total Diesel Needed (L)': partyMap[key].dieselNeeded.toFixed(2),
-             'Total Fastag Est (Rs)': partyMap[key].fastagEst.toFixed(2),
-             'Total Fastag Actual (Rs)': partyMap[key].fastagAct.toFixed(2),
-             'Status': partyMap[key].pendingRs <= 0 ? 'All Clear (0 Balance)' : 'Payment Pending'
+             'Client / Party Name': key, 'Total Trips Managed': partyMap[key].total, 'Currently Active Routes': partyMap[key].active,
+             'Completed Routes': partyMap[key].completed, 'Total Business (Rs)': partyMap[key].totalFreight.toFixed(2),
+             'Total Outstanding Due (Rs)': partyMap[key].pendingRs.toFixed(2), 'Status': partyMap[key].pendingRs <= 0 ? 'All Clear (0 Balance)' : 'Payment Pending'
          }));
       }
+      else if (exportType === 'driver') {
+          filename = `Driver_Settlement_Ledger_${todayStr}.csv`;
+          const driverMap = {};
+          allTrips.forEach(trip => {
+             const dName = trip.driver_name || 'UNASSIGNED';
+             if (!driverMap[dName]) driverMap[dName] = { trips: 0, totalKm: 0, totalPay: 0, pending: 0 };
+             
+             const km = parseFloat(trip.total_km) || 0;
+             driverMap[dName].trips += 1; driverMap[dName].totalKm += km;
+             driverMap[dName].totalPay += parseFloat(trip.driver_total) || (km * 4.5);
+             if (!trip.driver_paid) driverMap[dName].pending += parseFloat(trip.driver_remaining) || (km * 1.0);
+          });
+
+          csvData = Object.keys(driverMap).map(key => ({
+              'Driver Name': key, 'Total Trips': driverMap[key].trips, 'Total KM Driven': driverMap[key].totalKm,
+              'Total Pay Calculated (Rs)': driverMap[key].totalPay.toFixed(2), 'Pending Settlement (Rs)': driverMap[key].pending.toFixed(2),
+              'Status': driverMap[key].pending <= 0 ? 'Settled' : 'Unpaid Dues'
+          }));
+      }
+      // RESTORED: CUSTOM TELEMETRY REPORT GENERATOR
       else if (exportType === 'custom') {
          filename = `Custom_Report_${todayStr}.csv`;
-         let filtered = allTrips;
-         if (customStatus === 'Active') filtered = active;
-         if (customStatus === 'Completed') filtered = history;
-         
-         csvData = filtered.map(trip => {
+         csvData = targetTrips.map(trip => {
             const row = {};
             const tele = getTelemetry(trip);
 
@@ -340,7 +273,7 @@ function Dashboard() {
       }
 
       if (csvData.length === 0) {
-         alert("No data available for this report type!");
+         alert("No data available for this report filter!");
          setLoading(false);
          return;
       }
@@ -364,24 +297,35 @@ function Dashboard() {
     }
   };
 
-  // --- EXCEL PREVIEW GENERATOR ---
   const getPreviewData = () => {
-      if (exportType === 'tracking_sheet') {
+      if (exportType === 'finance_ledger') {
           return {
-              headers: ['SR', 'VEH', 'LOADING DATE', 'PARTY', 'FROM', 'TO', 'M LOCATION', 'STATUS', 'YSD KMS', 'REASON', 'L/R & PAPER CHECK', 'ADVANCE Y/N', 'adv', 'HSD IN TANK'],
-              rows: [['1', 'RJ14-1438', '30/07/2026', 'MAHAVEERA', 'BANGALORE', 'DURG', 'Live: [28.2, 75.3]', 'Moving (45km/h)', '120.5', '', '5425', 'Y', '5425', '215 L']]
+              headers: ['SR', 'VEH', 'LOADING DATE', 'PARTY', 'FROM', 'TO', 'M LOCATION', 'STATUS', 'YSD KMS', 'REASON', 'L/R & PAPER CHECK', 'ADVANCE Y/N', 'adv', 'ADV ROUND OFF', 'Adv paid', 'Adv pending', 'HSD', 'ALLOUN D HSD', 'HSD IN TANK', 'HSD Issued', 'HSD pending', 'ICICI', 'idfc', 'AXIS', 'provider'],
+              rows: [['1', '1438', '30/07/2026', 'MAHAVEERA', 'BANGALORE', 'DURG', 'Live: [28.2, 75.3]', 'Moving (45km/h)', '', '', '5425', 'Y', '5425', '5425', '5425', '0', '282', '332', '117', '', '215', '', '', '', '']]
           };
       }
-      if (exportType === 'master') {
+      if (exportType === 'detailed') {
           return {
-              headers: ['DATE', 'FROM', 'TO', 'VEHICLE NO', 'PARTY', 'TOTAL FREIGHT', 'BALANCE', 'DIESEL NEEDED (L)', 'DIESEL LEFT (Taabi)', 'FASTAG EST (Rs)', 'FASTAG ACTUAL (Rs)'],
-              rows: [['02 Apr 26', 'BHIWADI', 'JAIPUR', 'RJ14-8674', 'GODREJ', '20,060.00', '0', '150', '250.5', '1725', '1800']]
+              headers: ['DATE', 'FROM', 'TO', 'VEHICLE NO', 'PARTY', 'OWNER NAME', 'FREIGHT', 'UNLOADING', 'HOLDING', 'GST', 'TOTAL FREIGHT', 'ADVANCE', 'ADVANCE DATE', 'TDS', '200', 'BALANCE', 'POD RECEIVED DATE', 'GTA', 'L R NO.', 'EWAY BILL'],
+              rows: [['02 Apr 26', 'BHIWADI', 'JAIPUR', '8674', 'GODREJ', 'JFC (A)', '17000', '3060', '0', '0', '20060.00', '19720', '21/05/2026', '340', '-', '0', '04/04/2026', 'JFC', '1520', '03/04/2026']]
           };
+      }
+      if (exportType === 'today') {
+         return {
+             headers: ['SR', 'VEHICLE', 'EVENT TODAY', 'FROM', 'TO', 'PARTY', 'FREIGHT', 'STATUS', 'LOCATION'],
+             rows: [['1', 'RJ14GQ2305', 'Launched Today', 'JAIPUR', 'DELHI', 'GODREJ', '25000', 'Pending', 'Live: [28.2, 75.3]'], ['2', 'RJ14GB1234', 'Delivered Today', 'MUMBAI', 'PUNE', 'TATA', '12000', 'Client Received', '-']]
+         };
       }
       if (exportType === 'party') {
           return {
-              headers: ['Client Name', 'Total Trips', 'Business (Rs)', 'Pending (Rs)', 'Diesel Needed (L)', 'Fastag Est (Rs)', 'Fastag Actual (Rs)', 'Status'],
-              rows: [['GODREJ INDUSTRIES', '45', '850,000.00', '45,000.00', '6500.00', '70000.00', '78500.00', 'Payment Pending']]
+              headers: ['Client Name', 'Total Trips', 'Active', 'Completed', 'Business (Rs)', 'Pending (Rs)', 'Status'],
+              rows: [['GODREJ INDUSTRIES', '45', '2', '43', '850,000.00', '45,000.00', 'Payment Pending']]
+          };
+      }
+      if (exportType === 'driver') {
+          return {
+              headers: ['Driver Name', 'Total Trips', 'Total KM Driven', 'Total Pay Calculated (Rs)', 'Pending Settlement (Rs)', 'Status'],
+              rows: [['Rajesh Singh', '12', '14500', '65250.00', '14500.00', 'Unpaid Dues']]
           };
       }
       if (exportType === 'custom') {
@@ -394,7 +338,6 @@ function Dashboard() {
           if (exportCols.party_name) row.push('GODREJ');
           if (exportCols.freight_amount) row.push('17000');
           if (exportCols.balance_payment) row.push('0');
-          if (exportCols.pod_status) row.push('Client Received');
           if (exportCols.diesel_needed) row.push('150');
           if (exportCols.diesel_left) row.push('250.5');
           if (exportCols.fastag_est) row.push('1725');
@@ -404,7 +347,7 @@ function Dashboard() {
           if (exportCols.thefts) row.push('0');
           return { headers, rows: [row] };
       }
-      return { headers: ['Tracking No', 'Launch Date', 'Vehicle', 'Route', 'Party Name', 'Freight (Rs)', 'Diesel Needed (L)', 'Diesel Left (Taabi)', 'Fastag Est (Rs)', 'Fastag Actual (Rs)'], rows: [['RJ14-GODR-020426-1', '2026-04-02', 'RJ14-8674', 'BHIWADI to JAIPUR', 'GODREJ', '17000', '150', '250.5', '1725', '1800']] };
+      return { headers: [], rows: [] };
   };
 
   const kpiCards = [
@@ -422,8 +365,6 @@ function Dashboard() {
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto relative">
-      
-      {/* HEADER */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Operations Overview</h1>
@@ -434,7 +375,6 @@ function Dashboard() {
         </button>
       </div>
 
-      {/* DRIVER WARNING BANNER */}
       {expiringDrivers.length > 0 && (
         <div className="bg-rose-50 border border-rose-200 p-4 rounded-xl flex items-center justify-between shadow-sm">
           <div className="flex items-center gap-3">
@@ -444,11 +384,10 @@ function Dashboard() {
               <p className="text-xs text-rose-700">{expiringDrivers.length} driver(s) have licenses expiring soon or already expired.</p>
             </div>
           </div>
-          <button onClick={() => setShowDriverModal(true)} className="bg-rose-600 text-white text-xs px-4 py-2 rounded-lg font-semibold hover:bg-rose-700 transition shadow-sm cursor-pointer">Review Drivers</button>
+          <button onClick={() => { setShowDriverModal(true); navigate('/driver-history'); }} className="bg-rose-600 text-white text-xs px-4 py-2 rounded-lg font-semibold hover:bg-rose-700 transition shadow-sm cursor-pointer">Review</button>
         </div>
       )}
 
-      {/* KPI CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {kpiCards.map((kpi, idx) => (
           <div key={idx} onClick={() => navigate(kpi.path)} className={`bg-white p-5 rounded-xl border border-gray-200 cursor-pointer transition-all hover:border-gray-400 hover:shadow-sm flex flex-col justify-between h-32 ${kpi.alert ? 'border-rose-200 shadow-[0_0_10px_rgba(225,29,72,0.05)]' : ''}`}>
@@ -464,7 +403,6 @@ function Dashboard() {
         ))}
       </div>
 
-      {/* RECENT TRIPS TABLE */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
           <h3 className="font-semibold text-gray-800">Recent Active Trips</h3>
@@ -498,26 +436,21 @@ function Dashboard() {
         )}
       </div>
 
-      {/* EXCEL REPORT MODAL */}
       {showExportModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl border w-full max-w-6xl overflow-hidden flex flex-col md:flex-row animate-in fade-in zoom-in-95 duration-200 h-[85vh] md:h-[600px]">
             
-            {/* Left Sidebar */}
             <div className="w-full md:w-1/3 bg-gray-50 border-r border-gray-200 p-5 flex flex-col gap-2 overflow-y-auto">
-               <h3 className="font-bold text-gray-900 mb-2 uppercase text-xs tracking-wider">Select Report Type</h3>
+               <h3 className="font-bold text-gray-900 mb-2 uppercase text-xs tracking-wider">Select Layout Format</h3>
                {[
-                 { id: 'tracking_sheet', icon: Navigation, title: "Daily Live Tracking", desc: "Matches exact daily operations format." },
-                 { id: 'master', icon: Table, title: "Detailed Trip Report", desc: "Complete financial ledger." },
-                 { id: 'today', icon: FileText, title: "Today's Dispatches", desc: "Trips launched today." },
-                 { id: 'party', icon: BriefcaseBusiness, title: "Client Ledger", desc: "0-Balance vs Pending clients." },
-                 { id: 'custom', icon: Settings2, title: "Custom Telemetry", desc: "Fastag & Taabi Diesel data." }
+                 { id: 'finance_ledger', icon: Navigation, title: "Finance Ledger (Blue)", desc: "Operational sheet with editable blank columns" },
+                 { id: 'detailed', icon: Table, title: "Detailed Ledger (Orange)", desc: "Complete financial ledger matching the orange sheet" },
+                 { id: 'today', icon: FileText, title: "Today's Activity", desc: "Trips launched or delivered today" },
+                 { id: 'party', icon: BriefcaseBusiness, title: "Client Master Ledger", desc: "Client-wise outstanding balances" },
+                 { id: 'driver', icon: Users, title: "Driver Settlement", desc: "Driver remaining pay & KM logs" },
+                 { id: 'custom', icon: Settings2, title: "Custom Telemetry", desc: "Select specific columns to export" }
                ].map(opt => (
-                  <div 
-                     key={opt.id} 
-                     onClick={() => setExportType(opt.id)}
-                     className={`p-3 rounded-xl border-2 cursor-pointer transition flex items-start gap-3 ${exportType === opt.id ? 'border-emerald-500 bg-emerald-50/50 shadow-sm' : 'border-transparent hover:bg-gray-100 text-gray-600'}`}
-                  >
+                  <div key={opt.id} onClick={() => setExportType(opt.id)} className={`p-3 rounded-xl border-2 cursor-pointer transition flex items-start gap-3 ${exportType === opt.id ? 'border-emerald-500 bg-emerald-50/50 shadow-sm' : 'border-transparent hover:bg-gray-100 text-gray-600'}`}>
                      <opt.icon className={`h-5 w-5 mt-0.5 ${exportType === opt.id ? 'text-emerald-600' : 'text-gray-400'}`}/>
                      <div>
                         <div className={`font-bold text-sm ${exportType === opt.id ? 'text-emerald-900' : 'text-gray-700'}`}>{opt.title}</div>
@@ -527,22 +460,18 @@ function Dashboard() {
                ))}
             </div>
 
-            {/* Right Side */}
             <div className="w-full md:w-2/3 p-6 flex flex-col justify-between bg-white overflow-y-auto">
                <div>
                   <div className="flex justify-between items-center mb-6">
-                      <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                         <FileSpreadsheet className="h-5 w-5 text-emerald-600"/> Report Configuration
-                      </h2>
+                      <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2"><FileSpreadsheet className="h-5 w-5 text-emerald-600"/> Report Configuration</h2>
                       <button onClick={() => setShowExportModal(false)} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 transition cursor-pointer"><X className="h-5 w-5" /></button>
                   </div>
 
-                  {/* Configuration Controls */}
                   {exportType === 'custom' ? (
                       <div className="space-y-4 animate-in fade-in mb-6">
                           <div>
                               <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block">1. Select Trip Status</label>
-                              <select className="w-full border border-gray-300 rounded-lg p-2.5 text-sm font-semibold outline-none cursor-pointer" value={customStatus} onChange={e => setCustomStatus(e.target.value)}>
+                              <select className="w-full border border-gray-300 rounded-lg p-2.5 text-sm font-semibold outline-none cursor-pointer bg-white" value={customStatus} onChange={e => setCustomStatus(e.target.value)}>
                                   <option value="All">All Database Trips (Active + Completed)</option>
                                   <option value="Active">Only Active / Running Trips</option>
                                   <option value="Completed">Only Completed / Delivered Trips</option>
@@ -560,40 +489,32 @@ function Dashboard() {
                               </div>
                           </div>
                       </div>
-                  ) : ['master', 'active', 'completed'].includes(exportType) ? (
-                      <div className="mb-6 w-full max-w-sm">
-                          <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block">Filter Data To Export</label>
-                          <select className="w-full border border-gray-300 rounded-lg p-2.5 text-sm font-semibold outline-none cursor-pointer" value={customStatus} onChange={e => setCustomStatus(e.target.value)}>
-                              <option value="All">Export All Trips</option>
-                              <option value="Active">Export Only Active Trips</option>
-                              <option value="Completed">Export Only Completed Trips</option>
+                  ) : (
+                      <div className="mb-6 w-full bg-gray-50 p-4 rounded-xl border border-gray-200 animate-in fade-in">
+                          <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-2 block">Filter Rows to Export</label>
+                          <select className="w-full border border-gray-300 rounded-lg p-2.5 text-sm font-semibold outline-none cursor-pointer bg-white" value={customStatus} onChange={e => setCustomStatus(e.target.value)}>
+                              <option value="All">Export All Database Records</option>
+                              <option value="Active">Export Only Active/Running Trips</option>
+                              <option value="Completed">Export Only Completed/Delivered Trips</option>
                           </select>
+                          <p className="text-[10px] text-gray-500 mt-2 leading-tight">Note: Output formats strictly adhere to standard CSV templates to ensure copy-pasting aligns perfectly with your offline Excel files.</p>
                       </div>
-                  ) : null}
+                  )}
 
-                  {/* 🌟 LIVE EXCEL PREVIEW BOX */}
                   <div className="border border-emerald-200 rounded-lg overflow-hidden shadow-sm bg-white animate-in fade-in">
                       <div className="bg-emerald-50/50 border-b border-emerald-100 px-3 py-2 flex items-center justify-between">
-                          <div className="text-xs font-bold text-emerald-800 flex items-center gap-1.5">
-                             <Table className="h-4 w-4" /> Excel File Preview
-                          </div>
+                          <div className="text-xs font-bold text-emerald-800 flex items-center gap-1.5"><Table className="h-4 w-4" /> Live Format Preview</div>
                           <span className="text-[10px] font-semibold text-emerald-600 uppercase bg-emerald-100 px-2 py-0.5 rounded">Sample Data</span>
                       </div>
                       <div className="overflow-x-auto max-w-full">
                           <table className="w-full text-left whitespace-nowrap text-[11px] font-mono">
                              <thead className="bg-gray-100 border-b border-gray-200 text-gray-700">
-                                <tr>
-                                   {preview.headers.length > 0 ? preview.headers.map((h, i) => (
-                                      <th key={i} className="p-2 border-r border-gray-200 font-bold bg-slate-200/50">{h}</th>
-                                   )) : <th className="p-2 text-rose-500">Select at least one column.</th>}
-                                </tr>
+                                <tr>{preview.headers.length > 0 ? preview.headers.map((h, i) => (<th key={i} className="p-2 border-r border-gray-200 font-bold bg-slate-200/50">{h}</th>)) : <th className="p-2 text-rose-500">Select at least one column.</th>}</tr>
                              </thead>
                              <tbody>
                                 {preview.rows.map((row, rIdx) => (
                                     <tr key={rIdx} className="hover:bg-blue-50/50 transition">
-                                       {row.map((cell, cIdx) => (
-                                           <td key={cIdx} className="p-2 border-r border-gray-100 border-b border-gray-100 text-gray-600">{cell}</td>
-                                       ))}
+                                       {row.map((cell, cIdx) => (<td key={cIdx} className="p-2 border-r border-gray-100 border-b border-gray-100 text-gray-600">{cell}</td>))}
                                     </tr>
                                 ))}
                              </tbody>
@@ -607,43 +528,11 @@ function Dashboard() {
                   <button onClick={() => setShowExportModal(false)} className="px-5 py-2.5 text-sm font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition cursor-pointer">Cancel</button>
                   <button onClick={generateReport} className="px-6 py-2.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition flex items-center gap-2 cursor-pointer">
                      {loading ? <Loader2 className="h-4 w-4 animate-spin"/> : <Download className="h-4 w-4"/>} 
-                     Generate & Download Excel
+                     Download Excel (CSV)
                   </button>
                </div>
             </div>
 
-          </div>
-        </div>
-      )}
-
-      {/* DRIVER EXPIRY MODAL */}
-      {showDriverModal && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border w-full max-w-2xl overflow-hidden">
-            <div className="px-6 py-4 border-b flex items-center justify-between bg-gray-50">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-rose-500" />
-                <h2 className="text-lg font-bold text-gray-900">Action Required: License Renewals</h2>
-              </div>
-              <button onClick={() => setShowDriverModal(false)} className="p-1.5 hover:bg-gray-200 rounded-lg text-gray-500 transition cursor-pointer"><X className="h-5 w-5" /></button>
-            </div>
-            <div className="p-6 max-h-[60vh] overflow-y-auto space-y-3">
-                {expiringDrivers.map((driver, index) => (
-                  <div key={index} className="flex items-center justify-between p-4 rounded-xl border border-gray-100 bg-white shadow-sm">
-                    <div>
-                      <div className="font-bold text-gray-900 text-base">{driver.name}</div>
-                      <div className="text-sm text-gray-500 mt-0.5">DL: <span className="font-mono text-gray-700">{driver.dl_number}</span></div>
-                    </div>
-                    <div className="text-right flex flex-col items-end">
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold border ${driver.status === 'Expired' ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>{driver.status}</span>
-                      <div className="text-xs text-gray-500 mt-2 font-medium">Expires: {driver.dl_expiry_date}</div>
-                    </div>
-                  </div>
-                ))}
-            </div>
-            <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-3">
-              <button onClick={() => setShowDriverModal(false)} className="px-4 py-2 text-sm font-bold text-white bg-blue-600 rounded-lg cursor-pointer">Done</button>
-            </div>
           </div>
         </div>
       )}

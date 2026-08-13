@@ -19,9 +19,16 @@ TAABI_API_KEY = os.getenv("TAABI_API_KEY")
 
 app = FastAPI(title="Jain Freight Carrier")
 
+# 🌟 STRICT CORS FIX: Explicitly allowing your Vite frontend to prevent blocking
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_credentials=True,
-    allow_methods=["*"], allow_headers=["*"],
+    CORSMiddleware, 
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+    ], 
+    allow_credentials=True,
+    allow_methods=["*"], 
+    allow_headers=["*"],
 )
 
 os.makedirs("uploads", exist_ok=True)
@@ -101,7 +108,6 @@ class DriverSettleUpdate(BaseModel):
 # --- TAABI TELEMETRY & V3 FUEL API ---
 def get_taabi_live_data(vehicle_number):
     url = "https://dev-api-dtwin.taabi.ai/graphql"
-    # 🌟 Reverted to the strict, safe GraphQL query so the API stops crashing and comes back online
     query = "query getAllDeviceLocations($configs: Configs) { devices: getAllDeviceLocations(configs: $configs) { vehicleNumber, speed, haltStatus, latitude, longitude, fuelValueLtrs, adblue_level } }"
     payload = {"query": query, "variables": {"configs": {}}}
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {TAABI_API_KEY}"}
@@ -512,6 +518,7 @@ def get_trip_details(trip_id: int):
     cursor.close(); conn.close()
     return res
 
+# 🌟 LOGGING LOGIC INTEGRATED HERE
 @app.post("/finances/calculate")
 def calculate_finance(data: dict):
     conn = get_db_connection()
@@ -560,6 +567,13 @@ def calculate_finance(data: dict):
             gst_en, bool(data.get('include_loading_in_gst', False)), bool(data.get('include_holding_in_gst', False)), 
             trip_id
         ))
+        
+        # INSERT LOG RECORD
+        log_details = f"Financial ledger updated for Trip ID {trip_id}. Freight: ₹{freight}, New Balance: ₹{balance}"
+        cursor.execute("""
+            INSERT INTO activity_logs (action, details) 
+            VALUES (%s, %s)
+        """, ("Finance Edited", log_details))
         
         conn.commit()
         return {"status": "Success"}
@@ -717,6 +731,20 @@ def settle_driver_payment(data: DriverSettleUpdate):
     except Exception as e:
         conn.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.get("/logs")
+def get_system_logs():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id, action, details, created_at FROM activity_logs ORDER BY created_at DESC LIMIT 50;")
+        res = [dict(zip([d[0] for d in cursor.description], row)) for row in cursor.fetchall()]
+        return res
+    except Exception as e:
+        return []
     finally:
         cursor.close()
         conn.close()
