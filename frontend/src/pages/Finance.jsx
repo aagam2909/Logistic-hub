@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useReactToPrint } from 'react-to-print';
-import { Printer, Search, FileText, Receipt, PlusCircle, X, Save } from 'lucide-react';
-import ActivityLog from '../utils/ActivityLog';
+import { Printer, Search, FileText, Receipt, ChevronDown, Loader2 } from 'lucide-react'; // Added Loader2
+import ActivityLog from '../utils/ActivityLog'; // Changed to utils
 
 const API_BASE = import.meta.env.VITE_API_URL;
-const PRESET_BANKS = ['JTA 0706', 'JTA 0611', 'JFC 7734', 'JFC 1487'];
 
 function numberToWords(num) {
     if (!num || isNaN(num) || num === 0) return "ZERO ONLY";
@@ -28,16 +27,7 @@ function Finance() {
   const [loading, setLoading] = useState(false);
   const [allTrips, setAllTrips] = useState([]);
   
-  const [viewType, setViewType] = useState('receipt');
-
-  // --- EDITABLE FINANCE STATE ---
-  const [activeCharges, setActiveCharges] = useState({ loading: false, holding: false, gst: false, bill_no: false });
-  const [finance, setFinance] = useState({ 
-    freight_amount: 0, tds: 0, finance_remarks: '', loading_charge: 0, gst: 0, holding_charge: 0, extra_deduction: 0,
-    total_km: 0, driver_advance: 0, driver_remaining: 0, driver_total: 0, diesel_liters_needed: 0, fastag_estimate: 0,
-    advance_details: [{ date: '', amount: '' }], fastag_details: [], bill_no: '', bank_account: 'JFC 7734', 
-    gst_enabled: false, include_loading_in_gst: false, include_holding_in_gst: false
-  });
+  const [viewType, setViewType] = useState('receipt'); 
 
   const printRef = useRef(null);
   const handlePrint = useReactToPrint({ contentRef: printRef });
@@ -53,30 +43,7 @@ function Finance() {
     setLoading(true);
     try {
       const res = await axios.get(`${API_BASE}/track/${encodeURIComponent(trackingNumber)}`);
-      const tripData = res.data.trip || res.data;
-      setTrip(tripData);
-
-      const parsedAdvances = tripData.advance_details ? (typeof tripData.advance_details === 'string' ? JSON.parse(tripData.advance_details) : tripData.advance_details) : [];
-      const parsedFastag = tripData.fastag_details ? (typeof tripData.fastag_details === 'string' ? JSON.parse(tripData.fastag_details) : tripData.fastag_details) : [];
-      
-      const km = parseFloat(tripData.total_km) || 0;
-      const mileage = parseFloat(tripData.mileage) || 5.5;
-      
-      const currentOwner = tripData.owner_name?.toUpperCase() || '';
-
-      setFinance({
-        freight_amount: tripData.freight_amount || 0, loading_charge: tripData.loading_charge || 0, gst: tripData.gst || 0, holding_charge: tripData.holding_charge || 0,
-        tds: tripData.tds || 0, extra_deduction: tripData.extra_deduction || 0, finance_remarks: tripData.finance_remarks || '',
-        total_km: km, driver_advance: tripData.driver_advance || 0, driver_remaining: tripData.driver_remaining || 0, driver_total: tripData.driver_total || 0,
-        diesel_liters_needed: parseFloat(tripData.diesel_liters_needed) || (km > 0 ? (km / mileage).toFixed(2) : 0), 
-        fastag_estimate: parseFloat(tripData.fastag_estimate) || (km > 0 ? km * 5.75 : 0),
-        advance_details: parsedAdvances.length > 0 ? parsedAdvances : [{ date: '', amount: '' }], fastag_details: parsedFastag,
-        bill_no: tripData.bill_no || '', bank_account: tripData.bank_account || (['JTA', 'JTA(A)'].includes(currentOwner) ? 'JTA 0706' : 'JFC 7734'), 
-        gst_enabled: Boolean(tripData.gst_enabled), include_loading_in_gst: Boolean(tripData.include_loading_in_gst), include_holding_in_gst: Boolean(tripData.include_holding_in_gst)
-      });
-
-      setActiveCharges({ loading: parseFloat(tripData.loading_charge || 0) > 0, holding: parseFloat(tripData.holding_charge || 0) > 0, gst: Boolean(tripData.gst_enabled), bill_no: !!tripData.bill_no });
-
+      setTrip(res.data.trip || res.data);
     } catch (err) {
       alert("Trip not found. Please check the tracking number.");
       setTrip(null);
@@ -85,74 +52,36 @@ function Finance() {
     }
   };
 
-  const handleFinanceChange = (field, value, customActiveCharges = activeCharges, customFinance = finance) => {
-    let newFinance = { ...customFinance };
-    if (field !== 'TOGGLE_ACTIVE') newFinance[field] = value;
-    if (['freight_amount', 'loading_charge', 'holding_charge', 'gst_enabled', 'include_loading_in_gst', 'include_holding_in_gst', 'TOGGLE_ACTIVE'].includes(field)) {
-        const freight = parseFloat(newFinance.freight_amount || 0); 
-        const loading = customActiveCharges.loading ? parseFloat(newFinance.loading_charge || 0) : 0; 
-        const holding = customActiveCharges.holding ? parseFloat(newFinance.holding_charge || 0) : 0;
-        newFinance.gst = newFinance.gst_enabled ? ((freight + (newFinance.include_loading_in_gst ? loading : 0) + (newFinance.include_holding_in_gst ? holding : 0)) * 0.18).toFixed(2) : 0.00;
-    }
-    setFinance(newFinance);
-  };
+  // --- SAFE MATH FOR READ-ONLY RENDER ---
+  const advances = trip?.advance_details ? (typeof trip.advance_details === 'string' ? JSON.parse(trip.advance_details) : trip.advance_details) : [];
+  const parsedFastag = trip?.fastag_details ? (typeof trip.fastag_details === 'string' ? JSON.parse(trip.fastag_details) : trip.fastag_details) : [];
 
-  const toggleCharge = (chargeName) => {
-    const newActive = { ...activeCharges, [chargeName]: !activeCharges[chargeName] };
-    setActiveCharges(newActive); handleFinanceChange('TOGGLE_ACTIVE', null, newActive, finance);
-  };
+  const km = parseFloat(trip?.total_km) || 0;
+  const mileage = parseFloat(trip?.mileage) || 5.5;
 
-  const handleArrayChange = (arrayName, index, field, value) => {
-    const newArr = [...finance[arrayName]];
-    newArr[index] = { ...newArr[index], [field]: value };
-    setFinance({ ...finance, [arrayName]: newArr });
-  };
-  const addArrayRow = (arrayName, emptyObj) => setFinance({ ...finance, [arrayName]: [...finance[arrayName], emptyObj] });
-  const removeArrayRow = (arrayName, index) => setFinance({ ...finance, [arrayName]: finance[arrayName].filter((_, i) => i !== index) });
-
-  const calculatePending = () => {
-    const loading = activeCharges.loading ? parseFloat(finance.loading_charge || 0) : 0; 
-    const holding = activeCharges.holding ? parseFloat(finance.holding_charge || 0) : 0; 
-    const gst = finance.gst_enabled ? parseFloat(finance.gst || 0) : 0;
-    const totalAdv = finance.advance_details.reduce((sum, adv) => sum + parseFloat(adv.amount || 0), 0);
-    return ((parseFloat(finance.freight_amount || 0) + loading + gst + holding) - (totalAdv + parseFloat(finance.tds || 0) + parseFloat(finance.extra_deduction || 0))).toFixed(2);
-  };
-
-  const handleKmChange = (e) => {
-    const km = parseFloat(e.target.value) || 0;
-    const mileage = parseFloat(trip?.mileage) || 5.5; 
-    setFinance({ ...finance, total_km: km, driver_advance: km * 3.5, driver_remaining: km * 1.0, driver_total: km * 4.5, fastag_estimate: km * 5.75, diesel_liters_needed: km > 0 ? (km / mileage).toFixed(2) : 0 });
-  };
-
-  const handleSaveFinance = async () => {
-    try {
-      await axios.post(`${API_BASE}/finances/calculate`, { ...finance, loading_charge: activeCharges.loading ? finance.loading_charge : 0, holding_charge: activeCharges.holding ? finance.holding_charge : 0, gst: finance.gst_enabled ? finance.gst : 0, bill_no: activeCharges.bill_no ? finance.bill_no : '', trip_id: trip.trip_id });
-      alert("Ledger Saved & Logged!"); 
-    } catch (err) {
-      alert("Error saving finance data.");
-    }
-  };
-
-  const isCustomBank = finance.bank_account === '' || !PRESET_BANKS.includes(finance.bank_account);
-  const totalFastagActual = finance.fastag_details.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
+  const displayDiesel = parseFloat(trip?.diesel_liters_needed) || (km > 0 ? (km / mileage).toFixed(2) : 0);
+  const displayFastagEst = parseFloat(trip?.fastag_estimate) || (km > 0 ? km * 5.75 : 0);
+  const totalFastagActual = parsedFastag.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
   
-  const freight = parseFloat(finance.freight_amount || 0);
-  const unloading = activeCharges.loading ? parseFloat(finance.loading_charge || 0) : 0; 
-  const holding = activeCharges.holding ? parseFloat(finance.holding_charge || 0) : 0;
+  const freight = parseFloat(trip?.freight_amount || 0);
+  const loadingCharge = parseFloat(trip?.loading_charge || 0);
+  const holdingCharge = parseFloat(trip?.holding_charge || 0);
+  const gstAmount = parseFloat(trip?.gst || 0);
+  const tds = parseFloat(trip?.tds || 0);
+  const extraDeduction = parseFloat(trip?.extra_deduction || 0);
   
-  const exactBillTotalFreight = freight + unloading; // Holding excluded from Bill PDF
-  const gstAmount = parseFloat(finance.gst || 0);
+  const totalAdvances = advances.reduce((sum, adv) => sum + parseFloat(adv.amount || 0), 0);
+  const balancePayment = parseFloat(trip?.balance_payment || 0);
+
+  const exactBillTotalFreight = freight + loadingCharge; // Holding excluded from Client Bill visual
+  const finalTotalAmount = exactBillTotalFreight + gstAmount;
   const gstHalf = (gstAmount / 2).toFixed(2);
   const isIGST = trip?.source_city?.toLowerCase() !== trip?.destination_city?.toLowerCase(); 
-  const isGstEnabled = finance.gst_enabled;
+  const isGstEnabled = Boolean(trip?.gst_enabled);
 
-  const finalTotalAmount = exactBillTotalFreight + gstAmount;
-  const totalAdvances = finance.advance_details.reduce((sum, adv) => sum + parseFloat(adv.amount || 0), 0);
-  const finalBalancePayable = finalTotalAmount - totalAdvances;
-
-  // 🌟 FULLY AUTOMATIC COMPANY DETECTION LOGIC 🌟
+  // 🌟 AUTOMATIC COMPANY DETECTION
   const currentOwner = trip?.owner_name?.toUpperCase() || '';
-  const isJFC = currentOwner === 'JFC'; // Auto logic based on owner_name
+  const isJFC = currentOwner === 'JFC'; 
   const activeCompanyCode = isJFC ? 'JFC' : 'JTA';
 
   const companyDetails = {
@@ -164,11 +93,12 @@ function Finance() {
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6">
       
+      {/* Search Bar - Fixed alignment */}
       <div className="print:hidden bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-        <h2 className="text-2xl font-bold text-slate-800 mb-4">Finance & Billing</h2>
+        <h2 className="text-2xl font-bold text-slate-800 mb-4">Finance & Billing (Read-Only)</h2>
         <div className="flex flex-col md:flex-row gap-3">
           <input
-            className="border border-gray-300 p-3.5 rounded-xl flex-1 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none font-semibold text-slate-700 transition"
+            className="border border-gray-300 p-3.5 rounded-xl flex-1 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-100 outline-none font-semibold text-slate-700 transition w-full"
             list="all-trip-numbers"
             placeholder="Search Tracking Number (e.g., RJ14GQ2301...)"
             value={trackingNumber}
@@ -177,8 +107,8 @@ function Finance() {
           <datalist id="all-trip-numbers">
             {allTrips.map(t => <option key={t.trip_id} value={t.tracking_number} />)}
           </datalist>
-          <button onClick={handleSearch} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3.5 rounded-xl font-bold transition shadow-sm flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap">
-            {loading ? 'Loading...' : <><Search className="h-5 w-5"/> Load Trip</>}
+          <button onClick={handleSearch} disabled={loading} className="w-full md:w-auto shrink-0 bg-blue-600 hover:bg-blue-700 text-white px-8 py-3.5 rounded-xl font-bold transition shadow-sm flex items-center justify-center gap-2 cursor-pointer">
+            {loading ? <Loader2 className="h-5 w-5 animate-spin"/> : <><Search className="h-5 w-5"/> Load Trip</>}
           </button>
         </div>
       </div>
@@ -186,33 +116,44 @@ function Finance() {
       {trip && (
         <div className="space-y-6 animate-in fade-in duration-300">
           
-          <div className="print:hidden bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex flex-col md:flex-row justify-between items-center gap-4">
-             <div className="bg-slate-50 px-4 py-2 rounded-lg border border-gray-200 w-full md:w-auto text-center md:text-left">
-                <span className="text-xs text-gray-500 font-bold block uppercase tracking-wider">Loaded Entry</span>
-                <span className="font-bold text-slate-800 break-all">{trip.tracking_number}</span>
+          {/* Loaded Entry & View Toggles - Fixed wrapping and layout */}
+          <div className="print:hidden bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex flex-col lg:flex-row justify-between items-stretch gap-4">
+             
+             {/* Left side: Entry details */}
+             <div className="bg-slate-50 px-5 py-3 rounded-xl border border-gray-200 w-full lg:flex-1 flex flex-col justify-center">
+                <span className="text-xs text-gray-500 font-bold block uppercase tracking-wider mb-1">Loaded Entry</span>
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-bold text-slate-800 break-all text-sm md:text-base leading-tight">
+                        {trip.tracking_number}
+                    </span>
+                    <span className="shrink-0 px-2 py-0.5 rounded text-[10px] font-bold border bg-white text-slate-600 border-slate-200 uppercase tracking-wider shadow-sm">
+                        Read-Only
+                    </span>
+                </div>
              </div>
              
-             <div className="flex items-center gap-2 w-full md:w-auto bg-gray-100 p-1 rounded-xl">
-                 <button onClick={() => setViewType('receipt')} className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-5 py-2 rounded-lg font-bold transition cursor-pointer ${viewType === 'receipt' ? 'bg-white text-slate-900 shadow-sm border border-gray-200' : 'text-gray-500 hover:text-slate-700'}`}>
-                     <Receipt className="h-4 w-4"/> Internal Editable Receipt
+             {/* Right side: View Toggle Buttons */}
+             <div className="flex flex-row items-center gap-2 w-full lg:w-auto bg-gray-100 p-1.5 rounded-xl shrink-0 h-full">
+                 <button onClick={() => setViewType('receipt')} className={`flex-1 lg:flex-none flex items-center justify-center gap-2 px-5 py-3 md:py-2 h-full rounded-lg font-bold transition cursor-pointer ${viewType === 'receipt' ? 'bg-white text-slate-900 shadow-sm border border-gray-200' : 'text-gray-500 hover:text-slate-700'}`}>
+                     <Receipt className="h-4 w-4"/> Internal Receipt
                  </button>
-                 <button onClick={() => setViewType('bill')} className={`flex-1 md:flex-none flex items-center justify-center gap-2 px-5 py-2 rounded-lg font-bold transition cursor-pointer ${viewType === 'bill' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-slate-700'}`}>
+                 <button onClick={() => setViewType('bill')} className={`flex-1 lg:flex-none flex items-center justify-center gap-2 px-5 py-3 md:py-2 h-full rounded-lg font-bold transition cursor-pointer ${viewType === 'bill' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-500 hover:text-slate-700'}`}>
                      <FileText className="h-4 w-4"/> View Client Bill
                  </button>
              </div>
           </div>
 
-          {/* Action Row - DYNAMIC AUTO-ASSIGNED COMPANY HEADER */}
-          <div className="print:hidden flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm border border-gray-200">
-              <div className="flex items-center gap-3 w-full sm:w-auto">
-                  <label className="font-bold text-gray-600 text-sm hidden sm:block">Billing Company:</label>
-                  <div className="bg-gray-100 px-4 py-2.5 rounded-lg text-sm font-bold text-slate-800 border border-gray-200 flex items-center gap-1.5">
+          {/* Print Row - Fixed alignment */}
+          <div className="print:hidden flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-4 rounded-xl shadow-sm border border-gray-200 gap-4">
+              <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+                  <label className="font-bold text-gray-600 text-sm">Billing Company:</label>
+                  <div className="bg-gray-100 px-4 py-2.5 rounded-lg text-sm font-bold text-slate-800 border border-gray-200 flex items-center gap-2 flex-wrap">
                       {currentComp.name}
-                      <span className="bg-emerald-100 text-emerald-800 text-[9px] px-1.5 py-0.5 rounded font-black tracking-wider uppercase ml-1">Auto-Assigned</span>
+                      <span className="bg-emerald-100 text-emerald-800 text-[9px] px-1.5 py-0.5 rounded font-black tracking-wider uppercase shrink-0">Auto-Assigned</span>
                   </div>
               </div>
 
-              <button onClick={handlePrint} className="w-full sm:w-auto flex items-center justify-center gap-2 bg-emerald-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-sm hover:bg-emerald-700 transition cursor-pointer ml-auto">
+              <button onClick={handlePrint} className="w-full sm:w-auto shrink-0 flex items-center justify-center gap-2 bg-emerald-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-sm hover:bg-emerald-700 transition cursor-pointer">
                 <Printer className="h-5 w-5"/> Print Document
               </button>
           </div>
@@ -221,20 +162,19 @@ function Finance() {
             <div ref={printRef} className="p-8 print:p-0 bg-white">
               
               {/* ========================================= */}
-              {/*    INTERNAL EDITABLE RECEIPT VIEW         */}
+              {/*    INTERNAL READ-ONLY RECEIPT VIEW        */}
               {/* ========================================= */}
               {viewType === 'receipt' && (
                 <div className="max-w-3xl mx-auto">
                   <div className="border-b-2 border-slate-900 pb-6 mb-8 flex justify-between items-end">
                       <div>
-                        {/* 🌟 AUTO ASSIGNED HEADER */}
                         <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight uppercase">{currentComp.name}</h1>
                         <p className="text-gray-500 mt-1 font-medium text-sm">Logistics & Transportation Services</p>
                       </div>
                       <div className="text-right">
                         <h2 className="text-xl font-bold text-gray-800">FREIGHT RECEIPT</h2>
                         <p className="text-sm font-semibold text-gray-500 mt-1">TRK: {trip.tracking_number}</p>
-                        {activeCharges.bill_no && finance.bill_no && (<p className="text-sm font-bold text-blue-700 mt-1 uppercase tracking-wide">BILL NO: {finance.bill_no}</p>)}
+                        {trip.bill_no && (<p className="text-sm font-bold text-blue-700 mt-1 uppercase tracking-wide">BILL NO: {trip.bill_no}</p>)}
                       </div>
                   </div>
                   
@@ -260,15 +200,9 @@ function Finance() {
                       <div><span className="text-gray-500 font-semibold block">PARTY RECEIVED</span><span className="font-bold text-emerald-700 text-sm">{trip.pod_received_client_date || '-'}</span></div>
                   </div>
 
-                  <div className="print:hidden mb-6 bg-blue-50 p-3 rounded-lg border border-blue-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                     <label className="text-xs font-bold text-blue-900 uppercase whitespace-nowrap">Select Deposit Bank Account:</label>
-                     <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                         <select className="border border-blue-200 bg-white p-2 rounded-lg text-sm font-bold text-blue-800 outline-none cursor-pointer flex-1" value={isCustomBank ? 'Other' : finance.bank_account} onChange={e => setFinance({...finance, bank_account: e.target.value === 'Other' ? '' : e.target.value})}>
-                            {PRESET_BANKS.map(bank => <option key={bank} value={bank}>{bank}</option>)}
-                            <option value="Other">Other (Custom)</option>
-                         </select>
-                         {isCustomBank && <input type="text" placeholder="Custom bank..." className="border border-blue-300 p-2 rounded-lg text-sm font-bold text-blue-900 w-full sm:w-48" value={finance.bank_account} onChange={e => setFinance({...finance, bank_account: e.target.value})} />}
-                     </div>
+                  <div className="mb-6 flex justify-between border-b pb-2 text-sm">
+                     <span className="text-gray-500 font-bold uppercase tracking-wider">Deposit Bank Account</span> 
+                     <span className="font-bold text-blue-700">{trip.bank_account || 'N/A'}</span>
                   </div>
 
                   <h3 className="font-bold text-base mb-4 text-slate-800 uppercase tracking-wide border-b pb-2">Financial Settlement</h3>
@@ -277,64 +211,95 @@ function Finance() {
                       {/* Left Column: Additions */}
                       <div>
                         <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Additions (+)</h4>
-                        <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Total Freight (₹)</span><input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.freight_amount || ''} onChange={e => handleFinanceChange('freight_amount', e.target.value)} /></div>
-                        
-                        <div className="border-b border-gray-100 pb-2 mb-2">
-                          <div className="flex justify-between items-center"><label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer"><input type="checkbox" checked={activeCharges.loading} onChange={() => toggleCharge('loading')} className="rounded print:hidden" /> Loading/Unloading</label>{activeCharges.loading ? <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.loading_charge} onChange={e => handleFinanceChange('loading_charge', e.target.value)} /> : <span className="w-32 text-right text-gray-400 print:hidden">Excluded</span>}</div>
-                          {activeCharges.loading && <label className="flex items-center gap-1.5 text-[11px] text-gray-500 mt-1 print:hidden pl-5"><input type="checkbox" checked={finance.include_loading_in_gst} onChange={e => handleFinanceChange('include_loading_in_gst', e.target.checked)} className="rounded" /> Include in GST</label>}
+                        <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
+                            <span className="text-sm font-semibold text-gray-700">Total Freight (₹)</span>
+                            <span className="font-bold text-slate-800">{freight}</span>
                         </div>
-
-                        <div className="border-b border-gray-100 pb-2 mb-2">
-                          <div className="flex justify-between items-center"><label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer"><input type="checkbox" checked={activeCharges.holding} onChange={() => toggleCharge('holding')} className="rounded print:hidden" /> Holding Charge</label>{activeCharges.holding ? <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.holding_charge} onChange={e => handleFinanceChange('holding_charge', e.target.value)} /> : <span className="w-32 text-right text-gray-400 print:hidden">Excluded</span>}</div>
-                          {activeCharges.holding && <label className="flex items-center gap-1.5 text-[11px] text-gray-500 mt-1 print:hidden pl-5"><input type="checkbox" checked={finance.include_holding_in_gst} onChange={e => handleFinanceChange('include_holding_in_gst', e.target.checked)} className="rounded" /> Include in GST</label>}
-                        </div>
-
-                        <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2 bg-slate-50/50 print:bg-transparent px-1 rounded"><label className="flex items-center gap-2 text-sm font-bold text-gray-900 cursor-pointer"><input type="checkbox" checked={finance.gst_enabled} onChange={e => handleFinanceChange('gst_enabled', e.target.checked)} className="rounded text-emerald-600 print:hidden" /> GST (18%)</label>{finance.gst_enabled ? <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent text-emerald-600" type="number" value={finance.gst} onChange={e => handleFinanceChange('gst', e.target.value)} /> : <span className="w-32 text-right text-gray-400 print:hidden">Unchecked</span>}</div>
-                        <div className="flex justify-between items-center border-b border-gray-100 pb-2"><label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer"><input type="checkbox" checked={activeCharges.bill_no} onChange={() => toggleCharge('bill_no')} className="rounded print:hidden" /> Bill Number</label>{activeCharges.bill_no ? <input className="border p-1.5 rounded w-32 font-bold text-blue-700 print:hidden" type="text" value={finance.bill_no} onChange={e => handleFinanceChange('bill_no', e.target.value)} /> : <span className="w-32 text-right text-gray-400 print:hidden">Excluded</span>}</div>
+                        {loadingCharge > 0 && (
+                            <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
+                                <span className="text-sm font-semibold text-gray-700">Loading/Unloading (₹)</span>
+                                <span className="font-bold text-slate-800">{loadingCharge}</span>
+                            </div>
+                        )}
+                        {holdingCharge > 0 && (
+                            <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
+                                <span className="text-sm font-semibold text-gray-700">Holding Charge (₹)</span>
+                                <span className="font-bold text-slate-800">{holdingCharge}</span>
+                            </div>
+                        )}
+                        {gstAmount > 0 && (
+                            <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
+                                <span className="text-sm font-bold text-gray-900">GST (18%) (₹)</span>
+                                <span className="font-bold text-emerald-600">{gstAmount}</span>
+                            </div>
+                        )}
                       </div>
 
                       {/* Right Column: Deductions */}
                       <div>
                         <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Deductions (-)</h4>
                         <div className="border-b border-gray-100 pb-2 mb-2">
-                           <div className="flex justify-between items-center mb-2"><label className="text-sm font-semibold text-gray-700 flex items-center gap-2">Advance Received <button onClick={() => addArrayRow('advance_details', {date:'', amount:''})} className="flex items-center gap-1 text-blue-700 bg-blue-100 px-2 py-0.5 rounded text-xs print:hidden font-bold"><PlusCircle className="h-3 w-3" /> Add</button></label></div>
-                           {finance.advance_details.map((adv, idx) => (
+                           <div className="flex justify-between items-center mb-2">
+                               <span className="text-sm font-semibold text-gray-700">Advance Received</span>
+                           </div>
+                           {advances.map((adv, idx) => (
                               <div key={idx} className="flex justify-between items-center mb-1 gap-2 text-sm">
-                                 <input type="date" className="border p-1 rounded text-xs text-gray-500 w-[110px]" value={adv.date} onChange={e => handleArrayChange('advance_details', idx, 'date', e.target.value)} />
-                                 <div className="flex items-center gap-1"><input type="number" className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" value={adv.amount || ''} onChange={e => handleArrayChange('advance_details', idx, 'amount', e.target.value)} placeholder="₹" />{idx > 0 && <button onClick={() => removeArrayRow('advance_details', idx)} className="text-rose-400 print:hidden p-1"><X className="h-4 w-4"/></button>}</div>
+                                 <span className="text-gray-500 w-[110px]">{adv.date || '-'}</span>
+                                 <span className="font-bold text-rose-600">₹{adv.amount || 0}</span>
                               </div>
                            ))}
+                           {advances.length === 0 && <span className="text-xs text-gray-400 italic">No advances logged</span>}
                         </div>
-                        <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><label className="text-sm font-semibold text-gray-700">TDS (₹)</label><input className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" type="number" value={finance.tds || ''} onChange={e => handleFinanceChange('tds', e.target.value)} /></div>
-                        <div className="flex justify-between items-center border-b border-gray-100 pb-2"><input className="text-sm font-semibold text-gray-700 border-b border-dashed w-32 bg-transparent outline-none" placeholder="Extra Deduction..." /><input className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" type="number" value={finance.extra_deduction || ''} onChange={e => handleFinanceChange('extra_deduction', e.target.value)} /></div>
+                        {tds > 0 && (
+                            <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
+                                <span className="text-sm font-semibold text-gray-700">TDS (₹)</span>
+                                <span className="font-bold text-rose-600">{tds}</span>
+                            </div>
+                        )}
+                        {extraDeduction > 0 && (
+                            <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                                <span className="text-sm font-semibold text-gray-700">Extra Deduction</span>
+                                <span className="font-bold text-rose-600">{extraDeduction}</span>
+                            </div>
+                        )}
                       </div>
                       
                       {/* Total Bar */}
-                      <div className="col-span-2 mt-4 p-4 border-2 border-slate-900 rounded-lg flex justify-between items-center bg-emerald-50/30"><span className="font-extrabold text-lg text-slate-900">NET BALANCE PAYABLE</span><span className="font-extrabold text-2xl text-emerald-600">₹{calculatePending()}</span></div>
+                      <div className="col-span-2 mt-4 p-4 border-2 border-slate-900 rounded-lg flex justify-between items-center bg-emerald-50/30">
+                          <span className="font-extrabold text-lg text-slate-900">NET BALANCE PAYABLE</span>
+                          <span className="font-extrabold text-2xl text-emerald-600">₹{balancePayment}</span>
+                      </div>
                   </div>
 
-                  {/* Operational Tracking */}
+                  {trip.finance_remarks && (
+                      <div className="mt-4">
+                          <span className="block text-xs font-semibold text-gray-500 mb-1">Remarks / Payment Notes:</span>
+                          <p className="text-sm font-medium text-gray-800 bg-gray-50 p-3 rounded-lg border border-gray-100 print:bg-transparent print:border-0 print:p-0">{trip.finance_remarks}</p>
+                      </div>
+                  )}
+
+                  {/* Read-Only Operational Tracking */}
                   <h3 className="font-bold text-base mb-4 mt-8 text-slate-800 uppercase tracking-wide border-b pb-2">Operational Tracking (Internal)</h3>
                   <div className="grid grid-cols-2 gap-x-8 gap-y-4">
                       <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 print:p-0 print:border-none">
                           <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Diesel & Fastag (Estimates)</h4>
-                          <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2"><label className="text-sm font-semibold text-gray-700">Total KM Traveled</label><input className="border p-1.5 rounded w-24 text-right font-bold text-slate-700 print:border-none" type="number" value={finance.total_km || ''} onChange={handleKmChange} /></div>
-                          <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Diesel Required (Est)</span><span className="font-bold text-slate-900">{finance.diesel_liters_needed || 0} Liters</span></div>
-                          <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="text-sm font-semibold text-gray-700">Fastag (Est @ ₹5.75/km)</span><span className="font-bold text-slate-900">₹{(finance.fastag_estimate || 0).toFixed(2)}</span></div>
+                          <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Total KM Traveled</span><span className="font-bold text-slate-700">{km} KM</span></div>
+                          <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Diesel Required (Est)</span><span className="font-bold text-slate-900">{displayDiesel} Liters</span></div>
+                          <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="text-sm font-semibold text-gray-700">Fastag (Est @ ₹5.75/km)</span><span className="font-bold text-slate-900">₹{displayFastagEst.toFixed(2)}</span></div>
                       </div>
 
                       <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 print:p-0 print:border-none">
                           <div className="flex justify-between items-center mb-3">
                               <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider">Actual Fastag Logs</h4>
-                              <button onClick={() => addArrayRow('fastag_details', {date:'', place:'', amount:''})} className="flex items-center gap-1 text-amber-700 bg-amber-200/50 px-2 py-0.5 rounded text-xs print:hidden font-bold"><PlusCircle className="h-3 w-3" /> Add Toll</button>
                           </div>
-                          {finance.fastag_details.map((f, idx) => (
+                          {parsedFastag.map((f, idx) => (
                               <div key={idx} className="flex justify-between items-center mb-1.5 gap-2 text-sm">
-                                 <input type="date" className="border border-amber-200 p-1 rounded text-[10px] text-gray-700 w-[95px] print:border-none" value={f.date || ''} onChange={e => handleArrayChange('fastag_details', idx, 'date', e.target.value)} />
-                                 <input type="text" placeholder="Location (Opt)..." className="border border-amber-200 p-1 rounded text-xs w-[100px] print:border-none" value={f.place || ''} onChange={e => handleArrayChange('fastag_details', idx, 'place', e.target.value)} />
-                                 <div className="flex items-center gap-1"><input type="number" className="border border-amber-200 p-1.5 rounded w-[70px] text-right font-bold text-rose-600 print:border-none print:p-0" value={f.amount || ''} onChange={e => handleArrayChange('fastag_details', idx, 'amount', e.target.value)} placeholder="₹" /><button onClick={() => removeArrayRow('fastag_details', idx)} className="text-rose-400 print:hidden p-0.5"><X className="h-4 w-4"/></button></div>
+                                 <span className="text-gray-500 w-[95px]">{f.date || '-'}</span>
+                                 <span className="text-gray-700 flex-1">{f.place || 'Unknown Location'}</span>
+                                 <span className="font-bold text-rose-600">₹{f.amount || 0}</span>
                               </div>
                           ))}
+                          {parsedFastag.length === 0 && <span className="text-xs text-gray-400 italic">No toll logs added</span>}
                           <div className="flex justify-between items-center mt-3 pt-2 border-t border-amber-300">
                              <span className="text-sm font-extrabold text-amber-900">Total Actual Fastag</span>
                              <span className="font-extrabold text-rose-600">₹{totalFastagActual}</span>
@@ -344,9 +309,9 @@ function Finance() {
 
                   <h3 className="font-bold text-base mb-4 mt-8 text-slate-800 uppercase tracking-wide border-b pb-2">Driver Settlement (Hisaab)</h3>
                   <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-6 grid grid-cols-2 gap-x-8 gap-y-4 print:bg-transparent print:border-none print:p-0 text-sm">
-                      <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Driver Advance (₹3.5/km)</span><span className="font-bold text-slate-900">₹{finance.driver_advance || 0}</span></div>
-                      <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Remaining Balance (₹1.0/km)</span><span className="font-bold text-slate-900">₹{finance.driver_remaining || 0}</span></div>
-                      <div className="flex justify-between items-center border-b border-gray-200 pb-2 col-span-2 bg-blue-100 p-2 rounded"><span className="font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span><span className="font-extrabold text-slate-700">₹{finance.driver_total || 0}</span></div>
+                      <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Driver Advance (₹3.5/km)</span><span className="font-bold text-slate-900">₹{trip.driver_advance || 0}</span></div>
+                      <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Remaining Balance (₹1.0/km)</span><span className="font-bold text-slate-900">₹{trip.driver_remaining || 0}</span></div>
+                      <div className="flex justify-between items-center border-b border-gray-200 pb-2 col-span-2 bg-blue-100 p-2 rounded"><span className="font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span><span className="font-extrabold text-slate-700">₹{trip.driver_total || 0}</span></div>
                   </div>
                   
                   <div className="hidden print:flex justify-between mt-20 pt-8">
@@ -354,11 +319,6 @@ function Finance() {
                       <div className="border-t border-gray-400 w-48 text-center pt-2 font-semibold text-sm">Authorized Signatory</div>
                   </div>
 
-                  {/* SAVE BUTTON FOR EDITS */}
-                  <div className="print:hidden p-5 mt-6 border-t border-gray-200 flex justify-end gap-4">
-                     <button onClick={handlePrint} className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-2.5 rounded-lg font-bold transition cursor-pointer"><Printer className="h-5 w-5"/> Print Receipt</button>
-                     <button onClick={handleSaveFinance} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-2.5 rounded-lg font-bold shadow-sm transition cursor-pointer"><Save className="h-5 w-5"/> Save Financial Ledger</button>
-                  </div>
                 </div>
               )}
 
@@ -397,7 +357,7 @@ function Finance() {
                           <div className="w-[40%] text-[13px] font-bold">
                               <div className="border-b border-black p-2 flex justify-between">
                                   <span>Invoice No.:</span>
-                                  <span>{finance.bill_no || 'JTA/26-27/---'}</span>
+                                  <span>{trip.bill_no || 'JTA/26-27/---'}</span>
                               </div>
                               <div className="p-2 flex justify-between">
                                   <span>Date:</span>
@@ -438,7 +398,7 @@ function Finance() {
                                   <td className="border-r border-black p-1 align-top pt-2"></td>
                                   <td className="border-r border-black p-1 align-top pt-2"></td>
                                   <td className="border-r border-black p-1 align-top pt-2 text-right pr-2">{freight.toFixed(2)}</td>
-                                  <td className="border-r border-black p-1 align-top pt-2 text-right pr-2">{unloading > 0 ? unloading.toFixed(2) : ''}</td>
+                                  <td className="border-r border-black p-1 align-top pt-2 text-right pr-2">{loadingCharge > 0 ? loadingCharge.toFixed(2) : ''}</td>
                                   <td className="p-1 align-top pt-2 text-right pr-2">{exactBillTotalFreight.toFixed(2)}</td>
                               </tr>
                               
@@ -446,7 +406,7 @@ function Finance() {
                               <tr className="border-t border-black">
                                   <td colSpan="7" rowSpan="7" className="border-r border-black p-2 align-bottom text-left uppercase text-[12px]">
                                       TOTAL INVOICE AMOUNT (IN WORDS):<br/>
-                                      {numberToWords(finalBalancePayable)}
+                                      {numberToWords(balancePayment)}
                                   </td>
                                   <td colSpan="2" className="border-r border-black p-1 text-left pl-2">TOTAL</td>
                                   <td className="p-1 text-right pr-2">{exactBillTotalFreight.toFixed(2)}</td>
@@ -495,12 +455,11 @@ function Finance() {
                                       </div>
                                   </td>
                                   <td colSpan="2" className="border-r border-black p-1 text-left pl-2 text-[12px]">BALANCE</td>
-                                  <td className="p-1 text-right pr-2 text-[12px]">{finalBalancePayable.toFixed(2)}</td>
+                                  <td className="p-1 text-right pr-2 text-[12px]">{balancePayment.toFixed(2)}</td>
                               </tr>
                           </tbody>
                       </table>
 
-                      {/* SIGNATURE SECTION */}
                       <div className="flex justify-end mt-12 pr-4 text-[12px] font-bold">
                           <div className="text-center">
                               <p className="mb-8">For {currentComp.name}</p>
@@ -515,9 +474,9 @@ function Finance() {
           </div>
         </div>
       )}
-      
+
       {/* 🌟 GLOBAL ACTIVITY LOG RENDERED AT THE BOTTOM */}
-      <div className="print:hidden">
+      <div className="print:hidden mt-8">
           <ActivityLog />
       </div>
 

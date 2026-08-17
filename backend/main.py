@@ -518,8 +518,6 @@ def get_trip_details(trip_id: int):
     res = dict(zip([d[0] for d in cursor.description], row))
     cursor.close(); conn.close()
     return res
-
-# 🌟 LOGGING LOGIC INTEGRATED HERE
 @app.post("/finances/calculate")
 def calculate_finance(data: dict):
     conn = get_db_connection()
@@ -545,9 +543,11 @@ def calculate_finance(data: dict):
         
         total_km = safe_float(data.get('total_km'))
         
-        cursor.execute("SELECT a.mileage FROM trips t JOIN assets a ON t.vehicle_number = a.vehicle_number WHERE t.trip_id = %s;", (trip_id,))
+        # 🌟 UPDATED: Fetching vehicle_number along with mileage
+        cursor.execute("SELECT a.mileage, t.vehicle_number FROM trips t LEFT JOIN assets a ON t.vehicle_number = a.vehicle_number WHERE t.trip_id = %s;", (trip_id,))
         m_row = cursor.fetchone()
         mile = float(m_row[0]) if m_row and m_row[0] else 5.5
+        vehicle_no = str(m_row[1]).strip() if m_row and m_row[1] else "0000"
         
         diesel_needed = round(total_km / mile, 2) if mile > 0 else 0
         
@@ -569,8 +569,9 @@ def calculate_finance(data: dict):
             trip_id
         ))
         
-        # INSERT LOG RECORD
-        log_details = f"Financial ledger updated for Trip ID {trip_id}. Freight: ₹{freight}, New Balance: ₹{balance}"
+        # 🌟 UPDATED: Log only the last 4 digits of the truck
+        last_4 = vehicle_no[-4:] if len(vehicle_no) >= 4 else vehicle_no
+        log_details = f"Financial ledger updated for Truck ending in {last_4}. Freight: ₹{freight}, New Balance: ₹{balance}"
         cursor.execute("""
             INSERT INTO activity_logs (action, details) 
             VALUES (%s, %s)
