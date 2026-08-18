@@ -2,8 +2,8 @@ import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import { useReactToPrint } from 'react-to-print';
 import { Link } from 'react-router-dom';
-import { Search, Filter, Printer, CheckCircle2, X, Edit, AlertCircle, CheckCircle, FileSignature, Lock, Save, PlusCircle, FileText } from 'lucide-react';
-import ActivityLog from '../utils/ActivityLog'; 
+import { Search, Filter, Printer, CheckCircle2, X, Edit, AlertCircle, CheckCircle, FileSignature, Lock, Save, PlusCircle, FileText, Receipt } from 'lucide-react'; // Added Receipt here
+import ActivityLog from '../utils/ActivityLog'; // Updated path
 
 const API_BASE = import.meta.env.VITE_API_URL;
 const PRESET_BANKS = ['JTA 0706', 'JTA 0611', 'JFC 7734', 'JFC 1487'];
@@ -305,7 +305,6 @@ function TripHistory() {
                     <tr key={trip.trip_id || `hist-${index}`} className={`transition-colors ${isFullyComplete ? 'bg-emerald-50/20 hover:bg-emerald-50/50' : 'hover:bg-gray-50'}`}>
                       <td className="p-4">
                         <div className="flex items-center gap-2">
-                           {/* 🌟 FIX: THIS NOW LINKS TO THE SECURE READ-ONLY PAGE */}
                            <Link to={`/trip-details/${trip.trip_id}`} className="text-blue-600 font-bold hover:text-blue-800 hover:underline transition cursor-pointer text-left">
                              {trip.tracking_number}
                            </Link>
@@ -562,7 +561,7 @@ function TripHistory() {
                                       <td className="border-r border-black p-1 align-top pt-2"></td>
                                       <td className="border-r border-black p-1 align-top pt-2"></td>
                                       <td className="border-r border-black p-1 align-top pt-2 text-right pr-2">{freight.toFixed(2)}</td>
-                                      <td className="border-r border-black p-1 align-top pt-2 text-right pr-2">{unloading > 0 ? unloading.toFixed(2) : ''}</td>
+                                      <td className="border-r border-black p-1 align-top pt-2 text-right pr-2">{loadingCharge > 0 ? loadingCharge.toFixed(2) : ''}</td>
                                       <td className="p-1 align-top pt-2 text-right pr-2">{exactBillTotalFreight.toFixed(2)}</td>
                                   </tr>
                                   
