@@ -2,8 +2,8 @@ import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import { useReactToPrint } from 'react-to-print';
 import { Link } from 'react-router-dom';
-import { Search, Filter, Printer, CheckCircle2, X, Edit, AlertCircle, CheckCircle, FileSignature, Lock, Save, PlusCircle, FileText, Receipt } from 'lucide-react'; // Added Receipt here
-import ActivityLog from '../utils/ActivityLog'; // Updated path
+import { Search, Filter, Printer, CheckCircle2, X, Edit, AlertCircle, CheckCircle, FileSignature, Lock, Save, PlusCircle, FileText, Receipt } from 'lucide-react';
+import ActivityLog from '../utils/ActivityLog';
 
 const API_BASE = import.meta.env.VITE_API_URL;
 const PRESET_BANKS = ['JTA 0706', 'JTA 0611', 'JFC 7734', 'JFC 1487'];
@@ -149,7 +149,7 @@ function TripHistory() {
 
   const handleSaveFinance = async () => {
     try {
-      await axios.post(`${API_BASE}/finances/calculate`, { ...finance, loading_charge: activeCharges.loading ? finance.loading_charge : 0, holding_charge: activeCharges.holding ? finance.holding_charge : 0, gst: finance.gst_enabled ? finance.gst : 0, bill_no: activeCharges.bill_no ? finance.bill_no : '', trip_id: receiptModal.trip.trip_id });
+      await axios.post(`${API_BASE}/finances/calculate`, { ...finance, loading_charge: activeCharges.loading ? finance.loading_charge : 0, holding_charge: activeCharges.holding ? finance.holding_charge : 0, gst: finance.gst_enabled ? finance.gst : 0, bill_no: activeCharges.bill_no ? finance.bill_no : (finance.bill_no || ''), trip_id: receiptModal.trip.trip_id });
       alert("Ledger Saved & Logged!"); 
       fetchHistory(); 
     } catch (err) {
@@ -215,10 +215,11 @@ function TripHistory() {
   const isCustomBank = finance.bank_account === '' || !PRESET_BANKS.includes(finance.bank_account);
   const totalFastagActual = finance.fastag_details.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
 
-  // Bill Render Math
   const freight = parseFloat(finance.freight_amount || 0);
   const unloading = activeCharges.loading ? parseFloat(finance.loading_charge || 0) : 0; 
-  const exactBillTotalFreight = freight + unloading; 
+  const holdingCharge = activeCharges.holding ? parseFloat(finance.holding_charge || 0) : 0; 
+
+  const exactBillTotalFreight = freight + unloading + holdingCharge; 
   const gstAmount = parseFloat(finance.gst || 0);
   const gstHalf = (gstAmount / 2).toFixed(2);
   const isIGST = receiptModal.trip?.source_city?.toLowerCase() !== receiptModal.trip?.destination_city?.toLowerCase(); 
@@ -227,7 +228,6 @@ function TripHistory() {
   const totalAdvances = finance.advance_details.reduce((sum, adv) => sum + parseFloat(adv.amount || 0), 0);
   const finalBalancePayable = finalTotalAmount - totalAdvances;
 
-  // Company Details
   const currentOwner = receiptModal.trip?.owner_name?.toUpperCase() || '';
   const isJFC = currentOwner === 'JFC'; 
   const activeCompanyCode = isJFC ? 'JFC' : 'JTA';
@@ -373,6 +373,32 @@ function TripHistory() {
                 <button onClick={() => setViewType('receipt')} className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold transition cursor-pointer ${viewType === 'receipt' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'}`}><Receipt className="h-4 w-4"/> Internal Receipt</button>
                 <button onClick={() => setViewType('bill')} className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold transition cursor-pointer ${viewType === 'bill' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'}`}><FileText className="h-4 w-4"/> Exact Client Bill</button>
             </div>
+            
+            <div className="print:hidden flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-4 shadow-sm border-b border-gray-200 gap-4">
+                <div className="flex flex-wrap items-center gap-4 w-full sm:w-auto">
+                    <div className="flex items-center gap-2">
+                        <label className="font-bold text-gray-600 text-sm">Billing Company:</label>
+                        <div className="bg-gray-100 px-3 py-2 rounded-lg text-sm font-bold text-slate-800 border border-gray-200 flex items-center gap-2 flex-wrap">
+                            {currentComp.name}
+                            <span className="bg-emerald-100 text-emerald-800 text-[9px] px-1.5 py-0.5 rounded font-black tracking-wider uppercase shrink-0">Auto-Assigned</span>
+                        </div>
+                    </div>
+
+                    {/* 🌟 EDITABLE INVOICE INPUT FOR BILL */}
+                    {viewType === 'bill' && (
+                        <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+                            <label className="font-bold text-blue-900 text-sm whitespace-nowrap">Invoice No:</label>
+                            <input 
+                                type="text" 
+                                placeholder="Leave blank to print empty" 
+                                className="bg-white border border-blue-200 rounded px-2 py-1 text-sm font-bold text-blue-900 outline-none focus:border-blue-500 w-48"
+                                value={finance.bill_no}
+                                onChange={(e) => handleFinanceChange('bill_no', e.target.value)}
+                            />
+                        </div>
+                    )}
+                </div>
+            </div>
 
             <div className="flex-1 overflow-y-auto p-6 bg-gray-100">
                <div ref={receiptRef} className="bg-white p-10 print:p-0 mx-auto shadow-sm border border-gray-200 rounded-xl">
@@ -425,7 +451,7 @@ function TripHistory() {
                             </div>
 
                             <div className="border-b border-gray-100 pb-2 mb-2">
-                              <div className="flex justify-between items-center"><label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer"><input type="checkbox" checked={activeCharges.holding} onChange={() => toggleCharge('holding')} className="rounded print:hidden" /> Holding Charge</label>{activeCharges.holding ? <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.holding_charge} onChange={e => handleFinanceChange('holding_charge', e.target.value)} /> : <span className="w-32 text-right text-gray-400 print:hidden">Excluded</span>}</div>
+                              <div className="flex justify-between items-center"><label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer"><input type="checkbox" checked={activeCharges.holding} onChange={() => toggleCharge('holding')} className="rounded print:hidden" /> Detention Charge</label>{activeCharges.holding ? <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.holding_charge} onChange={e => handleFinanceChange('holding_charge', e.target.value)} /> : <span className="w-32 text-right text-gray-400 print:hidden">Excluded</span>}</div>
                               {activeCharges.holding && <label className="flex items-center gap-1.5 text-[11px] text-gray-500 mt-1 print:hidden pl-5"><input type="checkbox" checked={finance.include_holding_in_gst} onChange={e => handleFinanceChange('include_holding_in_gst', e.target.checked)} className="rounded" /> Include in GST</label>}
                             </div>
 
@@ -494,36 +520,27 @@ function TripHistory() {
                   )}
 
                   {viewType === 'bill' && (
-                      <div className="max-w-[800px] mx-auto text-black font-sans leading-snug">
-                          
+                      <div className="w-full max-w-[900px] text-black font-sans leading-snug mx-auto p-2 print:p-0">
                           <div className="text-center mb-2">
-                              <h1 className="text-3xl font-extrabold text-black tracking-widest leading-none mb-1">
-                                  {currentComp.name}
-                              </h1>
-                              <p className="text-[13px] font-bold whitespace-pre-line leading-tight">
-                                  {currentComp.address}
-                              </p>
-                              <div className="flex justify-center gap-6 mt-1 text-[12px] font-bold">
-                                  <span>GST NO.: {currentComp.gst}</span>
-                                  <span>PAN No.: {currentComp.pan}</span>
-                              </div>
-                              <p className="text-[11px] font-bold mt-1">
-                                  Email: {currentComp.email}, Mob. {currentComp.phone}
-                              </p>
+                              <h1 className="text-3xl font-extrabold text-black tracking-widest leading-none mb-1">{currentComp.name}</h1>
+                              <p className="text-[13px] font-bold whitespace-pre-line leading-tight">{currentComp.address}</p>
+                              <div className="flex justify-center gap-6 mt-1 text-[12px] font-bold"><span>GST NO.: {currentComp.gst}</span><span>PAN No.: {currentComp.pan}</span></div>
+                              <p className="text-[11px] font-bold mt-1">Email: {currentComp.email}, Mob. {currentComp.phone}</p>
                           </div>
 
                           <div className="border border-black flex justify-between">
                               <div className="w-[60%] border-r border-black p-2 text-[12px]">
                                   <p className="font-bold">TO,</p>
-                                  <p className="font-bold mt-1">{receiptModal.trip.party_name?.toUpperCase() || 'VELINK INDIA PVT. LTD.'}</p>
-                                  <p className="font-bold">{(receiptModal.trip.destination_city || 'RAIPUR').toUpperCase()}, RAJ.</p>
+                                  <p className="font-bold mt-1 leading-tight">{receiptModal.trip.party_name?.toUpperCase() || 'VELINK INDIA PVT. LTD.'}</p>
+                                  <p className="font-bold leading-tight">{(receiptModal.trip.destination_city || 'RAIPUR').toUpperCase()}, RAJ.</p>
                                   <p className="font-bold mt-2">GST:- {receiptModal.trip.party_gst || '08AAGCV0492E1ZB'}</p>
                                   <p className="font-bold">STATE: RAJASTHAN / STATE CODE: 08</p>
                               </div>
                               <div className="w-[40%] text-[13px] font-bold">
                                   <div className="border-b border-black p-2 flex justify-between">
                                       <span>Invoice No.:</span>
-                                      <span>{finance.bill_no || 'JTA/26-27/---'}</span>
+                                      {/* 🌟 THIS TAKES FROM THE INPUT BOX ABOVE OR THE DB */}
+                                      <span>{finance.bill_no}</span>
                                   </div>
                                   <div className="p-2 flex justify-between">
                                       <span>Date:</span>
@@ -532,41 +549,42 @@ function TripHistory() {
                               </div>
                           </div>
                           
-                          <div className="border-x border-b border-black p-1 text-center text-[12px] font-bold">
-                              GST PAYABLE UNDER REVERSE CHARGES - YES/NO
-                          </div>
+                          <div className="border-x border-b border-black p-1 text-center text-[12px] font-bold">GST PAYABLE UNDER REVERSE CHARGES - YES/NO</div>
 
-                          <table className="w-full table-fixed border-collapse border border-black text-[11px] font-bold text-center mt-[-1px]">
+                          {/* 🌟 WIDE 11-COLUMN TABLE WITH NO OVERLAP */}
+                          <table className="w-full table-fixed border-collapse border border-black text-[10px] font-bold text-center mt-[-1px]">
                               <thead>
                                   <tr>
-                                      <th className="border border-black p-1 w-[9%]">LOADING<br/>DATE</th>
-                                      <th className="border border-black p-1 w-[8%]">LR.NO.</th>
-                                      <th className="border border-black p-1 w-[12%]">VEHICLE<br/>NO.</th>
-                                      <th className="border border-black p-1 w-[15%]">FROM</th>
-                                      <th className="border border-black p-1 w-[20%]">TO</th>
-                                      <th className="border border-black p-1 w-[6%]">WEIGHT</th>
-                                      <th className="border border-black p-1 w-[6%]">RATE</th>
-                                      <th className="border border-black p-1 w-[10%]">FREIGHT</th>
-                                      <th className="border border-black p-1 w-[11%]">UNLOADING<br/>CHARGES</th>
-                                      <th className="border border-black p-1 w-[12%]">TOTAL<br/>FREIGHT</th>
+                                      <th className="border border-black p-1.5 w-[8%] leading-tight">LOADING<br/>DATE</th>
+                                      <th className="border border-black p-1.5 w-[6%] leading-tight break-words">LR.NO.</th>
+                                      <th className="border border-black p-1.5 w-[11%] leading-tight break-words">VEHICLE<br/>NO.</th>
+                                      <th className="border border-black p-1.5 w-[13%] leading-tight break-words">FROM</th>
+                                      <th className="border border-black p-1.5 w-[14%] leading-tight break-words">TO</th>
+                                      <th className="border border-black p-1.5 w-[5%] leading-tight">WT</th>
+                                      <th className="border border-black p-1.5 w-[5%] leading-tight">RATE</th>
+                                      <th className="border border-black p-1.5 w-[9%] leading-tight">FREIGHT</th>
+                                      <th className="border border-black p-1.5 w-[9%] leading-tight break-words">UNLOADING<br/>CHG</th>
+                                      <th className="border border-black p-1.5 w-[9%] leading-tight break-words">DETENTION<br/>CHG</th>
+                                      <th className="border border-black p-1.5 w-[11%] leading-tight">TOTAL<br/>FREIGHT</th>
                                   </tr>
                               </thead>
                               <tbody>
                                   <tr>
-                                      <td className="border-r border-black p-1 align-top pt-2 h-16">{receiptModal.trip.trip_start_date || '05/08/2026'}</td>
-                                      <td className="border-r border-black p-1 align-top pt-2">{receiptModal.trip.lr_no || '---'}</td>
-                                      <td className="border-r border-black p-1 align-top pt-2">{receiptModal.trip.vehicle_number}</td>
-                                      <td className="border-r border-black p-1 align-top pt-2 uppercase break-words">{receiptModal.trip.source_city}</td>
-                                      <td className="border-r border-black p-1 align-top pt-2 uppercase break-words">{receiptModal.trip.destination_city}</td>
-                                      <td className="border-r border-black p-1 align-top pt-2"></td>
-                                      <td className="border-r border-black p-1 align-top pt-2"></td>
-                                      <td className="border-r border-black p-1 align-top pt-2 text-right pr-2">{freight.toFixed(2)}</td>
-                                      <td className="border-r border-black p-1 align-top pt-2 text-right pr-2">{loadingCharge > 0 ? loadingCharge.toFixed(2) : ''}</td>
-                                      <td className="p-1 align-top pt-2 text-right pr-2">{exactBillTotalFreight.toFixed(2)}</td>
+                                      <td className="border-r border-black p-1.5 align-top pt-2 h-16">{receiptModal.trip.trip_start_date || '05/08/2026'}</td>
+                                      <td className="border-r border-black p-1.5 align-top pt-2">{receiptModal.trip.lr_no || '---'}</td>
+                                      <td className="border-r border-black p-1.5 align-top pt-2 break-words">{receiptModal.trip.vehicle_number}</td>
+                                      <td className="border-r border-black p-1.5 align-top pt-2 uppercase break-words">{receiptModal.trip.source_city}</td>
+                                      <td className="border-r border-black p-1.5 align-top pt-2 uppercase break-words">{receiptModal.trip.destination_city}</td>
+                                      <td className="border-r border-black p-1.5 align-top pt-2"></td>
+                                      <td className="border-r border-black p-1.5 align-top pt-2"></td>
+                                      <td className="border-r border-black p-1.5 align-top pt-2 text-right pr-2">{freight.toFixed(2)}</td>
+                                      <td className="border-r border-black p-1.5 align-top pt-2 text-right pr-2">{loadingCharge > 0 ? loadingCharge.toFixed(2) : ''}</td>
+                                      <td className="border-r border-black p-1.5 align-top pt-2 text-right pr-2">{holdingCharge > 0 ? holdingCharge.toFixed(2) : ''}</td>
+                                      <td className="p-1.5 align-top pt-2 text-right pr-2">{exactBillTotalFreight.toFixed(2)}</td>
                                   </tr>
                                   
                                   <tr className="border-t border-black">
-                                      <td colSpan="7" rowSpan="7" className="border-r border-black p-2 align-bottom text-left uppercase text-[12px]">
+                                      <td colSpan="8" rowSpan="7" className="border-r border-black p-2 align-bottom text-left uppercase text-[12px]">
                                           TOTAL INVOICE AMOUNT (IN WORDS):<br/>
                                           {numberToWords(finalBalancePayable)}
                                       </td>
@@ -598,36 +616,26 @@ function TripHistory() {
                                       <td className="border-t border-black p-1 text-right pr-2">{totalAdvances > 0 ? totalAdvances.toFixed(2) : ''}</td>
                                   </tr>
                                   <tr className="border-t border-black">
-                                      <td colSpan="7" className="border-r border-black p-0 text-left align-top">
+                                      <td colSpan="8" className="border-r border-black p-0 text-left align-top">
                                           <div className="bg-black text-white text-center py-0.5 text-[11px]">BANK DETAILS</div>
                                           <div className="flex text-[10px]">
                                               <div className="w-1/2 p-1 border-r border-black">
-                                                  A/C NO. <br/>510605010060611<br/>
-                                                  IFSC CODE: UBIN0551066<br/>
-                                                  BRANCH: SSI, JAIPUR<br/>
-                                                  UNION BANK OF INDIA
+                                                  A/C NO. <br/>510605010060611<br/>IFSC CODE: UBIN0551066<br/>BRANCH: SSI, JAIPUR<br/>UNION BANK OF INDIA
                                               </div>
                                               <div className="w-1/2 p-1">
-                                                  A/C NO. <br/>756001010050706<br/>
-                                                  IFSC CODE: UBIN0575607<br/>
-                                                  BRANCH: NEW SANGANER ROAD<br/>
-                                                  UNION BANK OF INDIA
+                                                  A/C NO. <br/>756001010050706<br/>IFSC CODE: UBIN0575607<br/>BRANCH: NEW SANGANER ROAD<br/>UNION BANK OF INDIA
                                               </div>
                                           </div>
                                       </td>
                                       <td colSpan="2" className="border-r border-black p-1 text-left pl-2 text-[12px]">BALANCE</td>
-                                      <td className="p-1 text-right pr-2 text-[12px]">{finalBalancePayable.toFixed(2)}</td>
+                                      <td className="p-1 text-right pr-2 text-[12px]">{balancePayment.toFixed(2)}</td>
                                   </tr>
                               </tbody>
                           </table>
 
                           <div className="flex justify-end mt-12 pr-4 text-[12px] font-bold">
-                              <div className="text-center">
-                                  <p className="mb-8">For {currentComp.name}</p>
-                                  <p>Auth. Signatory</p>
-                              </div>
+                              <div className="text-center"><p className="mb-8">For {currentComp.name}</p><p>Auth. Signatory</p></div>
                           </div>
-
                       </div>
                   )}
 

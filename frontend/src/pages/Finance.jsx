@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useReactToPrint } from 'react-to-print';
-import { Printer, Search, FileText, Receipt, ChevronDown, Loader2 } from 'lucide-react'; // Added Loader2
-import ActivityLog from '../utils/ActivityLog'; // Changed to utils
+import { Printer, Search, FileText, Receipt, Loader2 } from 'lucide-react';
+import ActivityLog from '../utils/ActivityLog'; 
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
@@ -28,6 +28,7 @@ function Finance() {
   const [allTrips, setAllTrips] = useState([]);
   
   const [viewType, setViewType] = useState('receipt'); 
+  const [localInvoiceNo, setLocalInvoiceNo] = useState('');
 
   const printRef = useRef(null);
   const handlePrint = useReactToPrint({ contentRef: printRef });
@@ -43,7 +44,9 @@ function Finance() {
     setLoading(true);
     try {
       const res = await axios.get(`${API_BASE}/track/${encodeURIComponent(trackingNumber)}`);
-      setTrip(res.data.trip || res.data);
+      const tripData = res.data.trip || res.data;
+      setTrip(tripData);
+      setLocalInvoiceNo(tripData.bill_no || '');
     } catch (err) {
       alert("Trip not found. Please check the tracking number.");
       setTrip(null);
@@ -52,7 +55,6 @@ function Finance() {
     }
   };
 
-  // --- SAFE MATH FOR READ-ONLY RENDER ---
   const advances = trip?.advance_details ? (typeof trip.advance_details === 'string' ? JSON.parse(trip.advance_details) : trip.advance_details) : [];
   const parsedFastag = trip?.fastag_details ? (typeof trip.fastag_details === 'string' ? JSON.parse(trip.fastag_details) : trip.fastag_details) : [];
 
@@ -73,13 +75,13 @@ function Finance() {
   const totalAdvances = advances.reduce((sum, adv) => sum + parseFloat(adv.amount || 0), 0);
   const balancePayment = parseFloat(trip?.balance_payment || 0);
 
-  const exactBillTotalFreight = freight + loadingCharge; // Holding excluded from Client Bill visual
+  const exactBillTotalFreight = freight + loadingCharge + holdingCharge; 
   const finalTotalAmount = exactBillTotalFreight + gstAmount;
+  const finalBalancePayable = finalTotalAmount - totalAdvances; 
   const gstHalf = (gstAmount / 2).toFixed(2);
   const isIGST = trip?.source_city?.toLowerCase() !== trip?.destination_city?.toLowerCase(); 
   const isGstEnabled = Boolean(trip?.gst_enabled);
 
-  // 🌟 AUTOMATIC COMPANY DETECTION
   const currentOwner = trip?.owner_name?.toUpperCase() || '';
   const isJFC = currentOwner === 'JFC'; 
   const activeCompanyCode = isJFC ? 'JFC' : 'JTA';
@@ -91,9 +93,8 @@ function Finance() {
   const currentComp = companyDetails[activeCompanyCode];
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6">
+    <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-6">
       
-      {/* Search Bar - Fixed alignment */}
       <div className="print:hidden bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
         <h2 className="text-2xl font-bold text-slate-800 mb-4">Finance & Billing (Read-Only)</h2>
         <div className="flex flex-col md:flex-row gap-3">
@@ -116,10 +117,7 @@ function Finance() {
       {trip && (
         <div className="space-y-6 animate-in fade-in duration-300">
           
-          {/* Loaded Entry & View Toggles - Fixed wrapping and layout */}
           <div className="print:hidden bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex flex-col lg:flex-row justify-between items-stretch gap-4">
-             
-             {/* Left side: Entry details */}
              <div className="bg-slate-50 px-5 py-3 rounded-xl border border-gray-200 w-full lg:flex-1 flex flex-col justify-center">
                 <span className="text-xs text-gray-500 font-bold block uppercase tracking-wider mb-1">Loaded Entry</span>
                 <div className="flex flex-wrap items-center gap-2">
@@ -132,7 +130,6 @@ function Finance() {
                 </div>
              </div>
              
-             {/* Right side: View Toggle Buttons */}
              <div className="flex flex-row items-center gap-2 w-full lg:w-auto bg-gray-100 p-1.5 rounded-xl shrink-0 h-full">
                  <button onClick={() => setViewType('receipt')} className={`flex-1 lg:flex-none flex items-center justify-center gap-2 px-5 py-3 md:py-2 h-full rounded-lg font-bold transition cursor-pointer ${viewType === 'receipt' ? 'bg-white text-slate-900 shadow-sm border border-gray-200' : 'text-gray-500 hover:text-slate-700'}`}>
                      <Receipt className="h-4 w-4"/> Internal Receipt
@@ -143,14 +140,28 @@ function Finance() {
              </div>
           </div>
 
-          {/* Print Row - Fixed alignment */}
           <div className="print:hidden flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-4 rounded-xl shadow-sm border border-gray-200 gap-4">
-              <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
-                  <label className="font-bold text-gray-600 text-sm">Billing Company:</label>
-                  <div className="bg-gray-100 px-4 py-2.5 rounded-lg text-sm font-bold text-slate-800 border border-gray-200 flex items-center gap-2 flex-wrap">
-                      {currentComp.name}
-                      <span className="bg-emerald-100 text-emerald-800 text-[9px] px-1.5 py-0.5 rounded font-black tracking-wider uppercase shrink-0">Auto-Assigned</span>
+              <div className="flex flex-wrap items-center gap-4 w-full sm:w-auto">
+                  <div className="flex items-center gap-2">
+                      <label className="font-bold text-gray-600 text-sm">Billing Company:</label>
+                      <div className="bg-gray-100 px-3 py-2 rounded-lg text-sm font-bold text-slate-800 border border-gray-200 flex items-center gap-2 flex-wrap">
+                          {currentComp.name}
+                          <span className="bg-emerald-100 text-emerald-800 text-[9px] px-1.5 py-0.5 rounded font-black tracking-wider uppercase shrink-0">Auto-Assigned</span>
+                      </div>
                   </div>
+
+                  {viewType === 'bill' && (
+                      <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+                          <label className="font-bold text-blue-900 text-sm whitespace-nowrap">Invoice No:</label>
+                          <input 
+                              type="text" 
+                              placeholder="Leave blank to print empty" 
+                              className="bg-white border border-blue-200 rounded px-2 py-1 text-sm font-bold text-blue-900 outline-none focus:border-blue-500 w-48"
+                              value={localInvoiceNo}
+                              onChange={(e) => setLocalInvoiceNo(e.target.value)}
+                          />
+                      </div>
+                  )}
               </div>
 
               <button onClick={handlePrint} className="w-full sm:w-auto shrink-0 flex items-center justify-center gap-2 bg-emerald-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-sm hover:bg-emerald-700 transition cursor-pointer">
@@ -159,13 +170,10 @@ function Finance() {
           </div>
 
           <div className="bg-white shadow-lg border border-gray-200 rounded-2xl overflow-hidden print:shadow-none print:border-none print:rounded-none print:overflow-visible">
-            <div ref={printRef} className="p-8 print:p-0 bg-white">
+            <div ref={printRef} className="p-8 print:p-0 bg-white flex justify-center">
               
-              {/* ========================================= */}
-              {/*    INTERNAL READ-ONLY RECEIPT VIEW        */}
-              {/* ========================================= */}
               {viewType === 'receipt' && (
-                <div className="max-w-3xl mx-auto">
+                <div className="w-full max-w-3xl">
                   <div className="border-b-2 border-slate-900 pb-6 mb-8 flex justify-between items-end">
                       <div>
                         <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight uppercase">{currentComp.name}</h1>
@@ -174,7 +182,7 @@ function Finance() {
                       <div className="text-right">
                         <h2 className="text-xl font-bold text-gray-800">FREIGHT RECEIPT</h2>
                         <p className="text-sm font-semibold text-gray-500 mt-1">TRK: {trip.tracking_number}</p>
-                        {trip.bill_no && (<p className="text-sm font-bold text-blue-700 mt-1 uppercase tracking-wide">BILL NO: {trip.bill_no}</p>)}
+                        {localInvoiceNo && (<p className="text-sm font-bold text-blue-700 mt-1 uppercase tracking-wide">BILL NO: {localInvoiceNo}</p>)}
                       </div>
                   </div>
                   
@@ -207,78 +215,36 @@ function Finance() {
 
                   <h3 className="font-bold text-base mb-4 text-slate-800 uppercase tracking-wide border-b pb-2">Financial Settlement</h3>
                   <div className="grid grid-cols-2 gap-x-12 gap-y-6">
-                      
-                      {/* Left Column: Additions */}
                       <div>
                         <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Additions (+)</h4>
-                        <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
-                            <span className="text-sm font-semibold text-gray-700">Total Freight (₹)</span>
-                            <span className="font-bold text-slate-800">{freight}</span>
-                        </div>
-                        {loadingCharge > 0 && (
-                            <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
-                                <span className="text-sm font-semibold text-gray-700">Loading/Unloading (₹)</span>
-                                <span className="font-bold text-slate-800">{loadingCharge}</span>
-                            </div>
-                        )}
-                        {holdingCharge > 0 && (
-                            <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
-                                <span className="text-sm font-semibold text-gray-700">Holding Charge (₹)</span>
-                                <span className="font-bold text-slate-800">{holdingCharge}</span>
-                            </div>
-                        )}
-                        {gstAmount > 0 && (
-                            <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
-                                <span className="text-sm font-bold text-gray-900">GST (18%) (₹)</span>
-                                <span className="font-bold text-emerald-600">{gstAmount}</span>
-                            </div>
-                        )}
+                        <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Total Freight (₹)</span><span className="font-bold text-slate-800">{freight}</span></div>
+                        {loadingCharge > 0 && <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Loading/Unloading (₹)</span><span className="font-bold text-slate-800">{loadingCharge}</span></div>}
+                        {holdingCharge > 0 && <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Detention Charge (₹)</span><span className="font-bold text-slate-800">{holdingCharge}</span></div>}
+                        {gstAmount > 0 && <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><span className="text-sm font-bold text-gray-900">GST (18%) (₹)</span><span className="font-bold text-emerald-600">{gstAmount}</span></div>}
                       </div>
 
-                      {/* Right Column: Deductions */}
                       <div>
                         <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Deductions (-)</h4>
                         <div className="border-b border-gray-100 pb-2 mb-2">
-                           <div className="flex justify-between items-center mb-2">
-                               <span className="text-sm font-semibold text-gray-700">Advance Received</span>
-                           </div>
+                           <div className="flex justify-between items-center mb-2"><span className="text-sm font-semibold text-gray-700">Advance Received</span></div>
                            {advances.map((adv, idx) => (
                               <div key={idx} className="flex justify-between items-center mb-1 gap-2 text-sm">
-                                 <span className="text-gray-500 w-[110px]">{adv.date || '-'}</span>
-                                 <span className="font-bold text-rose-600">₹{adv.amount || 0}</span>
+                                 <span className="text-gray-500 w-[110px]">{adv.date || '-'}</span><span className="font-bold text-rose-600">₹{adv.amount || 0}</span>
                               </div>
                            ))}
                            {advances.length === 0 && <span className="text-xs text-gray-400 italic">No advances logged</span>}
                         </div>
-                        {tds > 0 && (
-                            <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2">
-                                <span className="text-sm font-semibold text-gray-700">TDS (₹)</span>
-                                <span className="font-bold text-rose-600">{tds}</span>
-                            </div>
-                        )}
-                        {extraDeduction > 0 && (
-                            <div className="flex justify-between items-center border-b border-gray-100 pb-2">
-                                <span className="text-sm font-semibold text-gray-700">Extra Deduction</span>
-                                <span className="font-bold text-rose-600">{extraDeduction}</span>
-                            </div>
-                        )}
+                        {tds > 0 && <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">TDS (₹)</span><span className="font-bold text-rose-600">{tds}</span></div>}
+                        {extraDeduction > 0 && <div className="flex justify-between items-center border-b border-gray-100 pb-2"><span className="text-sm font-semibold text-gray-700">Extra Deduction</span><span className="font-bold text-rose-600">{extraDeduction}</span></div>}
                       </div>
                       
-                      {/* Total Bar */}
-                      <div className="col-span-2 mt-4 p-4 border-2 border-slate-900 rounded-lg flex justify-between items-center bg-emerald-50/30">
-                          <span className="font-extrabold text-lg text-slate-900">NET BALANCE PAYABLE</span>
-                          <span className="font-extrabold text-2xl text-emerald-600">₹{balancePayment}</span>
-                      </div>
+                      <div className="col-span-2 mt-4 p-4 border-2 border-slate-900 rounded-lg flex justify-between items-center bg-emerald-50/30"><span className="font-extrabold text-lg text-slate-900">NET BALANCE PAYABLE</span><span className="font-extrabold text-2xl text-emerald-600">₹{balancePayment}</span></div>
                   </div>
 
                   {trip.finance_remarks && (
-                      <div className="mt-4">
-                          <span className="block text-xs font-semibold text-gray-500 mb-1">Remarks / Payment Notes:</span>
-                          <p className="text-sm font-medium text-gray-800 bg-gray-50 p-3 rounded-lg border border-gray-100 print:bg-transparent print:border-0 print:p-0">{trip.finance_remarks}</p>
-                      </div>
+                      <div className="mt-4"><span className="block text-xs font-semibold text-gray-500 mb-1">Remarks / Payment Notes:</span><p className="text-sm font-medium text-gray-800 bg-gray-50 p-3 rounded-lg border border-gray-100 print:bg-transparent print:border-0 print:p-0">{trip.finance_remarks}</p></div>
                   )}
 
-                  {/* Read-Only Operational Tracking */}
                   <h3 className="font-bold text-base mb-4 mt-8 text-slate-800 uppercase tracking-wide border-b pb-2">Operational Tracking (Internal)</h3>
                   <div className="grid grid-cols-2 gap-x-8 gap-y-4">
                       <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 print:p-0 print:border-none">
@@ -289,21 +255,14 @@ function Finance() {
                       </div>
 
                       <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 print:p-0 print:border-none">
-                          <div className="flex justify-between items-center mb-3">
-                              <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider">Actual Fastag Logs</h4>
-                          </div>
+                          <div className="flex justify-between items-center mb-3"><h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider">Actual Fastag Logs</h4></div>
                           {parsedFastag.map((f, idx) => (
                               <div key={idx} className="flex justify-between items-center mb-1.5 gap-2 text-sm">
-                                 <span className="text-gray-500 w-[95px]">{f.date || '-'}</span>
-                                 <span className="text-gray-700 flex-1">{f.place || 'Unknown Location'}</span>
-                                 <span className="font-bold text-rose-600">₹{f.amount || 0}</span>
+                                 <span className="text-gray-500 w-[95px]">{f.date || '-'}</span><span className="text-gray-700 flex-1">{f.place || 'Unknown Location'}</span><span className="font-bold text-rose-600">₹{f.amount || 0}</span>
                               </div>
                           ))}
                           {parsedFastag.length === 0 && <span className="text-xs text-gray-400 italic">No toll logs added</span>}
-                          <div className="flex justify-between items-center mt-3 pt-2 border-t border-amber-300">
-                             <span className="text-sm font-extrabold text-amber-900">Total Actual Fastag</span>
-                             <span className="font-extrabold text-rose-600">₹{totalFastagActual}</span>
-                          </div>
+                          <div className="flex justify-between items-center mt-3 pt-2 border-t border-amber-300"><span className="text-sm font-extrabold text-amber-900">Total Actual Fastag</span><span className="font-extrabold text-rose-600">₹{totalFastagActual}</span></div>
                       </div>
                   </div>
 
@@ -318,46 +277,32 @@ function Finance() {
                       <div className="border-t border-gray-400 w-48 text-center pt-2 font-semibold text-sm">Receiver's Signature</div>
                       <div className="border-t border-gray-400 w-48 text-center pt-2 font-semibold text-sm">Authorized Signatory</div>
                   </div>
-
                 </div>
               )}
 
-              {/* ========================================= */}
-              {/*         EXACT MATCH BILL VIEW             */}
-              {/* ========================================= */}
+              {/* 🌟 FULL WIDTH, NO-OVERLAP CLIENT BILL */}
               {viewType === 'bill' && (
-                  <div className="max-w-[800px] mx-auto text-black font-sans leading-snug">
+                  <div className="w-full max-w-[900px] text-black font-sans leading-snug mx-auto p-2 print:p-0">
                       
-                      {/* HEADER SECTION */}
                       <div className="text-center mb-2">
-                          <h1 className="text-3xl font-extrabold text-black tracking-widest leading-none mb-1">
-                              {currentComp.name}
-                          </h1>
-                          <p className="text-[13px] font-bold whitespace-pre-line leading-tight">
-                              {currentComp.address}
-                          </p>
-                          <div className="flex justify-center gap-6 mt-1 text-[12px] font-bold">
-                              <span>GST NO.: {currentComp.gst}</span>
-                              <span>PAN No.: {currentComp.pan}</span>
-                          </div>
-                          <p className="text-[11px] font-bold mt-1">
-                              Email: {currentComp.email}, Mob. {currentComp.phone}
-                          </p>
+                          <h1 className="text-3xl font-extrabold text-black tracking-widest leading-none mb-1">{currentComp.name}</h1>
+                          <p className="text-[13px] font-bold whitespace-pre-line leading-tight">{currentComp.address}</p>
+                          <div className="flex justify-center gap-6 mt-1 text-[12px] font-bold"><span>GST NO.: {currentComp.gst}</span><span>PAN No.: {currentComp.pan}</span></div>
+                          <p className="text-[11px] font-bold mt-1">Email: {currentComp.email}, Mob. {currentComp.phone}</p>
                       </div>
 
-                      {/* BILL INFO BOX */}
                       <div className="border border-black flex justify-between">
                           <div className="w-[60%] border-r border-black p-2 text-[12px]">
                               <p className="font-bold">TO,</p>
-                              <p className="font-bold mt-1">{trip.party_name?.toUpperCase() || 'VELINK INDIA PVT. LTD.'}</p>
-                              <p className="font-bold">{(trip.destination_city || 'RAIPUR').toUpperCase()}, RAJ.</p>
+                              <p className="font-bold mt-1 leading-tight">{trip.party_name?.toUpperCase() || 'VELINK INDIA PVT. LTD.'}</p>
+                              <p className="font-bold leading-tight">{(trip.destination_city || 'RAIPUR').toUpperCase()}, RAJ.</p>
                               <p className="font-bold mt-2">GST:- {trip.party_gst || '08AAGCV0492E1ZB'}</p>
                               <p className="font-bold">STATE: RAJASTHAN / STATE CODE: 08</p>
                           </div>
                           <div className="w-[40%] text-[13px] font-bold">
                               <div className="border-b border-black p-2 flex justify-between">
                                   <span>Invoice No.:</span>
-                                  <span>{trip.bill_no || 'JTA/26-27/---'}</span>
+                                  <span>{localInvoiceNo}</span>
                               </div>
                               <div className="p-2 flex justify-between">
                                   <span>Date:</span>
@@ -366,47 +311,44 @@ function Finance() {
                           </div>
                       </div>
                       
-                      {/* REVERSE CHARGE BANNER */}
-                      <div className="border-x border-b border-black p-1 text-center text-[12px] font-bold">
-                          GST PAYABLE UNDER REVERSE CHARGES - YES/NO
-                      </div>
+                      <div className="border-x border-b border-black p-1 text-center text-[12px] font-bold">GST PAYABLE UNDER REVERSE CHARGES - YES/NO</div>
 
-                      {/* MAIN TABLE */}
-                      <table className="w-full table-fixed border-collapse border border-black text-[11px] font-bold text-center mt-[-1px]">
+                      {/* 🌟 WIDE 11-COLUMN TABLE WITH NO OVERLAP */}
+                      <table className="w-full table-fixed border-collapse border border-black text-[10px] font-bold text-center mt-[-1px]">
                           <thead>
                               <tr>
-                                  <th className="border border-black p-1 w-[9%]">LOADING<br/>DATE</th>
-                                  <th className="border border-black p-1 w-[8%]">LR.NO.</th>
-                                  <th className="border border-black p-1 w-[12%]">VEHICLE<br/>NO.</th>
-                                  <th className="border border-black p-1 w-[15%]">FROM</th>
-                                  <th className="border border-black p-1 w-[20%]">TO</th>
-                                  <th className="border border-black p-1 w-[6%]">WEIGHT</th>
-                                  <th className="border border-black p-1 w-[6%]">RATE</th>
-                                  <th className="border border-black p-1 w-[10%]">FREIGHT</th>
-                                  <th className="border border-black p-1 w-[11%]">UNLOADING<br/>CHARGES</th>
-                                  <th className="border border-black p-1 w-[12%]">TOTAL<br/>FREIGHT</th>
+                                  <th className="border border-black p-1.5 w-[8%] leading-tight">LOADING<br/>DATE</th>
+                                  <th className="border border-black p-1.5 w-[6%] leading-tight break-words">LR.NO.</th>
+                                  <th className="border border-black p-1.5 w-[11%] leading-tight break-words">VEHICLE<br/>NO.</th>
+                                  <th className="border border-black p-1.5 w-[13%] leading-tight break-words">FROM</th>
+                                  <th className="border border-black p-1.5 w-[14%] leading-tight break-words">TO</th>
+                                  <th className="border border-black p-1.5 w-[5%] leading-tight">WT</th>
+                                  <th className="border border-black p-1.5 w-[5%] leading-tight">RATE</th>
+                                  <th className="border border-black p-1.5 w-[9%] leading-tight">FREIGHT</th>
+                                  <th className="border border-black p-1.5 w-[9%] leading-tight break-words">UNLOADING<br/>CHG</th>
+                                  <th className="border border-black p-1.5 w-[9%] leading-tight break-words">DETENTION<br/>CHG</th>
+                                  <th className="border border-black p-1.5 w-[11%] leading-tight">TOTAL<br/>FREIGHT</th>
                               </tr>
                           </thead>
                           <tbody>
-                              {/* Row 1: Main Data */}
                               <tr>
-                                  <td className="border-r border-black p-1 align-top pt-2 h-16">{trip.trip_start_date || '05/08/2026'}</td>
-                                  <td className="border-r border-black p-1 align-top pt-2">{trip.lr_no || '---'}</td>
-                                  <td className="border-r border-black p-1 align-top pt-2">{trip.vehicle_number}</td>
-                                  <td className="border-r border-black p-1 align-top pt-2 uppercase break-words">{trip.source_city}</td>
-                                  <td className="border-r border-black p-1 align-top pt-2 uppercase break-words">{trip.destination_city}</td>
-                                  <td className="border-r border-black p-1 align-top pt-2"></td>
-                                  <td className="border-r border-black p-1 align-top pt-2"></td>
-                                  <td className="border-r border-black p-1 align-top pt-2 text-right pr-2">{freight.toFixed(2)}</td>
-                                  <td className="border-r border-black p-1 align-top pt-2 text-right pr-2">{loadingCharge > 0 ? loadingCharge.toFixed(2) : ''}</td>
-                                  <td className="p-1 align-top pt-2 text-right pr-2">{exactBillTotalFreight.toFixed(2)}</td>
+                                  <td className="border-r border-black p-1.5 align-top pt-2 h-16">{trip.trip_start_date || '05/08/2026'}</td>
+                                  <td className="border-r border-black p-1.5 align-top pt-2">{trip.lr_no || '---'}</td>
+                                  <td className="border-r border-black p-1.5 align-top pt-2 break-words">{trip.vehicle_number}</td>
+                                  <td className="border-r border-black p-1.5 align-top pt-2 uppercase break-words">{trip.source_city}</td>
+                                  <td className="border-r border-black p-1.5 align-top pt-2 uppercase break-words">{trip.destination_city}</td>
+                                  <td className="border-r border-black p-1.5 align-top pt-2"></td>
+                                  <td className="border-r border-black p-1.5 align-top pt-2"></td>
+                                  <td className="border-r border-black p-1.5 align-top pt-2 text-right pr-2">{freight.toFixed(2)}</td>
+                                  <td className="border-r border-black p-1.5 align-top pt-2 text-right pr-2">{loadingCharge > 0 ? loadingCharge.toFixed(2) : ''}</td>
+                                  <td className="border-r border-black p-1.5 align-top pt-2 text-right pr-2">{holdingCharge > 0 ? holdingCharge.toFixed(2) : ''}</td>
+                                  <td className="p-1.5 align-top pt-2 text-right pr-2">{exactBillTotalFreight.toFixed(2)}</td>
                               </tr>
                               
-                              {/* Row 2: Totals / Tax Layout */}
                               <tr className="border-t border-black">
-                                  <td colSpan="7" rowSpan="7" className="border-r border-black p-2 align-bottom text-left uppercase text-[12px]">
+                                  <td colSpan="8" rowSpan="7" className="border-r border-black p-2 align-bottom text-left uppercase text-[12px]">
                                       TOTAL INVOICE AMOUNT (IN WORDS):<br/>
-                                      {numberToWords(balancePayment)}
+                                      {numberToWords(finalBalancePayable)}
                                   </td>
                                   <td colSpan="2" className="border-r border-black p-1 text-left pl-2">TOTAL</td>
                                   <td className="p-1 text-right pr-2">{exactBillTotalFreight.toFixed(2)}</td>
@@ -435,22 +377,15 @@ function Finance() {
                                   <td colSpan="2" className="border-r border-t border-black p-1 text-left pl-2">ADVANCE</td>
                                   <td className="border-t border-black p-1 text-right pr-2">{totalAdvances > 0 ? totalAdvances.toFixed(2) : ''}</td>
                               </tr>
-                              {/* Final Balance Row */}
                               <tr className="border-t border-black">
-                                  <td colSpan="7" className="border-r border-black p-0 text-left align-top">
+                                  <td colSpan="8" className="border-r border-black p-0 text-left align-top">
                                       <div className="bg-black text-white text-center py-0.5 text-[11px]">BANK DETAILS</div>
                                       <div className="flex text-[10px]">
                                           <div className="w-1/2 p-1 border-r border-black">
-                                              A/C NO. <br/>510605010060611<br/>
-                                              IFSC CODE: UBIN0551066<br/>
-                                              BRANCH: SSI, JAIPUR<br/>
-                                              UNION BANK OF INDIA
+                                              A/C NO. <br/>510605010060611<br/>IFSC CODE: UBIN0551066<br/>BRANCH: SSI, JAIPUR<br/>UNION BANK OF INDIA
                                           </div>
                                           <div className="w-1/2 p-1">
-                                              A/C NO. <br/>756001010050706<br/>
-                                              IFSC CODE: UBIN0575607<br/>
-                                              BRANCH: NEW SANGANER ROAD<br/>
-                                              UNION BANK OF INDIA
+                                              A/C NO. <br/>756001010050706<br/>IFSC CODE: UBIN0575607<br/>BRANCH: NEW SANGANER ROAD<br/>UNION BANK OF INDIA
                                           </div>
                                       </div>
                                   </td>
@@ -461,12 +396,8 @@ function Finance() {
                       </table>
 
                       <div className="flex justify-end mt-12 pr-4 text-[12px] font-bold">
-                          <div className="text-center">
-                              <p className="mb-8">For {currentComp.name}</p>
-                              <p>Auth. Signatory</p>
-                          </div>
+                          <div className="text-center"><p className="mb-8">For {currentComp.name}</p><p>Auth. Signatory</p></div>
                       </div>
-
                   </div>
               )}
 
@@ -475,7 +406,6 @@ function Finance() {
         </div>
       )}
 
-      {/* 🌟 GLOBAL ACTIVITY LOG RENDERED AT THE BOTTOM */}
       <div className="print:hidden mt-8">
           <ActivityLog />
       </div>
