@@ -1,0 +1,24 @@
+backend/main.py
+  h_b6895d6280a977 411-425,427-428,433-444,446-447,452-459,461-462,465,545,548-561,565-566,568
+frontend/src/pages/Dashboard.jsx
+  h_b6895d6280a977 175-177,197-199,294-295,378-379,433
+frontend/src/pages/DriverHistory.jsx
+  h_b6895d6280a977 3,16,24-27,74-76,108,114-130,152-162,169,180-196,198-200,203-204,292,294-299
+frontend/src/pages/Finance.jsx
+  h_b6895d6280a977 32,51,72,156-176,235,318,337,408
+frontend/src/pages/TripDetails.jsx
+  h_b6895d6280a977 34,50,139,141-161,220,303,322
+frontend/src/pages/TripHistory.jsx
+  h_b6895d6280a977 48,106-107,380,391,393-413,469,557,562,569,582
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "f9053cb69fa4c640061c9c06a945902d8c73b78b",
+  "prompts": {},
+  "humans": {
+    "h_b6895d6280a977": {
+      "author": "aagam2909 <aagamjain1325@gmail.com>"
+    }
+  }
+}
