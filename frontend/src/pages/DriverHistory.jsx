@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { useLocation } from 'react-router-dom';
 import { Users, Search, Plus, Phone, FileSignature, MapPin, Trash2, Edit, Printer, X, Receipt, IndianRupee, AlertCircle, CheckCircle } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 
@@ -12,6 +13,7 @@ const HistoryTag = ({ completed }) => (
 );
 
 function DriversHistory() {
+  const location = useLocation();
   const [drivers, setDrivers] = useState([]);
   const [history, setHistory] = useState([]);
   const [selectedDriver, setSelectedDriver] = useState(null);
@@ -19,9 +21,11 @@ function DriversHistory() {
   const [showReceipt, setShowReceipt] = useState(false);
   const [editingDriver, setEditingDriver] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // 🌟 READS STATE PASSED FROM DASHBOARD
+  const [filterExpiring, setFilterExpiring] = useState(location.state?.filterExpiring || false); 
+  
   const [newDriver, setNewDriver] = useState({ name: '', dl_number: '', aadhaar_number: '', mobile_number: '', dl_expiry_date: '' });
-
-  // Settlement Date state per trip
   const [settleDates, setSettleDates] = useState({});
 
   const receiptRef = useRef(null);
@@ -41,7 +45,6 @@ function DriversHistory() {
     setNewDriver({ name: '', dl_number: '', aadhaar_number: '', mobile_number: '', dl_expiry_date: '' });
   };
 
-  // 🌟 FIX: Clean payload & show exact backend error (e.g. "Driver already exists")
   const saveDriver = async () => {
     if (!newDriver.name || !newDriver.dl_number) return alert("Name and DL number are required.");
     
@@ -68,8 +71,9 @@ function DriversHistory() {
     }
   };
 
-  const startEditingDriver = (driver, e) => {
-    e.stopPropagation();
+  // 🌟 ALLOWS CLICKING EDIT FROM THE RIGHT PANEL WITHOUT AN EVENT
+  const startEditingDriver = (driver, e = null) => {
+    if (e) e.stopPropagation();
     setEditingDriver(driver);
     setNewDriver({
       name: driver.name || '', dl_number: driver.dl_number || '', aadhaar_number: driver.aadhaar_number || '',
@@ -101,15 +105,30 @@ function DriversHistory() {
     try {
       await axios.post(`${API_BASE}/finances/settle-driver`, { trip_id: tripId, payment_date: paymentDate });
       alert("Driver payment marked as settled successfully! ✅");
-      handleSelectDriver(selectedDriver); // Refresh data
+      handleSelectDriver(selectedDriver); 
     } catch (err) {
       alert("Failed to settle payment.");
     }
   };
 
-  const filteredDrivers = drivers.filter(d => d.name?.toLowerCase().includes(searchQuery.toLowerCase()) || d.mobile_number?.includes(searchQuery));
+  const getExpiryStatus = (dateString) => {
+      if (!dateString) return null;
+      const expDate = new Date(dateString);
+      const today = new Date();
+      const thirtyDays = new Date();
+      thirtyDays.setDate(today.getDate() + 30);
 
-  // --- SMART DRIVER LEDGER MATH ---
+      if (expDate < today) return { label: 'Expired', color: 'bg-rose-100 text-rose-700 border-rose-200' };
+      if (expDate <= thirtyDays) return { label: 'Expiring Soon', color: 'bg-amber-100 text-amber-700 border-amber-200' };
+      return null;
+  };
+
+  let filteredDrivers = drivers.filter(d => d.name?.toLowerCase().includes(searchQuery.toLowerCase()) || d.mobile_number?.includes(searchQuery));
+  
+  if (filterExpiring) {
+      filteredDrivers = filteredDrivers.filter(d => getExpiryStatus(d.dl_expiry_date) !== null);
+  }
+
   const unpaidTrips = history.filter(h => {
       const remaining = parseFloat(h.driver_remaining) || (parseFloat(h.total_km || 0) * 1.0);
       return !h.driver_paid && remaining > 0;
@@ -130,16 +149,24 @@ function DriversHistory() {
           <button onClick={() => { resetDriverForm(); setShowForm(!showForm); }} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-1 hover:bg-blue-700 transition cursor-pointer"><Plus className="h-4 w-4"/> Add</button>
         </div>
 
-        <div className="relative mb-4">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <input type="text" placeholder="Search name or phone..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full border rounded-lg p-2.5 pl-9 text-sm focus:ring-2 focus:ring-blue-100 outline-none" />
+        <div className="flex gap-2 mb-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <input type="text" placeholder="Search name or phone..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full border rounded-lg p-2.5 pl-9 text-sm focus:ring-2 focus:ring-blue-100 outline-none" />
+          </div>
+          <button 
+             onClick={() => setFilterExpiring(!filterExpiring)}
+             className={`px-3 py-2 rounded-lg text-sm font-bold border transition flex items-center gap-1 cursor-pointer ${filterExpiring ? 'bg-rose-50 text-rose-700 border-rose-200 shadow-sm' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'}`}
+          >
+             <AlertCircle className="h-4 w-4"/> {filterExpiring ? 'Show All' : 'Alerts'}
+          </button>
         </div>
 
         {showForm && (
             <div className="bg-gray-50 p-4 mb-4 rounded-xl border space-y-2">
                 <input placeholder="Name *" className="w-full border p-2 rounded text-sm outline-none" value={newDriver.name} onChange={e => setNewDriver({...newDriver, name: e.target.value})} />
                 <input placeholder="DL Number *" className="w-full border p-2 rounded text-sm outline-none" value={newDriver.dl_number} onChange={e => setNewDriver({...newDriver, dl_number: e.target.value})} />
-                <input placeholder="Aadhaar" className="w-full border p-2 rounded text-sm outline-none" value={newDriver.aadhaar_number} onChange={e => setNewDriver({...newDriver, aadhaar_number: e.target.value})} />
+                <input placeholder="Aadhaar ID" className="w-full border p-2 rounded text-sm outline-none" value={newDriver.aadhaar_number} onChange={e => setNewDriver({...newDriver, aadhaar_number: e.target.value})} />
                 <input placeholder="Mobile Number" className="w-full border p-2 rounded text-sm outline-none" value={newDriver.mobile_number} onChange={e => setNewDriver({...newDriver, mobile_number: e.target.value})} />
                 <input type="date" className="w-full border p-2 rounded text-sm text-gray-500 outline-none" value={newDriver.dl_expiry_date} onChange={e => setNewDriver({...newDriver, dl_expiry_date: e.target.value})} />
                 <div className="flex gap-2 pt-2">
@@ -150,23 +177,31 @@ function DriversHistory() {
         )}
 
         <div className="flex-1 overflow-y-auto pr-2 space-y-2">
-          {filteredDrivers.map(d => (
-            <div key={d.driver_id} onClick={() => handleSelectDriver(d)} className={`cursor-pointer p-3 rounded-xl border flex items-center justify-between transition group ${selectedDriver?.driver_id === d.driver_id ? 'bg-blue-50 border-blue-200' : 'hover:bg-gray-50 border-gray-100'}`}>
-              <div className="flex items-center gap-3">
-                <div className={`h-10 w-10 rounded-full flex items-center justify-center font-bold text-sm ${selectedDriver?.driver_id === d.driver_id ? 'bg-blue-200 text-blue-800' : 'bg-gray-100 text-gray-600'}`}>
-                  {d.name.substring(0,2).toUpperCase()}
+          {filteredDrivers.map(d => {
+            const expStatus = getExpiryStatus(d.dl_expiry_date);
+            return (
+              <div key={d.driver_id} onClick={() => handleSelectDriver(d)} className={`cursor-pointer p-3 rounded-xl border flex items-center justify-between transition group ${selectedDriver?.driver_id === d.driver_id ? 'bg-blue-50 border-blue-200' : 'hover:bg-gray-50 border-gray-100'}`}>
+                <div className="flex items-center gap-3">
+                  <div className={`h-10 w-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${selectedDriver?.driver_id === d.driver_id ? 'bg-blue-200 text-blue-800' : 'bg-gray-100 text-gray-600'}`}>
+                    {d.name.substring(0,2).toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-gray-900">{d.name}</div>
+                    <div className="text-xs text-gray-500">{d.mobile_number || 'No phone'}</div>
+                    {expStatus && (
+                       <span className={`text-[9px] px-1.5 py-0.5 rounded border font-bold mt-1 inline-block uppercase tracking-wider ${expStatus.color}`}>
+                           {expStatus.label}
+                       </span>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <div className="text-sm font-semibold text-gray-900">{d.name}</div>
-                  <div className="text-xs text-gray-500">{d.mobile_number || 'No phone'}</div>
+                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                  <button onClick={(e) => startEditingDriver(d, e)} className="p-1.5 text-blue-500 hover:bg-blue-100 rounded-md cursor-pointer"><Edit className="h-4 w-4"/></button>
+                  <button onClick={(e) => deleteDriver(d.driver_id, e)} className="p-1.5 text-red-500 hover:bg-red-100 rounded-md cursor-pointer"><Trash2 className="h-4 w-4"/></button>
                 </div>
               </div>
-              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition">
-                <button onClick={(e) => startEditingDriver(d, e)} className="p-1.5 text-blue-500 hover:bg-blue-100 rounded-md cursor-pointer"><Edit className="h-4 w-4"/></button>
-                <button onClick={(e) => deleteDriver(d.driver_id, e)} className="p-1.5 text-red-500 hover:bg-red-100 rounded-md cursor-pointer"><Trash2 className="h-4 w-4"/></button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
           {!filteredDrivers.length && <p className="text-sm text-gray-500 text-center py-4">No drivers found.</p>}
         </div>
       </div>
@@ -191,7 +226,6 @@ function DriversHistory() {
                 </button>
             </div>
 
-            {/* DRIVER OUTSTANDING PAYMENTS BOX */}
             <div className="bg-white rounded-2xl shadow-sm border-2 border-rose-200 overflow-hidden">
                <div className="bg-rose-50 p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-rose-100">
                   <div>
@@ -224,8 +258,6 @@ function DriversHistory() {
                                            <span className="font-extrabold text-base text-rose-600">₹{driverRemaining}</span>
                                        </div>
                                     </div>
-
-                                    {/* SETTLEMENT CONTROLS */}
                                     <div className="pt-2 border-t border-gray-200 flex items-center gap-2">
                                         <input 
                                             type="date" 
@@ -257,10 +289,14 @@ function DriversHistory() {
                 <div className="bg-white p-5 rounded-2xl border shadow-sm">
                     <h4 className="font-bold text-gray-800 mb-3 text-sm flex items-center gap-1.5"><Phone className="h-4 w-4 text-gray-400" />Contact Info</h4>
                     <p className="text-sm mb-1 text-gray-500">Phone: <span className="font-medium text-gray-800">{selectedDriver.mobile_number || '-'}</span></p>
-                    <p className="text-sm text-gray-500">Aadhaar: <span className="font-medium text-gray-800">{selectedDriver.aadhaar_number || '-'}</span></p>
+                    <p className="text-sm text-gray-500">Aadhaar: <span className="font-medium text-gray-800">{selectedDriver.aadhaar_number ? selectedDriver.aadhaar_number.replace(/\d(?=\d{4})/g, "*") : '-'}</span></p>
                 </div>
-                <div className="bg-white p-5 rounded-2xl border shadow-sm">
-                    <h4 className="font-bold text-gray-800 mb-3 text-sm flex items-center gap-1.5"><FileSignature className="h-4 w-4 text-gray-400" />License Details</h4>
+                {/* 🌟 NEW EDIT BUTTON DIRECTLY ON THE CARD */}
+                <div className="bg-white p-5 rounded-2xl border shadow-sm relative group">
+                    <div className="flex justify-between items-center mb-3">
+                        <h4 className="font-bold text-gray-800 text-sm flex items-center gap-1.5"><FileSignature className="h-4 w-4 text-gray-400" />License Details</h4>
+                        <button onClick={() => startEditingDriver(selectedDriver)} className="text-blue-600 bg-blue-50 hover:bg-blue-100 p-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"><Edit className="h-3 w-3"/> Edit</button>
+                    </div>
                     <p className="text-sm mb-1 text-gray-500">DL No: <span className="font-medium text-gray-800">{selectedDriver.dl_number || '-'}</span></p>
                     <p className="text-xs text-green-700 font-semibold mt-2 p-1.5 inline-block rounded-md bg-green-50 border border-green-100">Expiry: {selectedDriver.dl_expiry_date ? new Date(selectedDriver.dl_expiry_date).toLocaleDateString() : 'Unknown'}</p>
                 </div>
@@ -271,7 +307,6 @@ function DriversHistory() {
                 </div>
             </div>
 
-            {/* HORIZONTAL SCROLL WRAPPER */}
             <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
                 <div className="p-5 border-b bg-gray-50"><h3 className="font-bold text-gray-900">Complete Trip History, Diesel & Fastag Breakdown</h3></div>
                 <div className="overflow-x-auto w-full">
@@ -330,7 +365,6 @@ function DriversHistory() {
         )}
       </div>
 
-      {/* Hisaab Receipt Modal */}
       {showReceipt && selectedDriver && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh]">

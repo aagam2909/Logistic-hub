@@ -8,7 +8,6 @@ const API_BASE = import.meta.env.VITE_API_URL;
 function Dashboard() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [showDriverModal, setShowDriverModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   
   const [stats, setStats] = useState({
@@ -18,11 +17,9 @@ function Dashboard() {
   const [recentTrips, setRecentTrips] = useState([]);
   const [expiringDrivers, setExpiringDrivers] = useState([]);
 
-  // --- REPORTING ENGINE STATE ---
   const [exportType, setExportType] = useState('finance_ledger'); 
   const [customStatus, setCustomStatus] = useState('All');
   
-  // RESTORED: Custom Columns State
   const [exportCols, setExportCols] = useState({
     tracking_number: true, trip_start_date: true, vehicle_number: true, route: true, 
     party_name: true, freight_amount: true, balance_payment: true, diesel_needed: true, 
@@ -175,11 +172,12 @@ function Dashboard() {
                 'PARTY': trip.party_name || '-', 'OWNER NAME': trip.owner_name || '-', 'FREIGHT': freight, 'UNLOADING': loading, 'HOLDING': holding, 'GST': gst,
                 'TOTAL FREIGHT': totalFreight.toFixed(2), 'ADVANCE': trip.adv_amt || 0, 'ADVANCE DATE': advDate, 'TDS': trip.tds || 0,
                 '200': trip.extra_deduction || 0, 'BALANCE': trip.balance_payment || 0, 'POD RECEIVED DATE': trip.pod_received_client_date || '-', 'GTA': trip.gta_name || '-',
-                'L R NO.': trip.lr_no || '-', 'EWAY BILL': trip.eway_bill || '-'
+                'L R NO.': trip.lr_no || '-', 
+                'EWAY BILL': trip.eway_bill || '-',
+                'EWAY EXPIRY': trip.eway_bill_expiry || '-'
             };
          });
       }
-      // 🌟 UPDATED: "Today's Activity" - Captures both launches and deliveries on today's date
       else if (exportType === 'today') {
          filename = `Todays_Activity_${todayStr}.csv`;
          
@@ -196,15 +194,9 @@ function Dashboard() {
              else if (trip.actual_delivery_date === todayStr) actionToday = 'Delivered Today';
 
              return {
-                'SR': idx + 1,
-                'VEHICLE': trip.vehicle_number || '-',
-                'EVENT TODAY': actionToday,
-                'FROM': trip.source_city || '-',
-                'TO': trip.destination_city || '-',
-                'PARTY': trip.party_name || '-',
-                'FREIGHT': trip.freight_amount || 0,
-                'STATUS': trip.pod_status || 'Pending',
-                'LOCATION': liveLocation
+                'SR': idx + 1, 'VEHICLE': trip.vehicle_number || '-', 'EVENT TODAY': actionToday, 'FROM': trip.source_city || '-',
+                'TO': trip.destination_city || '-', 'PARTY': trip.party_name || '-', 'FREIGHT': trip.freight_amount || 0,
+                'STATUS': trip.pod_status || 'Pending', 'LOCATION': liveLocation
              }
          });
       }
@@ -246,7 +238,6 @@ function Dashboard() {
               'Status': driverMap[key].pending <= 0 ? 'Settled' : 'Unpaid Dues'
           }));
       }
-      // RESTORED: CUSTOM TELEMETRY REPORT GENERATOR
       else if (exportType === 'custom') {
          filename = `Custom_Report_${todayStr}.csv`;
          csvData = targetTrips.map(trip => {
@@ -300,8 +291,8 @@ function Dashboard() {
   const getPreviewData = () => {
       if (exportType === 'finance_ledger') {
           return {
-              headers: ['SR', 'VEH', 'LOADING DATE', 'PARTY', 'FROM', 'TO', 'M LOCATION', 'STATUS', 'YSD KMS', 'REASON', 'L/R & PAPER CHECK', 'ADVANCE Y/N', 'adv', 'ADV ROUND OFF', 'Adv paid', 'Adv pending', 'HSD', 'ALLOUN D HSD', 'HSD IN TANK', 'HSD Issued', 'HSD pending', 'ICICI', 'idfc', 'AXIS', 'provider'],
-              rows: [['1', '1438', '30/07/2026', 'MAHAVEERA', 'BANGALORE', 'DURG', 'Live: [28.2, 75.3]', 'Moving (45km/h)', '', '', '5425', 'Y', '5425', '5425', '5425', '0', '282', '332', '117', '', '215', '', '', '', '']]
+              headers: ['SR', 'VEH', 'LOADING DATE', 'PARTY', 'FROM', 'TO', 'STATUS', 'YSD KMS', 'ADVANCE Y/N', 'adv', 'HSD IN TANK', 'ICICI'],
+              rows: [['1', '1438', '30/07/2026', 'MAHAVEERA', 'BANGALORE', 'DURG', 'Moving', '', 'Y', '5425', '215 L', '']]
           };
       }
       if (exportType === 'detailed') {
@@ -384,7 +375,8 @@ function Dashboard() {
               <p className="text-xs text-rose-700">{expiringDrivers.length} driver(s) have licenses expiring soon or already expired.</p>
             </div>
           </div>
-          <button onClick={() => { setShowDriverModal(true); navigate('/driver-history'); }} className="bg-rose-600 text-white text-xs px-4 py-2 rounded-lg font-semibold hover:bg-rose-700 transition shadow-sm cursor-pointer">Review</button>
+          {/* 🌟 PASSING STATE VIA ROUTER */}
+          <button onClick={() => navigate('/driver-history', { state: { filterExpiring: true } })} className="bg-rose-600 text-white text-xs px-4 py-2 rounded-lg font-semibold hover:bg-rose-700 transition shadow-sm cursor-pointer">Review</button>
         </div>
       )}
 
@@ -438,7 +430,7 @@ function Dashboard() {
 
       {showExportModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border w-full max-w-6xl overflow-hidden flex flex-col md:flex-row animate-in fade-in zoom-in-95 duration-200 h-[85vh] md:h-[600px]">
+          <div className="bg-white w-full max-w-6xl rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row animate-in fade-in zoom-in-95 duration-200 h-[85vh] md:h-[600px]">
             
             <div className="w-full md:w-1/3 bg-gray-50 border-r border-gray-200 p-5 flex flex-col gap-2 overflow-y-auto">
                <h3 className="font-bold text-gray-900 mb-2 uppercase text-xs tracking-wider">Select Layout Format</h3>

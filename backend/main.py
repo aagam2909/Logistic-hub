@@ -408,27 +408,60 @@ def locked_edit_trip(trip_id: int, trip_data: dict):
 
 @app.get("/trips/active")
 def get_active_trips():
-    conn = get_db_connection(); cursor = conn.cursor()
-    cursor.execute("SELECT t.*, a.driver_name, f.* FROM trips t LEFT JOIN assets a ON t.vehicle_number = a.vehicle_number LEFT JOIN trip_finances f ON t.trip_id = f.trip_id WHERE t.actual_delivery_date IS NULL ORDER BY t.trip_start_date DESC;")
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # 🌟 FIX: Explicitly selecting t.* so trip_id is not overwritten by a null f.trip_id
+    cursor.execute("""
+        SELECT t.*, a.driver_name, 
+               f.freight_amount, f.adv_amt, f.balance_payment, f.total_km, 
+               f.diesel_liters_needed, f.fastag_estimate, f.driver_advance, 
+               f.driver_remaining, f.driver_total, f.driver_paid, f.driver_payment_date,
+               f.pod_status AS finance_pod_status
+        FROM trips t 
+        LEFT JOIN assets a ON t.vehicle_number = a.vehicle_number 
+        LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
+        WHERE t.actual_delivery_date IS NULL 
+        ORDER BY t.trip_start_date DESC;
+    """)
     res = [dict(zip([d[0] for d in cursor.description], row)) for row in cursor.fetchall()]
-    cursor.close(); conn.close()
+    cursor.close()
+    conn.close()
     return res
 
 @app.get("/trips/history")
 def get_trip_history():
-    conn = get_db_connection(); cursor = conn.cursor()
-    cursor.execute("SELECT t.*, f.* FROM trips t LEFT JOIN trip_finances f ON t.trip_id = f.trip_id WHERE t.actual_delivery_date IS NOT NULL ORDER BY t.actual_delivery_date DESC, t.trip_id DESC;")
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT t.*, 
+               f.freight_amount, f.adv_amt, f.balance_payment, f.total_km, 
+               f.diesel_liters_needed, f.fastag_estimate, f.driver_advance, 
+               f.driver_remaining, f.driver_total, f.driver_paid, f.driver_payment_date
+        FROM trips t 
+        LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
+        WHERE t.actual_delivery_date IS NOT NULL 
+        ORDER BY t.actual_delivery_date DESC, t.trip_id DESC;
+    """)
     res = [dict(zip([d[0] for d in cursor.description], row)) for row in cursor.fetchall()]
-    cursor.close(); conn.close()
+    cursor.close()
+    conn.close()
     return res
 
 @app.get("/trips/all")
 def get_all_trips():
-    conn = get_db_connection(); cursor = conn.cursor()
-    cursor.execute("SELECT t.*, f.total_km, f.freight_amount, f.balance_payment, f.pod_status FROM trips t LEFT JOIN trip_finances f ON t.trip_id = f.trip_id ORDER BY t.trip_id DESC;")
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT t.*, f.total_km, f.freight_amount, f.balance_payment, f.pod_status AS finance_pod_status 
+        FROM trips t 
+        LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
+        ORDER BY t.trip_id DESC;
+    """)
     res = [dict(zip([d[0] for d in cursor.description], row)) for row in cursor.fetchall()]
-    cursor.close(); conn.close()
+    cursor.close()
+    conn.close()
     return res
+
 
 @app.delete("/trips/{trip_id}")
 def force_delete_trip(trip_id: int):
@@ -509,15 +542,30 @@ def get_track_data(trip_id: str):
     res['fuel_analytics'] = get_taabi_fuel_analytics(internal_id, res['trip_start_date'], res.get('actual_delivery_date'))
     return res
 
+
 @app.get("/trips/details/{trip_id}")
 def get_trip_details(trip_id: int):
-    conn = get_db_connection(); cursor = conn.cursor()
-    cursor.execute("SELECT t.*, f.* FROM trips t LEFT JOIN trip_finances f ON t.trip_id = f.trip_id WHERE t.trip_id = %s;", (trip_id,))
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT t.*, 
+               f.freight_amount, f.adv_amt, f.balance_payment, f.total_km, 
+               f.diesel_liters_needed, f.fastag_estimate, f.driver_advance, 
+               f.driver_remaining, f.driver_total, f.driver_paid, f.driver_payment_date,
+               f.advance_details, f.fastag_details, f.finance_remarks,
+               f.loading_charge, f.holding_charge, f.gst, f.tds, f.extra_deduction,
+               f.gst_enabled, f.bill_no, f.bank_account
+        FROM trips t 
+        LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
+        WHERE t.trip_id = %s;
+    """, (trip_id,))
     row = cursor.fetchone()
     if not row: raise HTTPException(status_code=404, detail="Trip not found")
     res = dict(zip([d[0] for d in cursor.description], row))
-    cursor.close(); conn.close()
+    cursor.close()
+    conn.close()
     return res
+
 @app.post("/finances/calculate")
 def calculate_finance(data: dict):
     conn = get_db_connection()

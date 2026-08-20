@@ -45,6 +45,7 @@ function TripHistory() {
   });
 
   const [viewType, setViewType] = useState('receipt'); 
+  const [localBillDate, setLocalBillDate] = useState('');
 
   // --- EDITABLE FINANCE STATE ---
   const [activeCharges, setActiveCharges] = useState({ loading: false, holding: false, gst: false, bill_no: false });
@@ -102,6 +103,8 @@ function TripHistory() {
         bill_no: tripData.bill_no || '', bank_account: tripData.bank_account || defaultBank, gst_enabled: gstActive, include_loading_in_gst: incLoadingGst, include_holding_in_gst: incHoldingGst
       });
       setActiveCharges({ loading: parseFloat(tripData.loading_charge || 0) > 0, holding: parseFloat(tripData.holding_charge || 0) > 0, gst: Boolean(tripData.gst_enabled), bill_no: !!tripData.bill_no });
+      
+      setLocalBillDate(tripData.trip_start_date || new Date().toISOString().split('T')[0]);
       setReceiptModal({ isOpen: true, trip: tripData });
     } catch (err) {
       alert("Error loading trip finance details.");
@@ -374,6 +377,7 @@ function TripHistory() {
                 <button onClick={() => setViewType('bill')} className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold transition cursor-pointer ${viewType === 'bill' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'}`}><FileText className="h-4 w-4"/> Exact Client Bill</button>
             </div>
             
+            {/* 🌟 ACTION ROW INSIDE MODAL */}
             <div className="print:hidden flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-4 shadow-sm border-b border-gray-200 gap-4">
                 <div className="flex flex-wrap items-center gap-4 w-full sm:w-auto">
                     <div className="flex items-center gap-2">
@@ -384,18 +388,29 @@ function TripHistory() {
                         </div>
                     </div>
 
-                    {/* 🌟 EDITABLE INVOICE INPUT FOR BILL */}
+                    {/* 🌟 EDITABLE INVOICE INPUT & DATE FOR BILL */}
                     {viewType === 'bill' && (
-                        <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
-                            <label className="font-bold text-blue-900 text-sm whitespace-nowrap">Invoice No:</label>
-                            <input 
-                                type="text" 
-                                placeholder="Leave blank to print empty" 
-                                className="bg-white border border-blue-200 rounded px-2 py-1 text-sm font-bold text-blue-900 outline-none focus:border-blue-500 w-48"
-                                value={finance.bill_no}
-                                onChange={(e) => handleFinanceChange('bill_no', e.target.value)}
-                            />
-                        </div>
+                        <>
+                            <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+                                <label className="font-bold text-blue-900 text-sm whitespace-nowrap">Invoice No:</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="Leave blank" 
+                                    className="bg-white border border-blue-200 rounded px-2 py-1 text-sm font-bold text-blue-900 outline-none focus:border-blue-500 w-28"
+                                    value={finance.bill_no}
+                                    onChange={(e) => handleFinanceChange('bill_no', e.target.value)}
+                                />
+                            </div>
+                            <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+                                <label className="font-bold text-blue-900 text-sm whitespace-nowrap">Date:</label>
+                                <input 
+                                    type="date" 
+                                    className="bg-white border border-blue-200 rounded px-2 py-1 text-sm font-bold text-blue-900 outline-none focus:border-blue-500"
+                                    value={localBillDate}
+                                    onChange={(e) => setLocalBillDate(e.target.value)}
+                                />
+                            </div>
+                        </>
                     )}
                 </div>
             </div>
@@ -451,7 +466,7 @@ function TripHistory() {
                             </div>
 
                             <div className="border-b border-gray-100 pb-2 mb-2">
-                              <div className="flex justify-between items-center"><label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer"><input type="checkbox" checked={activeCharges.holding} onChange={() => toggleCharge('holding')} className="rounded print:hidden" /> Detention Charge</label>{activeCharges.holding ? <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.holding_charge} onChange={e => handleFinanceChange('holding_charge', e.target.value)} /> : <span className="w-32 text-right text-gray-400 print:hidden">Excluded</span>}</div>
+                              <div className="flex justify-between items-center"><label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer"><input type="checkbox" checked={activeCharges.holding} onChange={() => toggleCharge('holding')} className="rounded print:hidden" /> Rate Difference</label>{activeCharges.holding ? <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.holding_charge} onChange={e => handleFinanceChange('holding_charge', e.target.value)} /> : <span className="w-32 text-right text-gray-400 print:hidden">Excluded</span>}</div>
                               {activeCharges.holding && <label className="flex items-center gap-1.5 text-[11px] text-gray-500 mt-1 print:hidden pl-5"><input type="checkbox" checked={finance.include_holding_in_gst} onChange={e => handleFinanceChange('include_holding_in_gst', e.target.checked)} className="rounded" /> Include in GST</label>}
                             </div>
 
@@ -539,19 +554,19 @@ function TripHistory() {
                               <div className="w-[40%] text-[13px] font-bold">
                                   <div className="border-b border-black p-2 flex justify-between">
                                       <span>Invoice No.:</span>
-                                      {/* 🌟 THIS TAKES FROM THE INPUT BOX ABOVE OR THE DB */}
+                                      {/* 🌟 BLANK OR FROM INPUT */}
                                       <span>{finance.bill_no}</span>
                                   </div>
                                   <div className="p-2 flex justify-between">
                                       <span>Date:</span>
-                                      <span>{receiptModal.trip.trip_start_date || '05/08/2026'}</span>
+                                      <span>{localBillDate || receiptModal.trip.trip_start_date || ''}</span>
                                   </div>
                               </div>
                           </div>
                           
                           <div className="border-x border-b border-black p-1 text-center text-[12px] font-bold">GST PAYABLE UNDER REVERSE CHARGES - YES/NO</div>
 
-                          {/* 🌟 WIDE 11-COLUMN TABLE WITH NO OVERLAP */}
+                          {/* 🌟 WIDE 11-COLUMN TABLE NO OVERLAP */}
                           <table className="w-full table-fixed border-collapse border border-black text-[10px] font-bold text-center mt-[-1px]">
                               <thead>
                                   <tr>
@@ -564,7 +579,7 @@ function TripHistory() {
                                       <th className="border border-black p-1.5 w-[5%] leading-tight">RATE</th>
                                       <th className="border border-black p-1.5 w-[9%] leading-tight">FREIGHT</th>
                                       <th className="border border-black p-1.5 w-[9%] leading-tight break-words">UNLOADING<br/>CHG</th>
-                                      <th className="border border-black p-1.5 w-[9%] leading-tight break-words">DETENTION<br/>CHG</th>
+                                      <th className="border border-black p-1.5 w-[9%] leading-tight break-words">RATE<br/>DIFFERENCE</th>
                                       <th className="border border-black p-1.5 w-[11%] leading-tight">TOTAL<br/>FREIGHT</th>
                                   </tr>
                               </thead>

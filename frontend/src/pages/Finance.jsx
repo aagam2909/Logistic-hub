@@ -29,6 +29,7 @@ function Finance() {
   
   const [viewType, setViewType] = useState('receipt'); 
   const [localInvoiceNo, setLocalInvoiceNo] = useState('');
+  const [localBillDate, setLocalBillDate] = useState(new Date().toISOString().split('T')[0]);
 
   const printRef = useRef(null);
   const handlePrint = useReactToPrint({ contentRef: printRef });
@@ -47,6 +48,7 @@ function Finance() {
       const tripData = res.data.trip || res.data;
       setTrip(tripData);
       setLocalInvoiceNo(tripData.bill_no || '');
+      if(tripData.trip_start_date) setLocalBillDate(tripData.trip_start_date);
     } catch (err) {
       alert("Trip not found. Please check the tracking number.");
       setTrip(null);
@@ -67,7 +69,7 @@ function Finance() {
   
   const freight = parseFloat(trip?.freight_amount || 0);
   const loadingCharge = parseFloat(trip?.loading_charge || 0);
-  const holdingCharge = parseFloat(trip?.holding_charge || 0);
+  const holdingCharge = parseFloat(trip?.holding_charge || 0); // Used as Rate Difference
   const gstAmount = parseFloat(trip?.gst || 0);
   const tds = parseFloat(trip?.tds || 0);
   const extraDeduction = parseFloat(trip?.extra_deduction || 0);
@@ -151,16 +153,27 @@ function Finance() {
                   </div>
 
                   {viewType === 'bill' && (
-                      <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
-                          <label className="font-bold text-blue-900 text-sm whitespace-nowrap">Invoice No:</label>
-                          <input 
-                              type="text" 
-                              placeholder="Leave blank to print empty" 
-                              className="bg-white border border-blue-200 rounded px-2 py-1 text-sm font-bold text-blue-900 outline-none focus:border-blue-500 w-48"
-                              value={localInvoiceNo}
-                              onChange={(e) => setLocalInvoiceNo(e.target.value)}
-                          />
-                      </div>
+                      <>
+                          <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+                              <label className="font-bold text-blue-900 text-sm whitespace-nowrap">Invoice No:</label>
+                              <input 
+                                  type="text" 
+                                  placeholder="Leave blank" 
+                                  className="bg-white border border-blue-200 rounded px-2 py-1 text-sm font-bold text-blue-900 outline-none focus:border-blue-500 w-28"
+                                  value={localInvoiceNo}
+                                  onChange={(e) => setLocalInvoiceNo(e.target.value)}
+                              />
+                          </div>
+                          <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+                              <label className="font-bold text-blue-900 text-sm whitespace-nowrap">Date:</label>
+                              <input 
+                                  type="date" 
+                                  className="bg-white border border-blue-200 rounded px-2 py-1 text-sm font-bold text-blue-900 outline-none focus:border-blue-500"
+                                  value={localBillDate}
+                                  onChange={(e) => setLocalBillDate(e.target.value)}
+                              />
+                          </div>
+                      </>
                   )}
               </div>
 
@@ -219,10 +232,9 @@ function Finance() {
                         <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Additions (+)</h4>
                         <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Total Freight (₹)</span><span className="font-bold text-slate-800">{freight}</span></div>
                         {loadingCharge > 0 && <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Loading/Unloading (₹)</span><span className="font-bold text-slate-800">{loadingCharge}</span></div>}
-                        {holdingCharge > 0 && <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Detention Charge (₹)</span><span className="font-bold text-slate-800">{holdingCharge}</span></div>}
+                        {holdingCharge > 0 && <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Rate Difference (₹)</span><span className="font-bold text-slate-800">{holdingCharge}</span></div>}
                         {gstAmount > 0 && <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><span className="text-sm font-bold text-gray-900">GST (18%) (₹)</span><span className="font-bold text-emerald-600">{gstAmount}</span></div>}
                       </div>
-
                       <div>
                         <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Deductions (-)</h4>
                         <div className="border-b border-gray-100 pb-2 mb-2">
@@ -237,7 +249,6 @@ function Finance() {
                         {tds > 0 && <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">TDS (₹)</span><span className="font-bold text-rose-600">{tds}</span></div>}
                         {extraDeduction > 0 && <div className="flex justify-between items-center border-b border-gray-100 pb-2"><span className="text-sm font-semibold text-gray-700">Extra Deduction</span><span className="font-bold text-rose-600">{extraDeduction}</span></div>}
                       </div>
-                      
                       <div className="col-span-2 mt-4 p-4 border-2 border-slate-900 rounded-lg flex justify-between items-center bg-emerald-50/30"><span className="font-extrabold text-lg text-slate-900">NET BALANCE PAYABLE</span><span className="font-extrabold text-2xl text-emerald-600">₹{balancePayment}</span></div>
                   </div>
 
@@ -280,10 +291,8 @@ function Finance() {
                 </div>
               )}
 
-              {/* 🌟 FULL WIDTH, NO-OVERLAP CLIENT BILL */}
               {viewType === 'bill' && (
                   <div className="w-full max-w-[900px] text-black font-sans leading-snug mx-auto p-2 print:p-0">
-                      
                       <div className="text-center mb-2">
                           <h1 className="text-3xl font-extrabold text-black tracking-widest leading-none mb-1">{currentComp.name}</h1>
                           <p className="text-[13px] font-bold whitespace-pre-line leading-tight">{currentComp.address}</p>
@@ -306,14 +315,13 @@ function Finance() {
                               </div>
                               <div className="p-2 flex justify-between">
                                   <span>Date:</span>
-                                  <span>{trip.trip_start_date || '05/08/2026'}</span>
+                                  <span>{localBillDate || trip.trip_start_date || ''}</span>
                               </div>
                           </div>
                       </div>
                       
                       <div className="border-x border-b border-black p-1 text-center text-[12px] font-bold">GST PAYABLE UNDER REVERSE CHARGES - YES/NO</div>
 
-                      {/* 🌟 WIDE 11-COLUMN TABLE WITH NO OVERLAP */}
                       <table className="w-full table-fixed border-collapse border border-black text-[10px] font-bold text-center mt-[-1px]">
                           <thead>
                               <tr>
@@ -326,7 +334,7 @@ function Finance() {
                                   <th className="border border-black p-1.5 w-[5%] leading-tight">RATE</th>
                                   <th className="border border-black p-1.5 w-[9%] leading-tight">FREIGHT</th>
                                   <th className="border border-black p-1.5 w-[9%] leading-tight break-words">UNLOADING<br/>CHG</th>
-                                  <th className="border border-black p-1.5 w-[9%] leading-tight break-words">DETENTION<br/>CHG</th>
+                                  <th className="border border-black p-1.5 w-[9%] leading-tight break-words">RATE<br/>DIFFERENCE</th>
                                   <th className="border border-black p-1.5 w-[11%] leading-tight">TOTAL<br/>FREIGHT</th>
                               </tr>
                           </thead>
@@ -397,7 +405,7 @@ function Finance() {
 
                       <div className="flex justify-end mt-12 pr-4 text-[12px] font-bold">
                           <div className="text-center"><p className="mb-8">For {currentComp.name}</p><p>Auth. Signatory</p></div>
-                      </div>
+                          </div>
                   </div>
               )}
 

@@ -31,6 +31,7 @@ function TripDetails() {
   
   const [viewType, setViewType] = useState('receipt'); 
   const [localInvoiceNo, setLocalInvoiceNo] = useState('');
+  const [localBillDate, setLocalBillDate] = useState('');
 
   const receiptRef = useRef(null);
   const handlePrint = useReactToPrint({ contentRef: receiptRef });
@@ -46,6 +47,7 @@ function TripDetails() {
       const res = await axios.get(`${API_BASE}/trips/details/${actualId}`);
       setTrip(res.data);
       setLocalInvoiceNo(res.data.bill_no || '');
+      setLocalBillDate(res.data.trip_start_date || new Date().toISOString().split('T')[0]);
     } catch (err) {
       console.error("Error fetching trip details:", err);
       alert("Failed to load trip details. It may have been deleted.");
@@ -134,17 +136,29 @@ function TripDetails() {
                   </div>
               </div>
 
+              {/* 🌟 EDITABLE BLANK INVOICE INPUT & DATE */}
               {viewType === 'bill' && (
-                  <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
-                      <label className="font-bold text-blue-900 text-sm whitespace-nowrap">Invoice No:</label>
-                      <input 
-                          type="text" 
-                          placeholder="Leave blank to print empty" 
-                          className="bg-white border border-blue-200 rounded px-2 py-1 text-sm font-bold text-blue-900 outline-none focus:border-blue-500 w-48"
-                          value={localInvoiceNo}
-                          onChange={(e) => setLocalInvoiceNo(e.target.value)}
-                      />
-                  </div>
+                  <>
+                      <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+                          <label className="font-bold text-blue-900 text-sm whitespace-nowrap">Invoice No:</label>
+                          <input 
+                              type="text" 
+                              placeholder="Leave blank" 
+                              className="bg-white border border-blue-200 rounded px-2 py-1 text-sm font-bold text-blue-900 outline-none focus:border-blue-500 w-28"
+                              value={localInvoiceNo}
+                              onChange={(e) => setLocalInvoiceNo(e.target.value)}
+                          />
+                      </div>
+                      <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
+                          <label className="font-bold text-blue-900 text-sm whitespace-nowrap">Date:</label>
+                          <input 
+                              type="date" 
+                              className="bg-white border border-blue-200 rounded px-2 py-1 text-sm font-bold text-blue-900 outline-none focus:border-blue-500"
+                              value={localBillDate}
+                              onChange={(e) => setLocalBillDate(e.target.value)}
+                          />
+                      </div>
+                  </>
               )}
           </div>
 
@@ -203,7 +217,7 @@ function TripDetails() {
                     <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Additions (+)</h4>
                     <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Total Freight (₹)</span><span className="font-bold text-slate-800">{freight}</span></div>
                     {loadingCharge > 0 && <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Loading/Unloading (₹)</span><span className="font-bold text-slate-800">{loadingCharge}</span></div>}
-                    {holdingCharge > 0 && <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Detention Charge (₹)</span><span className="font-bold text-slate-800">{holdingCharge}</span></div>}
+                    {holdingCharge > 0 && <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Rate Difference (₹)</span><span className="font-bold text-slate-800">{holdingCharge}</span></div>}
                     {gstAmount > 0 && <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><span className="text-sm font-bold text-gray-900">GST (18%) (₹)</span><span className="font-bold text-emerald-600">{gstAmount}</span></div>}
                   </div>
                   <div>
@@ -286,7 +300,7 @@ function TripDetails() {
                           </div>
                           <div className="p-2 flex justify-between">
                               <span>Date:</span>
-                              <span>{trip.trip_start_date || '05/08/2026'}</span>
+                              <span>{localBillDate || trip.trip_start_date || ''}</span>
                           </div>
                       </div>
                   </div>
@@ -305,7 +319,7 @@ function TripDetails() {
                               <th className="border border-black p-1.5 w-[5%] leading-tight">RATE</th>
                               <th className="border border-black p-1.5 w-[9%] leading-tight">FREIGHT</th>
                               <th className="border border-black p-1.5 w-[9%] leading-tight break-words">UNLOADING<br/>CHG</th>
-                              <th className="border border-black p-1.5 w-[9%] leading-tight break-words">DETENTION<br/>CHG</th>
+                              <th className="border border-black p-1.5 w-[9%] leading-tight break-words">RATE<br/>DIFFERENCE</th>
                               <th className="border border-black p-1.5 w-[11%] leading-tight">TOTAL<br/>FREIGHT</th>
                           </tr>
                       </thead>
