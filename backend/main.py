@@ -405,29 +405,6 @@ def locked_edit_trip(trip_id: int, trip_data: dict):
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         cursor.close(); conn.close()
-
-@app.get("/trips/active")
-def get_active_trips():
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    # 🌟 FIX: Explicitly selecting t.* so trip_id is not overwritten by a null f.trip_id
-    cursor.execute("""
-        SELECT t.*, a.driver_name, 
-               f.freight_amount, f.adv_amt, f.balance_payment, f.total_km, 
-               f.diesel_liters_needed, f.fastag_estimate, f.driver_advance, 
-               f.driver_remaining, f.driver_total, f.driver_paid, f.driver_payment_date,
-               f.pod_status AS finance_pod_status
-        FROM trips t 
-        LEFT JOIN assets a ON t.vehicle_number = a.vehicle_number 
-        LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
-        WHERE t.actual_delivery_date IS NULL 
-        ORDER BY t.trip_start_date DESC;
-    """)
-    res = [dict(zip([d[0] for d in cursor.description], row)) for row in cursor.fetchall()]
-    cursor.close()
-    conn.close()
-    return res
-
 @app.get("/trips/history")
 def get_trip_history():
     conn = get_db_connection()
@@ -436,7 +413,9 @@ def get_trip_history():
         SELECT t.*, 
                f.freight_amount, f.adv_amt, f.balance_payment, f.total_km, 
                f.diesel_liters_needed, f.fastag_estimate, f.driver_advance, 
-               f.driver_remaining, f.driver_total, f.driver_paid, f.driver_payment_date
+               f.driver_remaining, f.driver_total, f.driver_paid, f.driver_payment_date,
+               f.trip_unloaded, f.pod_status, f.pod_arrived_office_date, 
+               f.pod_forwarded_client_date, f.pod_received_client_date, f.amount_cleared
         FROM trips t 
         LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
         WHERE t.actual_delivery_date IS NOT NULL 
@@ -447,6 +426,28 @@ def get_trip_history():
     conn.close()
     return res
 
+
+@app.get("/trips/active")
+def get_active_trips():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT t.*, a.driver_name, 
+               f.freight_amount, f.adv_amt, f.balance_payment, f.total_km, 
+               f.diesel_liters_needed, f.fastag_estimate, f.driver_advance, 
+               f.driver_remaining, f.driver_total, f.driver_paid, f.driver_payment_date,
+               f.trip_unloaded, f.pod_status, f.pod_arrived_office_date, 
+               f.pod_forwarded_client_date, f.pod_received_client_date, f.amount_cleared
+        FROM trips t 
+        LEFT JOIN assets a ON t.vehicle_number = a.vehicle_number 
+        LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
+        WHERE t.actual_delivery_date IS NULL 
+        ORDER BY t.trip_start_date DESC;
+    """)
+    res = [dict(zip([d[0] for d in cursor.description], row)) for row in cursor.fetchall()]
+    cursor.close()
+    conn.close()
+    return res
 @app.get("/trips/all")
 def get_all_trips():
     conn = get_db_connection()
