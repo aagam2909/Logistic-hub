@@ -109,7 +109,8 @@ class DriverSettleUpdate(BaseModel):
 # --- TAABI TELEMETRY & V3 FUEL API ---
 def get_taabi_live_data(vehicle_number):
     url = "https://dev-api-dtwin.taabi.ai/graphql"
-    query = "query getAllDeviceLocations($configs: Configs) { devices: getAllDeviceLocations(configs: $configs) { vehicleNumber, speed, haltStatus, latitude, longitude, fuelValueLtrs, adblue_level } }"
+    # 🌟 Added `location` here as well
+    query = "query getAllDeviceLocations($configs: Configs) { devices: getAllDeviceLocations(configs: $configs) { vehicleNumber, speed, haltStatus, latitude, longitude, fuelValueLtrs, adblue_level, location } }"
     payload = {"query": query, "variables": {"configs": {}}}
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {TAABI_API_KEY}"}
     try:
@@ -123,12 +124,14 @@ def get_taabi_live_data(vehicle_number):
                     "internal_id": dev.get('vehicleNumber', vehicle_number),
                     "speed": dev['speed'], "lat": dev['latitude'], "lng": dev['longitude'],
                     "fuel_level": dev.get('fuelValueLtrs', 'N/A'), "urea_level": dev.get('adblue_level', 'N/A'),
-                    "status": "Halted" if dev['haltStatus'] else "Moving"
+                    "status": "Halted" if dev['haltStatus'] else "Moving",
+                    "location": dev.get('location', '') # 🌟 Storing Address
                 }
-        return {"internal_id": vehicle_number, "speed": 0, "fuel_level": "N/A", "urea_level": "N/A", "status": "Not Found"}
+        return {"internal_id": vehicle_number, "speed": 0, "fuel_level": "N/A", "urea_level": "N/A", "status": "Not Found", "location": ""}
     except Exception:
-        return {"internal_id": vehicle_number, "speed": 0, "fuel_level": "N/A", "urea_level": "N/A", "status": "Offline"}
+        return {"internal_id": vehicle_number, "speed": 0, "fuel_level": "N/A", "urea_level": "N/A", "status": "Offline", "location": ""}
 
+    
 def get_taabi_fuel_analytics(internal_device_id: str, start_date, end_date):
     url = "https://dev-api-dtwin.taabi.ai/graphql"
     try:
@@ -164,11 +167,12 @@ def get_taabi_fuel_analytics(internal_device_id: str, start_date, end_date):
         return data.get("getFuelData") if data else {}
     except Exception as e:
         return {}
-
+    
 @app.get("/taabi/bulk")
 def get_bulk_taabi():
     url = "https://dev-api-dtwin.taabi.ai/graphql"
-    query = "query getAllDeviceLocations($configs: Configs) { devices: getAllDeviceLocations(configs: $configs) { vehicleNumber, fuelValueLtrs, speed, haltStatus, latitude, longitude } }"
+    # 🌟 Added `location` to exactly pull the Proper Name Address
+    query = "query getAllDeviceLocations($configs: Configs) { devices: getAllDeviceLocations(configs: $configs) { vehicleNumber, fuelValueLtrs, speed, haltStatus, latitude, longitude, location } }"
     payload = {"query": query, "variables": {"configs": {}}}
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {TAABI_API_KEY}"}
     try:
@@ -180,7 +184,8 @@ def get_bulk_taabi():
                 "internal_id": dev.get('vehicleNumber', clean_vn),
                 "fuel": dev.get('fuelValueLtrs', 'N/A'), "speed": dev.get('speed', 0),
                 "status": "Halted" if dev.get('haltStatus') else "Moving",
-                "lat": dev.get('latitude', ''), "lng": dev.get('longitude', '')
+                "lat": dev.get('latitude', ''), "lng": dev.get('longitude', ''),
+                "location": dev.get('location', '') # 🌟 Storing Address
             }
         return fuel_map
     except Exception:

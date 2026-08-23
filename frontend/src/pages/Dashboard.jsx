@@ -138,17 +138,39 @@ function Dashboard() {
             const isObj = typeof taabi === 'object';
             
             const liveStatus = isObj && taabi.status ? (taabi.status === 'Moving' ? `Moving (${taabi.speed}km/h)` : 'Halted') : 'Offline';
-            const liveLocation = isObj && taabi.lat ? `[${taabi.lat}, ${taabi.lng}]` : '-';
+            
+            // 🌟 1. PROPER LOCATION NAME INSTEAD OF LAT/LNG
+            const liveLocation = isObj && taabi.location ? taabi.location : (isObj && taabi.lat ? `[${taabi.lat}, ${taabi.lng}]` : '-');
             const tele = getTelemetry(trip);
-            const advAmt = parseFloat(trip.adv_amt || 0);
+            
+            // 🌟 2. EXACT MATH FOR DRIVER ADVANCE (KM * 3.5)
+            const km = parseFloat(trip.total_km) || 0;
+            const driverAdvance = parseFloat((km * 3.5).toFixed(2));
 
             return {
-                'SR': idx + 1, 'VEH': trip.vehicle_number || '-', 'LOADING DATE': trip.trip_start_date || '-', 'PARTY': trip.party_name || '-',
-                'FROM': trip.source_city || '-', 'TO': trip.destination_city || '-', 'M LOCATION': liveLocation, 'STATUS': trip.pod_status === 'Pending' ? liveStatus : trip.pod_status,
-                'YSD KMS': '', 'REASON': '', 'L/R & PAPER CHECK': trip.lr_no || '-', 'ADVANCE Y/N': advAmt > 0 ? 'Y' : 'N',
-                'adv': advAmt, 'ADV ROUND OFF': advAmt, 'Adv paid': advAmt, 'Adv pending': '',
-                'HSD': tele.actualConsumed || tele.dieselNeeded, 'ALLOUN D HSD': tele.dieselNeeded, 'HSD IN TANK': tele.dieselLeft, 'HSD Issued': tele.refuelVolume || '',
-                'HSD pending': tele.theftVolume > 0 ? `THEFT: ${tele.theftVolume}` : '', 'ICICI': '', 'idfc': '', 'AXIS': '', 'provider': ''
+                'SR': idx + 1, 
+                'VEH': trip.vehicle_number || '-', 
+                'LOADING DATE': trip.trip_start_date || '-', 
+                'PARTY': trip.party_name || '-',
+                'FROM': trip.source_city || '-', 
+                'TO': trip.destination_city || '-', 
+                'TOTAL KMS': km, // 🌟 3. NEW TOTAL KMS COLUMN ADDED HERE
+                'M LOCATION': liveLocation, 
+                'STATUS': trip.pod_status === 'Pending' ? liveStatus : trip.pod_status,
+                'YSD KMS': '', // 🌟 4. YSD KMS READY TO POPULATE
+                'REASON': '', 
+                'L/R & PAPER CHECK': trip.lr_no || '-', 
+                'ADVANCE Y/N': driverAdvance > 0 ? 'Y' : 'N',
+                'adv': driverAdvance, // DRIVER ADVANCE APPLIED
+                'ADV ROUND OFF': driverAdvance, 
+                'Adv paid': trip.driver_paid ? driverAdvance : 0, 
+                'Adv pending': trip.driver_paid ? 0 : driverAdvance,
+                'HSD': tele.actualConsumed || tele.dieselNeeded, 
+                'ALLOUN D HSD': tele.dieselNeeded, 
+                'HSD IN TANK': tele.dieselLeft, 
+                'HSD Issued': tele.refuelVolume || '',
+                'HSD pending': tele.theftVolume > 0 ? `THEFT: ${tele.theftVolume}` : '', 
+                'ICICI': '', 'idfc': '', 'AXIS': '', 'provider': ''
             };
          });
       }
@@ -186,7 +208,7 @@ function Dashboard() {
          csvData = tripsToday.map((trip, idx) => {
              const cleanVN = (trip.vehicle_number || '').replace(/[- ]/g, '').toUpperCase();
              const taabi = taabiData[cleanVN] || {};
-             const liveLocation = typeof taabi === 'object' && taabi.lat ? `[${taabi.lat}, ${taabi.lng}]` : '-';
+             const liveLocation = typeof taabi === 'object' && taabi.location ? taabi.location : '-';
              
              let actionToday = 'Ongoing';
              if (trip.trip_start_date === todayStr && trip.actual_delivery_date === todayStr) actionToday = 'Launched & Delivered Today';
@@ -291,8 +313,8 @@ function Dashboard() {
   const getPreviewData = () => {
       if (exportType === 'finance_ledger') {
           return {
-              headers: ['SR', 'VEH', 'LOADING DATE', 'PARTY', 'FROM', 'TO', 'STATUS', 'YSD KMS', 'ADVANCE Y/N', 'adv', 'HSD IN TANK', 'ICICI'],
-              rows: [['1', '1438', '30/07/2026', 'MAHAVEERA', 'BANGALORE', 'DURG', 'Moving', '', 'Y', '5425', '215 L', '']]
+              headers: ['SR', 'VEH', 'LOADING DATE', 'PARTY', 'FROM', 'TO', 'TOTAL KMS', 'M LOCATION', 'STATUS', 'YSD KMS', 'ADVANCE Y/N', 'adv'],
+              rows: [['1', 'RJ14-8674', '20/08/2026', 'MAHAVEERA', 'BANGALORE', 'DURG', '1450', 'Delhi Highway Toll Plaza', 'Moving', '', 'Y', '5075']]
           };
       }
       if (exportType === 'detailed') {
@@ -304,7 +326,7 @@ function Dashboard() {
       if (exportType === 'today') {
          return {
              headers: ['SR', 'VEHICLE', 'EVENT TODAY', 'FROM', 'TO', 'PARTY', 'FREIGHT', 'STATUS', 'LOCATION'],
-             rows: [['1', 'RJ14GQ2305', 'Launched Today', 'JAIPUR', 'DELHI', 'GODREJ', '25000', 'Pending', 'Live: [28.2, 75.3]'], ['2', 'RJ14GB1234', 'Delivered Today', 'MUMBAI', 'PUNE', 'TATA', '12000', 'Client Received', '-']]
+             rows: [['1', 'RJ14GQ2305', 'Launched Today', 'JAIPUR', 'DELHI', 'GODREJ', '25000', 'Pending', 'Jaipur Hub']]
          };
       }
       if (exportType === 'party') {
@@ -330,12 +352,12 @@ function Dashboard() {
           if (exportCols.freight_amount) row.push('17000');
           if (exportCols.balance_payment) row.push('0');
           if (exportCols.diesel_needed) row.push('150');
-          if (exportCols.diesel_left) row.push('250.5');
-          if (exportCols.fastag_est) row.push('1725');
-          if (exportCols.fastag_act) row.push('1800');
           if (exportCols.actual_fuel_consumed) row.push('145.2');
           if (exportCols.refuels) row.push('200');
           if (exportCols.thefts) row.push('0');
+          if (exportCols.diesel_left) row.push('250.5');
+          if (exportCols.fastag_est) row.push('1725');
+          if (exportCols.fastag_act) row.push('1800');
           return { headers, rows: [row] };
       }
       return { headers: [], rows: [] };
@@ -375,7 +397,6 @@ function Dashboard() {
               <p className="text-xs text-rose-700">{expiringDrivers.length} driver(s) have licenses expiring soon or already expired.</p>
             </div>
           </div>
-          {/* 🌟 PASSING STATE VIA ROUTER */}
           <button onClick={() => navigate('/driver-history', { state: { filterExpiring: true } })} className="bg-rose-600 text-white text-xs px-4 py-2 rounded-lg font-semibold hover:bg-rose-700 transition shadow-sm cursor-pointer">Review</button>
         </div>
       )}
