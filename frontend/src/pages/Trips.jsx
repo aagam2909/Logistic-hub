@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Search, FileUp, PlusCircle, X, Printer, Save, Edit, Filter, Trash2, CheckSquare } from 'lucide-react';
+import { 
+  Search, FileUp, PlusCircle, X, Printer, Save, Edit, Filter, 
+  Trash2, CheckCircle2, Navigation, MapPin, Loader2, Calendar, Truck 
+} from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
-// Fix for default Leaflet icon paths in React
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
@@ -17,12 +19,21 @@ L.Icon.Default.mergeOptions({
 const API_BASE = import.meta.env.VITE_API_URL;
 const PRESET_BANKS = ['JTA 0706', 'JTA 0611', 'JFC 7734', 'JFC 1487'];
 
+const TRACKING_STATUSES = [
+  "LOADING",
+  "UNLOADING",
+  "RUNNING",
+  "EMPTY RUN",
+  "UNDERMENT",
+  "WAIT FOR LOAD"
+];
+
 const StatusTag = ({ status, deliveryDate }) => {
-  if (deliveryDate) return <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-green-100 text-green-700 whitespace-nowrap">Completed</span>;
-  if (status === 'Client Received') return <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-green-100 text-green-700 whitespace-nowrap">Client Received</span>;
-  if (status === 'Received') return <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 whitespace-nowrap">POD at Office</span>;
-  if (status === 'Forwarded') return <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-blue-100 text-blue-700 whitespace-nowrap">Forwarded</span>;
-  return <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700 whitespace-nowrap">Pending / In-Transit</span>;
+  if (deliveryDate) return <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-green-100 text-green-700 whitespace-nowrap">Completed</span>;
+  if (status === 'Client Received') return <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-green-100 text-green-700 whitespace-nowrap">Client Received</span>;
+  if (status === 'Received') return <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 whitespace-nowrap">POD at Office</span>;
+  if (status === 'Forwarded') return <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 whitespace-nowrap">Forwarded</span>;
+  return <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 whitespace-nowrap">{status || 'Pending / In-Transit'}</span>;
 };
 
 function Trips() {
@@ -34,25 +45,33 @@ function Trips() {
   const [podFiles, setPodFiles] = useState({});
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('newest'); 
-  
+  const [loading, setLoading] = useState(true);
+  const [isLaunching, setIsLaunching] = useState(false); // 🌟 Anti-Double Click Shield
+
+  // Form State
   const [tripData, setTripData] = useState({
     vehicle_number: '', source_city: '', destination_city: '', party_name: '', owner_name: '',
     gta_name: '', lr_no: '', eway_bill: '', eway_bill_expiry: '', trip_start_date: '', lw: '', freight_amount: '', total_km: ''
   });
   
+  // POD Quick Update State
   const [podUpdate, setPodUpdate] = useState({ 
     trip_id: '', pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: ''
   });
 
+  // Modal States
   const [receiptModal, setReceiptModal] = useState({ isOpen: false, trip: null });
   const [editModal, setEditModal] = useState({ isOpen: false, tripData: null });
   const [completeModal, setCompleteModal] = useState({ 
     isOpen: false, trip: null, trip_unloaded: false, cleared_amount: '', cleared_date: '',
     pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: ''
   });
+  const [trackingModal, setTrackingModal] = useState({
+    isOpen: false, trip_id: null, vehicle_number: '', tracking_location: '', tracking_status: 'RUNNING'
+  });
 
+  // Finance State inside Modal
   const [activeCharges, setActiveCharges] = useState({ loading: false, holding: false, gst: false, bill_no: false });
-
   const [finance, setFinance] = useState({ 
     freight_amount: 0, tds: 0, finance_remarks: '', loading_charge: 0, gst: 0, holding_charge: 0, extra_deduction: 0,
     total_km: 0, driver_advance: 0, driver_remaining: 0, driver_total: 0, diesel_liters_needed: 0, fastag_estimate: 0,
@@ -64,19 +83,68 @@ function Trips() {
   const handlePrint = useReactToPrint({ contentRef: receiptRef });
 
   useEffect(() => { 
-    fetchTrips(); fetchAvailableTrucks(); fetchParties(); fetchOwners(); fetchAllHistoryForMemory();
+    fetchAllData();
   }, []);
 
-  const fetchTrips = async () => { try { const res = await axios.get(`${API_BASE}/trips/active`); setActiveTrips(Array.isArray(res.data) ? res.data : []); } catch (err) { setActiveTrips([]); } };
-  const fetchAllHistoryForMemory = async () => { try { const res = await axios.get(`${API_BASE}/trips/all`); setAllHistoricalTrips(Array.isArray(res.data) ? res.data : []); } catch (err) {} };
-  const fetchAvailableTrucks = async () => { try { const res = await axios.get(`${API_BASE}/assets`); setAvailableTrucks(Array.isArray(res.data) ? res.data.filter(t => t.current_status !== 'In-Transit' && t.current_status !== 'Archived') : []); } catch (err) {} };
-  const fetchParties = async () => { try { const res = await axios.get(`${API_BASE}/parties`); setParties(Array.isArray(res.data) ? res.data.filter(Boolean) : []); } catch (err) {} };
-  const fetchOwners = async () => { try { const res = await axios.get(`${API_BASE}/owners`); setOwners(Array.isArray(res.data) ? res.data.filter(Boolean) : []); } catch (err) {} };
+  const fetchAllData = async () => {
+    setLoading(true);
+    await Promise.all([
+      fetchTrips(),
+      fetchAvailableTrucks(),
+      fetchParties(),
+      fetchOwners(),
+      fetchAllHistoryForMemory()
+    ]);
+    setLoading(false);
+  };
+
+  const fetchTrips = async () => { 
+    try { 
+      const res = await axios.get(`${API_BASE}/trips/active`); 
+      setActiveTrips(Array.isArray(res.data) ? res.data : []); 
+    } catch (err) { 
+      setActiveTrips([]); 
+    } 
+  };
+
+  const fetchAllHistoryForMemory = async () => { 
+    try { 
+      const res = await axios.get(`${API_BASE}/trips/all`); 
+      setAllHistoricalTrips(Array.isArray(res.data) ? res.data : []); 
+    } catch (err) {} 
+  };
+
+  const fetchAvailableTrucks = async () => { 
+    try { 
+      const res = await axios.get(`${API_BASE}/assets`); 
+      setAvailableTrucks(Array.isArray(res.data) ? res.data.filter(t => t.current_status !== 'In-Transit' && t.current_status !== 'Archived') : []); 
+    } catch (err) {} 
+  };
+
+  const fetchParties = async () => { 
+    try { 
+      const res = await axios.get(`${API_BASE}/parties`); 
+      setParties(Array.isArray(res.data) ? res.data.filter(Boolean) : []); 
+    } catch (err) {} 
+  };
+
+  const fetchOwners = async () => { 
+    try { 
+      const res = await axios.get(`${API_BASE}/owners`); 
+      setOwners(Array.isArray(res.data) ? res.data.filter(Boolean) : []); 
+    } catch (err) {} 
+  };
 
   useEffect(() => {
     if (tripData.source_city && tripData.destination_city) {
-      const pastTrip = allHistoricalTrips.find(t => t.source_city?.trim().toLowerCase() === tripData.source_city.trim().toLowerCase() && t.destination_city?.trim().toLowerCase() === tripData.destination_city.trim().toLowerCase() && parseFloat(t.total_km || 0) > 0);
-      if (pastTrip && (!tripData.total_km || tripData.total_km === '')) setTripData(prev => ({ ...prev, total_km: pastTrip.total_km }));
+      const pastTrip = allHistoricalTrips.find(t => 
+        t.source_city?.trim().toLowerCase() === tripData.source_city.trim().toLowerCase() && 
+        t.destination_city?.trim().toLowerCase() === tripData.destination_city.trim().toLowerCase() && 
+        parseFloat(t.total_km || 0) > 0
+      );
+      if (pastTrip && (!tripData.total_km || tripData.total_km === '')) {
+        setTripData(prev => ({ ...prev, total_km: pastTrip.total_km }));
+      }
     }
   }, [tripData.source_city, tripData.destination_city, allHistoricalTrips]);
 
@@ -84,42 +152,131 @@ function Trips() {
   const uniqueDestinations = [...new Set([...activeTrips, ...allHistoricalTrips].map(t => t.destination_city).filter(Boolean))];
   const uniqueGtas = [...new Set([...activeTrips, ...allHistoricalTrips].map(t => t.gta_name).filter(Boolean))];
 
+  // 🌟 Anti-Double Click Shield Implemented Here
   const handleAddTrip = async () => {
-    if (!tripData.vehicle_number.trim() || !tripData.source_city.trim() || !tripData.destination_city.trim()) return alert("Please fill mandatory fields!");
+    if (!tripData.vehicle_number.trim() || !tripData.source_city.trim() || !tripData.destination_city.trim()) {
+      return alert("Please fill mandatory fields (Vehicle, Source, Destination)!");
+    }
+    
+    setIsLaunching(true); // Lock the button immediately
+    
     try {
-      await axios.post(`${API_BASE}/trips`, { ...tripData, trip_start_date: tripData.trip_start_date || new Date().toISOString().slice(0, 10), freight_amount: parseFloat(tripData.freight_amount) || 0, total_km: parseFloat(tripData.total_km) || 0 });
+      await axios.post(`${API_BASE}/trips`, { 
+        ...tripData, 
+        trip_start_date: tripData.trip_start_date || new Date().toISOString().slice(0, 10), 
+        freight_amount: parseFloat(tripData.freight_amount) || 0, 
+        total_km: parseFloat(tripData.total_km) || 0 
+      });
       alert("Trip Launched Successfully! 🚀");
       setTripData({ vehicle_number: '', source_city: '', destination_city: '', party_name: '', owner_name: '', gta_name: '', lr_no: '', eway_bill: '', eway_bill_expiry: '', trip_start_date: '', lw: '', freight_amount: '', total_km: ''});
-      fetchTrips(); fetchParties(); fetchAvailableTrucks(); fetchOwners(); fetchAllHistoryForMemory();
-    } catch (err) { alert("Failed to launch trip."); }
+      fetchAllData();
+    } catch (err) { 
+      // Displays the specific backend error if truck is already running
+      alert(err.response?.data?.detail || "Failed to launch trip."); 
+    } finally {
+      setIsLaunching(false); // Unlock the button when done
+    }
   };
 
   const handleUpdateTrip = async () => {
-    try { await axios.put(`${API_BASE}/trips/${editModal.tripData.trip_id}`, editModal.tripData); alert("Trip Updated!"); setEditModal({ isOpen: false, tripData: null }); fetchTrips(); fetchAllHistoryForMemory(); } catch (err) {}
+    try { 
+      await axios.put(`${API_BASE}/trips/${editModal.tripData.trip_id}`, editModal.tripData); 
+      alert("Trip Updated!"); 
+      setEditModal({ isOpen: false, tripData: null }); 
+      fetchTrips(); 
+      fetchAllHistoryForMemory(); 
+    } catch (err) {
+      alert("Failed to update trip details.");
+    }
   };
 
   const handleUpdatePOD = async () => {
     if (!podUpdate.trip_id) return alert("Select trip first!");
-    try { await axios.put(`${API_BASE}/finances/${podUpdate.trip_id}/pod`, podUpdate); alert("POD Updated!"); fetchTrips(); } catch (err) {}
+    try { 
+      await axios.put(`${API_BASE}/finances/${podUpdate.trip_id}/pod`, podUpdate); 
+      alert("POD Updated!"); 
+      fetchTrips(); 
+    } catch (err) {
+      alert("Failed to update POD.");
+    }
   };
 
   const handleOpenCompleteModal = (trip) => {
-    setCompleteModal({ isOpen: true, trip: trip, trip_unloaded: trip.trip_unloaded || false, cleared_amount: '', cleared_date: new Date().toISOString().split('T')[0], pod_status: trip.pod_status || 'Pending', pod_arrived_office_date: trip.pod_arrived_office_date || '', pod_forwarded_client_date: trip.pod_forwarded_client_date || '', pod_received_client_date: trip.pod_received_client_date || '' });
+    setCompleteModal({ 
+      isOpen: true, 
+      trip: trip, 
+      trip_unloaded: trip.trip_unloaded || false, 
+      cleared_amount: '', 
+      cleared_date: new Date().toISOString().split('T')[0], 
+      pod_status: trip.pod_status || 'Pending', 
+      pod_arrived_office_date: trip.pod_arrived_office_date || '', 
+      pod_forwarded_client_date: trip.pod_forwarded_client_date || '', 
+      pod_received_client_date: trip.pod_received_client_date || '' 
+    });
   };
 
   const handleConfirmCompleteTrip = async () => {
     const trip = completeModal.trip;
     try {
       let podPath = null;
-      if (podFiles[trip.trip_id]) { const formData = new FormData(); formData.append("file", podFiles[trip.trip_id]); podPath = (await axios.post(`${API_BASE}/upload-pod`, formData)).data.path; }
-      await axios.put(`${API_BASE}/trips/${trip.trip_id}/complete`, { actual_delivery_date: new Date().toISOString().split('T')[0], pod_image_path: podPath, trip_unloaded: completeModal.trip_unloaded, amount_cleared: false, cleared_amount: parseFloat(completeModal.cleared_amount) || 0, cleared_date: completeModal.cleared_date || null, pod_status: completeModal.pod_status, pod_arrived_office_date: completeModal.pod_arrived_office_date || null, pod_forwarded_client_date: completeModal.pod_forwarded_client_date || null, pod_received_client_date: completeModal.pod_received_client_date || null });
-      alert("Completed Successfully!"); setCompleteModal({ isOpen: false, trip: null, trip_unloaded: false, cleared_amount: '', cleared_date: '', pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: '' }); fetchTrips(); fetchAvailableTrucks(); fetchAllHistoryForMemory();
-    } catch (err) {}
+      if (podFiles[trip.trip_id]) { 
+        const formData = new FormData(); 
+        formData.append("file", podFiles[trip.trip_id]); 
+        podPath = (await axios.post(`${API_BASE}/upload-pod`, formData)).data.path; 
+      }
+      await axios.put(`${API_BASE}/trips/${trip.trip_id}/complete`, { 
+        actual_delivery_date: new Date().toISOString().split('T')[0], 
+        pod_image_path: podPath, 
+        trip_unloaded: completeModal.trip_unloaded, 
+        amount_cleared: false, 
+        cleared_amount: parseFloat(completeModal.cleared_amount) || 0, 
+        cleared_date: completeModal.cleared_date || null, 
+        pod_status: completeModal.pod_status, 
+        pod_arrived_office_date: completeModal.pod_arrived_office_date || null, 
+        pod_forwarded_client_date: completeModal.pod_forwarded_client_date || null, 
+        pod_received_client_date: completeModal.pod_received_client_date || null 
+      });
+      alert("Completed Successfully!"); 
+      setCompleteModal({ isOpen: false, trip: null, trip_unloaded: false, cleared_amount: '', cleared_date: '', pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: '' }); 
+      fetchAllData();
+    } catch (err) {
+      alert("Failed to complete trip.");
+    }
   };
 
   const handleForceDelete = async (trip_id, tracking_number) => {
     if (window.confirm(`🚨 DANGER: Force delete trip ${tracking_number}?`)) {
-        try { await axios.delete(`${API_BASE}/trips/${trip_id}`); alert("Deleted."); fetchTrips(); fetchAvailableTrucks(); fetchAllHistoryForMemory(); } catch (err) {}
+      try { 
+        await axios.delete(`${API_BASE}/trips/${trip_id}`); 
+        alert("Deleted."); 
+        fetchAllData(); 
+      } catch (err) {
+        alert("Delete failed.");
+      }
+    }
+  };
+
+  const openTrackingModal = (trip) => {
+    setTrackingModal({
+      isOpen: true,
+      trip_id: trip.trip_id,
+      vehicle_number: trip.vehicle_number,
+      tracking_location: trip.tracking_location || trip.source_city || '',
+      tracking_status: trip.tracking_status || 'RUNNING'
+    });
+  };
+
+  const saveTrackingUpdate = async () => {
+    try {
+      await axios.put(`${API_BASE}/trips/${trackingModal.trip_id}/tracking`, {
+        tracking_location: trackingModal.tracking_location.toUpperCase(),
+        tracking_status: trackingModal.tracking_status
+      });
+      alert("Morning Tracking Updated Successfully! 📍");
+      setTrackingModal({ isOpen: false, trip_id: null, vehicle_number: '', tracking_location: '', tracking_status: 'RUNNING' });
+      fetchTrips();
+    } catch (err) {
+      alert("Failed to update tracking.");
     }
   };
 
@@ -138,8 +295,7 @@ function Trips() {
       const incHoldingGst = Boolean(tripData.include_holding_in_gst);
 
       const currentOwner = tripData.owner_name?.toUpperCase() || '';
-      const isOwnerJTA = ['JTA', 'JTA(A)'].includes(currentOwner);
-      const defaultBank = isOwnerJTA ? 'JTA 0706' : 'JFC 7734';
+      const defaultBank = ['JTA', 'JTA(A)'].includes(currentOwner) ? 'JTA 0706' : 'JFC 7734';
 
       const km = parseFloat(tripData.total_km) || 0;
       const mileage = parseFloat(tripData.mileage) || 5.5;
@@ -156,14 +312,18 @@ function Trips() {
       });
       setActiveCharges({ loading: parseFloat(tripData.loading_charge || 0) > 0, holding: parseFloat(tripData.holding_charge || 0) > 0, gst: Boolean(tripData.gst_enabled), bill_no: !!tripData.bill_no });
       setReceiptModal({ isOpen: true, trip: tripData });
-    } catch (err) { alert("Error loading details."); }
+    } catch (err) { 
+      alert("Error loading receipt details."); 
+    }
   };
 
   const handleFinanceChange = (field, value, customActiveCharges = activeCharges, customFinance = finance) => {
     let newFinance = { ...customFinance };
     if (field !== 'TOGGLE_ACTIVE') newFinance[field] = value;
     if (['freight_amount', 'loading_charge', 'holding_charge', 'gst_enabled', 'include_loading_in_gst', 'include_holding_in_gst', 'TOGGLE_ACTIVE'].includes(field)) {
-        const freight = parseFloat(newFinance.freight_amount || 0); const loading = customActiveCharges.loading ? parseFloat(newFinance.loading_charge || 0) : 0; const holding = customActiveCharges.holding ? parseFloat(newFinance.holding_charge || 0) : 0;
+        const freight = parseFloat(newFinance.freight_amount || 0); 
+        const loading = customActiveCharges.loading ? parseFloat(newFinance.loading_charge || 0) : 0; 
+        const holding = customActiveCharges.holding ? parseFloat(newFinance.holding_charge || 0) : 0;
         newFinance.gst = newFinance.gst_enabled ? ((freight + (newFinance.include_loading_in_gst ? loading : 0) + (newFinance.include_holding_in_gst ? holding : 0)) * 0.18).toFixed(2) : 0.00;
     }
     setFinance(newFinance);
@@ -171,7 +331,8 @@ function Trips() {
 
   const toggleCharge = (chargeName) => {
     const newActive = { ...activeCharges, [chargeName]: !activeCharges[chargeName] };
-    setActiveCharges(newActive); handleFinanceChange('TOGGLE_ACTIVE', null, newActive, finance);
+    setActiveCharges(newActive); 
+    handleFinanceChange('TOGGLE_ACTIVE', null, newActive, finance);
   };
 
   const handleArrayChange = (arrayName, index, field, value) => {
@@ -183,7 +344,9 @@ function Trips() {
   const removeArrayRow = (arrayName, index) => setFinance({ ...finance, [arrayName]: finance[arrayName].filter((_, i) => i !== index) });
 
   const calculatePending = () => {
-    const loading = activeCharges.loading ? parseFloat(finance.loading_charge || 0) : 0; const holding = activeCharges.holding ? parseFloat(finance.holding_charge || 0) : 0; const gst = finance.gst_enabled ? parseFloat(finance.gst || 0) : 0;
+    const loading = activeCharges.loading ? parseFloat(finance.loading_charge || 0) : 0; 
+    const holding = activeCharges.holding ? parseFloat(finance.holding_charge || 0) : 0; 
+    const gst = finance.gst_enabled ? parseFloat(finance.gst || 0) : 0;
     const totalAdv = finance.advance_details.reduce((sum, adv) => sum + parseFloat(adv.amount || 0), 0);
     return ((parseFloat(finance.freight_amount || 0) + loading + gst + holding) - (totalAdv + parseFloat(finance.tds || 0) + parseFloat(finance.extra_deduction || 0))).toFixed(2);
   };
@@ -196,57 +359,82 @@ function Trips() {
 
   const handleSaveFinance = async () => {
     try {
-      await axios.post(`${API_BASE}/finances/calculate`, { ...finance, loading_charge: activeCharges.loading ? finance.loading_charge : 0, holding_charge: activeCharges.holding ? finance.holding_charge : 0, gst: finance.gst_enabled ? finance.gst : 0, bill_no: activeCharges.bill_no ? finance.bill_no : '', trip_id: receiptModal.trip.trip_id });
-      alert("Ledger Saved!"); fetchTrips(); 
-    } catch (err) {}
+      await axios.post(`${API_BASE}/finances/calculate`, { 
+        ...finance, 
+        loading_charge: activeCharges.loading ? finance.loading_charge : 0, 
+        holding_charge: activeCharges.holding ? finance.holding_charge : 0, 
+        gst: finance.gst_enabled ? finance.gst : 0, 
+        bill_no: activeCharges.bill_no ? finance.bill_no : '', 
+        trip_id: receiptModal.trip.trip_id 
+      });
+      alert("Ledger Saved!"); 
+      fetchTrips(); 
+    } catch (err) {
+      alert("Error saving finance.");
+    }
   };
 
-  let processedTrips = activeTrips.filter(t => (t.tracking_number || '').toLowerCase().includes(searchTerm.toLowerCase()) || (t.vehicle_number || '').toLowerCase().includes(searchTerm.toLowerCase()) || (t.party_name || '').toLowerCase().includes(searchTerm.toLowerCase()) || (t.owner_name || '').toLowerCase().includes(searchTerm.toLowerCase()));
+  let processedTrips = activeTrips.filter(t => 
+    (t.tracking_number || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (t.vehicle_number || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (t.party_name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (t.owner_name || '').toLowerCase().includes(searchTerm.toLowerCase())
+  );
+  
   if (sortBy === 'newest') processedTrips.sort((a, b) => new Date(b.trip_start_date) - new Date(a.trip_start_date));
   else if (sortBy === 'oldest') processedTrips.sort((a, b) => new Date(a.trip_start_date) - new Date(b.trip_start_date));
   else if (sortBy === 'advance-pending') processedTrips = processedTrips.filter(t => parseFloat(t.freight_amount) > 0 && parseFloat(t.adv_amt || 0) === 0);
 
   const isCustomBank = finance.bank_account === '' || !PRESET_BANKS.includes(finance.bank_account);
-  const pendingBalance = parseFloat(completeModal.trip?.balance_payment ?? completeModal.trip?.freight_amount ?? 0);
   const totalFastagActual = finance.fastag_details.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
       
-      {/* LAUNCH NEW TRIP SECTION */}
+      {/* SECTION 1: LAUNCH NEW TRIP */}
       <section className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
         <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><PlusCircle className="text-blue-600"/> Launch New Trip</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" list="available-trucks" placeholder="Search truck number *" value={tripData.vehicle_number} onChange={e => setTripData({...tripData, vehicle_number: e.target.value})} />
+          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100 uppercase" list="available-trucks" placeholder="Search truck number *" value={tripData.vehicle_number} onChange={e => setTripData({...tripData, vehicle_number: e.target.value})} />
           <datalist id="available-trucks">{availableTrucks.map((t, i) => <option key={`trk-${i}`} value={t.vehicle_number} />)}</datalist>
           
-          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" list="source-cities" placeholder="Source *" value={tripData.source_city} onChange={e => setTripData({...tripData, source_city: e.target.value})} />
+          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100 uppercase" list="source-cities" placeholder="Source *" value={tripData.source_city} onChange={e => setTripData({...tripData, source_city: e.target.value})} />
           <datalist id="source-cities">{uniqueSources.map((c, i) => <option key={`src-${i}`} value={c} />)}</datalist>
           
-          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" list="dest-cities" placeholder="Destination *" value={tripData.destination_city} onChange={e => setTripData({...tripData, destination_city: e.target.value})} />
+          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100 uppercase" list="dest-cities" placeholder="Destination *" value={tripData.destination_city} onChange={e => setTripData({...tripData, destination_city: e.target.value})} />
           <datalist id="dest-cities">{uniqueDestinations.map((c, i) => <option key={`dst-${i}`} value={c} />)}</datalist>
           
-          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" list="party-names" placeholder="Party name (Optional)" value={tripData.party_name} onChange={e => setTripData({...tripData, party_name: e.target.value})} />
+          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100 uppercase" list="party-names" placeholder="Party name (Optional)" value={tripData.party_name} onChange={e => setTripData({...tripData, party_name: e.target.value})} />
           <datalist id="party-names">{parties.map((p, i) => <option key={`pty-${i}`} value={p} />)}</datalist>
           
-          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" list="owner-names" placeholder="Owner Name (Optional)" value={tripData.owner_name} onChange={e => setTripData({...tripData, owner_name: e.target.value})} />
+          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100 uppercase" list="owner-names" placeholder="Owner Name (Optional)" value={tripData.owner_name} onChange={e => setTripData({...tripData, owner_name: e.target.value})} />
           <datalist id="owner-names">{owners.map((o, i) => <option key={`own-${i}`} value={o} />)}</datalist>
           
-          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" list="gta-names" placeholder="GTA Name (Optional)" value={tripData.gta_name} onChange={e => setTripData({...tripData, gta_name: e.target.value})} />
+          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100 uppercase" list="gta-names" placeholder="GTA Name (Optional)" value={tripData.gta_name} onChange={e => setTripData({...tripData, gta_name: e.target.value})} />
           <datalist id="gta-names">{uniqueGtas.map((g, i) => <option key={`gta-${i}`} value={g} />)}</datalist>
           
-          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" placeholder="LR No (Optional)" value={tripData.lr_no} onChange={e => setTripData({...tripData, lr_no: e.target.value})} />
+          <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100 uppercase" placeholder="LR No (Optional)" value={tripData.lr_no} onChange={e => setTripData({...tripData, lr_no: e.target.value})} />
           <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" type="number" placeholder="Estimated Route KM" value={tripData.total_km} onChange={e => setTripData({...tripData, total_km: e.target.value})} />
           <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" type="number" placeholder="Rough Freight (₹)" value={tripData.freight_amount} onChange={e => setTripData({...tripData, freight_amount: e.target.value})} />
           <input className="w-full border p-2.5 rounded-lg text-sm text-gray-500 outline-none focus:ring-2 focus:ring-blue-100" type="date" title="Launch Date" value={tripData.trip_start_date} onChange={e => setTripData({...tripData, trip_start_date: e.target.value})} />
           <input className="w-full border p-2.5 rounded-lg text-sm text-gray-500 outline-none focus:ring-2 focus:ring-blue-100" type="date" title="E-Way Bill Expiry Date" value={tripData.eway_bill_expiry} onChange={e => setTripData({...tripData, eway_bill_expiry: e.target.value})} />
-          <div className="sm:col-span-2 xl:col-span-2"><input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" placeholder="L/W Details (Optional)" value={tripData.lw} onChange={e => setTripData({...tripData, lw: e.target.value})} /></div>
+          <div className="sm:col-span-2 xl:col-span-2"><input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100 uppercase" placeholder="L/W Details (Optional)" value={tripData.lw} onChange={e => setTripData({...tripData, lw: e.target.value})} /></div>
           
-          <button onClick={handleAddTrip} className="w-full sm:col-span-2 lg:col-span-1 xl:col-span-1 bg-slate-900 text-white p-2.5 rounded-lg font-bold hover:bg-slate-800 transition shadow-sm cursor-pointer">Launch Route 🚀</button>
+          <button 
+            onClick={handleAddTrip} 
+            disabled={isLaunching}
+            className={`w-full sm:col-span-2 lg:col-span-1 xl:col-span-1 text-white p-2.5 rounded-lg font-bold shadow-sm transition ${isLaunching ? 'bg-slate-400 cursor-not-allowed' : 'bg-slate-900 hover:bg-slate-800 cursor-pointer'}`}
+          >
+            {isLaunching ? (
+              <span className="flex items-center justify-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Launching...</span>
+            ) : (
+              'Launch Route 🚀'
+            )}
+          </button>
         </div>
       </section>
 
-      {/* POD TRACKING SECTION */}
+      {/* SECTION 2: POD TRACKING & QUICK UPDATE */}
       <section className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 mt-4">
         <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><FileUp className="text-blue-600"/> POD Tracking & Management</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 items-end">
@@ -274,51 +462,183 @@ function Trips() {
         </div>
       </section>
 
-      {/* ACTIVE TRIPS TABLE */}
+      {/* SECTION 3: ACTIVE TRIPS TABLE */}
       <section className="space-y-4">
         <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
-           <h2 className="text-xl font-bold text-slate-800">Active Trips List</h2>
+           <div className="flex items-center gap-3">
+             <h2 className="text-xl font-bold text-slate-800">Active Trips Fleet</h2>
+             <span className="bg-blue-100 text-blue-800 text-xs font-black px-2.5 py-1 rounded-full">{activeTrips.length} Active</span>
+           </div>
            <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
-             <div className="relative w-full sm:w-auto"><Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" /><select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="w-full sm:w-auto border border-gray-200 rounded-lg p-2.5 pl-9 pr-8 text-sm focus:ring-2 focus:ring-slate-100 outline-none text-slate-700 font-medium cursor-pointer bg-white"><option value="newest">Latest Launch Date</option><option value="oldest">Oldest Launch Date</option><option value="advance-pending">Advance Pending ⚠️</option></select></div>
-             <div className="relative w-full sm:w-72"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" /><input type="text" placeholder="Search tracking, truck, or party..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full border border-gray-200 rounded-lg p-2.5 pl-9 text-sm focus:ring-2 focus:ring-slate-100 outline-none" /></div>
+             <div className="relative w-full sm:w-auto">
+               <Filter className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+               <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="w-full sm:w-auto border border-gray-200 rounded-lg p-2.5 pl-9 pr-8 text-sm focus:ring-2 focus:ring-slate-100 outline-none text-slate-700 font-medium cursor-pointer bg-white">
+                 <option value="newest">Latest Launch Date</option>
+                 <option value="oldest">Oldest Launch Date</option>
+                 <option value="advance-pending">Advance Pending ⚠️</option>
+               </select>
+             </div>
+             <div className="relative w-full sm:w-72">
+               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+               <input type="text" placeholder="Search tracking, truck, or party..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full border border-gray-200 rounded-lg p-2.5 pl-9 text-sm focus:ring-2 focus:ring-slate-100 outline-none" />
+             </div>
            </div>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-x-auto relative">
-          <table className="w-full text-sm text-left whitespace-nowrap min-w-[1100px]">
-            <thead className="bg-gray-50 border-b text-gray-600 font-semibold">
-              <tr><th className="p-4 w-1/5">Trip / Tracking No.</th><th className="p-4 w-1/5">Route</th><th className="p-4 w-1/6">Vehicle</th><th className="p-4 w-1/6">POD Status</th><th className="p-4 w-1/6">Upload File</th><th className="p-4 w-1/6 text-center">Action</th></tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {processedTrips.map((trip, index) => (
-                <tr key={trip.trip_id || `active-trip-${index}`} className="hover:bg-gray-50 transition">
-                  <td className="p-4"><a href={`/trip-details/${trip.trip_id}`} className="text-blue-600 font-bold hover:underline transition">{trip.tracking_number}</a><div className="text-xs text-gray-500 mt-1">{trip.party_name || '-'} {trip.owner_name ? `(Owner: ${trip.owner_name})` : ''}</div></td>
-                  <td className="p-4 font-medium text-gray-700">{trip.source_city} → {trip.destination_city}</td>
-                  <td className="p-4 font-bold text-slate-800">{trip.vehicle_number}</td>
-                  <td className="p-4"><StatusTag status={trip.pod_status} deliveryDate={trip.actual_delivery_date} /></td>
-                  <td className="p-4"><input type="file" className="w-48 text-xs text-gray-500 file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 transition cursor-pointer" onChange={(e) => setPodFiles({...podFiles, [trip.trip_id]: e.target.files[0]})} /></td>
-                  <td className="p-4">
-                    <div className="flex flex-col gap-2 min-w-[140px]">
-                        <div className="flex gap-2">
-                            <button onClick={() => setEditModal({isOpen: true, tripData: trip})} className="flex-1 bg-white text-slate-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-gray-50 shadow-sm text-xs transition flex items-center justify-center gap-1 border border-gray-200 cursor-pointer"><Edit className="h-3 w-3"/> Edit</button>
-                            <button onClick={() => handleForceDelete(trip.trip_id, trip.tracking_number)} className="bg-rose-50 text-rose-600 px-3 py-1.5 rounded-lg font-semibold hover:bg-rose-100 shadow-sm text-xs transition flex items-center justify-center border border-rose-200 cursor-pointer" title="Force Delete Trip"><Trash2 className="h-3 w-3"/></button>
-                        </div>
-                        <button onClick={() => openReceiptModal(trip)} className="bg-slate-900 text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-slate-800 shadow-sm text-xs transition flex items-center justify-center gap-1 cursor-pointer"><Printer className="h-3 w-3"/> Receipt</button>
-                        <button onClick={() => handleOpenCompleteModal(trip)} className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-3 py-1.5 rounded-lg font-bold hover:bg-emerald-100 shadow-sm text-xs transition cursor-pointer">Complete Trip</button>
-                    </div>
-                  </td>
+          {loading ? (
+            <div className="p-12 flex flex-col items-center justify-center text-gray-400">
+               <Loader2 className="h-8 w-8 animate-spin mb-2" />
+               <p className="font-semibold text-sm">Loading Fleet...</p>
+            </div>
+          ) : (
+            <table className="w-full text-sm text-left whitespace-nowrap min-w-[1200px]">
+              <thead className="bg-gray-50 border-b text-gray-600 font-semibold uppercase text-xs tracking-wider">
+                <tr>
+                  <th className="p-4 w-1/5">Trip / Tracking No.</th>
+                  <th className="p-4 w-1/6">Vehicle & Party</th>
+                  <th className="p-4 w-1/6">Route</th>
+                  <th className="p-4 w-1/5">GPS / Morning Location</th>
+                  <th className="p-4 w-1/6">POD Status & File</th>
+                  <th className="p-4 w-1/6 text-center">Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {processedTrips.map((trip, index) => (
+                  <tr key={trip.trip_id || `active-trip-${index}`} className="hover:bg-blue-50/20 transition">
+                    
+                    <td className="p-4">
+                      <a href={`/trip-details/${trip.trip_id}`} className="text-blue-600 font-bold hover:underline transition block">
+                        {trip.tracking_number}
+                      </a>
+                      <div className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                        <Calendar className="h-3 w-3"/> Launched: {trip.trip_start_date || '-'}
+                      </div>
+                    </td>
+
+                    <td className="p-4">
+                      <div className="font-bold text-slate-900 text-base">{trip.vehicle_number}</div>
+                      <div className="text-xs font-semibold text-gray-600 bg-gray-100 px-2 py-0.5 rounded inline-block mt-1">
+                        {trip.party_name || 'No Party'} {trip.owner_name ? `(${trip.owner_name})` : ''}
+                      </div>
+                    </td>
+
+                    <td className="p-4">
+                      <div className="font-bold text-gray-800">{trip.source_city}</div>
+                      <div className="text-xs text-gray-400 my-0.5">↓ to ↓</div>
+                      <div className="font-bold text-gray-800">{trip.destination_city}</div>
+                    </td>
+
+                    <td className="p-4">
+                      <div className="bg-amber-50 border border-amber-200 p-2.5 rounded-lg inline-flex flex-col gap-1 w-full max-w-[240px]">
+                          <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">Status</span>
+                              <span className="text-xs font-black text-slate-800">{trip.tracking_status || 'RUNNING'}</span>
+                          </div>
+                          <div className="flex items-center gap-1 text-xs font-bold text-slate-700">
+                              <MapPin className="h-4 w-4 text-rose-500 shrink-0"/> 
+                              <span className="truncate" title={trip.tracking_location || trip.source_city}>
+                                {trip.tracking_location || trip.source_city || 'Location Unknown'}
+                              </span>
+                          </div>
+                      </div>
+                    </td>
+
+                    <td className="p-4">
+                      <div className="space-y-1.5">
+                        <StatusTag status={trip.pod_status} deliveryDate={trip.actual_delivery_date} />
+                        <div>
+                          <input type="file" className="w-44 text-xs text-gray-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-full file:border-0 file:text-[10px] file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 transition cursor-pointer" onChange={(e) => setPodFiles({...podFiles, [trip.trip_id]: e.target.files[0]})} />
+                        </div>
+                      </div>
+                    </td>
+
+                    <td className="p-4">
+                      <div className="flex flex-col gap-1.5 min-w-[150px]">
+                          <div className="flex gap-1.5">
+                              <button onClick={() => setEditModal({isOpen: true, tripData: trip})} className="flex-1 bg-white text-slate-700 px-2.5 py-1.5 rounded-lg font-semibold hover:bg-gray-50 shadow-sm text-xs transition flex items-center justify-center gap-1 border border-gray-200 cursor-pointer"><Edit className="h-3 w-3"/> Edit</button>
+                              <button onClick={() => handleForceDelete(trip.trip_id, trip.tracking_number)} className="bg-rose-50 text-rose-600 px-2.5 py-1.5 rounded-lg font-semibold hover:bg-rose-100 shadow-sm text-xs transition flex items-center justify-center border border-rose-200 cursor-pointer" title="Force Delete Trip"><Trash2 className="h-3 w-3"/></button>
+                          </div>
+                          <button onClick={() => openTrackingModal(trip)} className="bg-blue-50 border border-blue-200 text-blue-800 px-2.5 py-1.5 rounded-lg font-bold hover:bg-blue-100 shadow-sm text-xs transition flex items-center justify-center gap-1 cursor-pointer">
+                            <Navigation className="h-3 w-3"/> Daily Tracking
+                          </button>
+                          <button onClick={() => openReceiptModal(trip)} className="bg-slate-900 text-white px-2.5 py-1.5 rounded-lg font-semibold hover:bg-slate-800 shadow-sm text-xs transition flex items-center justify-center gap-1 cursor-pointer"><Printer className="h-3 w-3"/> Receipt</button>
+                          <button onClick={() => handleOpenCompleteModal(trip)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg font-bold shadow-sm text-xs transition flex items-center justify-center gap-1 cursor-pointer">
+                            <CheckCircle2 className="h-3 w-3"/> Complete Trip
+                          </button>
+                      </div>
+                    </td>
+
+                  </tr>
+                ))}
+                {!processedTrips.length && (
+                  <tr><td className="p-12 text-center text-gray-500" colSpan="6">No active trips found.</td></tr>
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
       </section>
 
-      {/* FINANCE RECEIPT MODAL */}
+      {/* MODAL 1: DAILY MANUAL TRACKING MODAL */}
+      {trackingModal.isOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col p-6 animate-in zoom-in-95">
+             <div className="flex justify-between items-center border-b pb-4 mb-5">
+                <div>
+                    <h3 className="font-bold text-xl text-slate-800 flex items-center gap-2">
+                      <Navigation className="h-5 w-5 text-blue-600"/> Daily Tracking Entry
+                    </h3>
+                    <p className="text-xs text-gray-500 font-semibold mt-1">Vehicle: {trackingModal.vehicle_number}</p>
+                </div>
+                <button onClick={() => setTrackingModal({isOpen: false})} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 cursor-pointer transition"><X className="h-5 w-5"/></button>
+             </div>
+
+             <div className="space-y-5">
+                <div>
+                    <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5 block">Current Location (City/Area)</label>
+                    <div className="relative">
+                        <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                        <input 
+                            type="text" 
+                            className="w-full border border-gray-300 rounded-xl p-3 pl-10 text-sm font-bold text-slate-800 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 uppercase"
+                            placeholder="e.g., JAIPUR"
+                            value={trackingModal.tracking_location}
+                            onChange={(e) => setTrackingModal({...trackingModal, tracking_location: e.target.value})}
+                        />
+                    </div>
+                </div>
+
+                <div>
+                    <label className="text-xs font-bold text-gray-600 uppercase tracking-wider mb-1.5 block">Operational Status</label>
+                    <div className="grid grid-cols-2 gap-2">
+                        {TRACKING_STATUSES.map(status => (
+                            <button
+                                key={status}
+                                onClick={() => setTrackingModal({...trackingModal, tracking_status: status})}
+                                className={`p-2.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${trackingModal.tracking_status === status ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'}`}
+                            >
+                                {status}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+             </div>
+
+             <div className="flex justify-end gap-3 pt-6 mt-2 border-t">
+                <button onClick={() => setTrackingModal({isOpen: false})} className="px-5 py-2.5 rounded-xl font-bold text-gray-600 hover:bg-gray-100 text-sm cursor-pointer transition">Cancel</button>
+                <button onClick={saveTrackingUpdate} className="flex items-center gap-2 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-sm transition bg-emerald-600 hover:bg-emerald-700 cursor-pointer">
+                    <Save className="h-4 w-4" /> Save Tracking
+                </button>
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: FINANCE RECEIPT MODAL */}
       {receiptModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] animate-in fade-in zoom-in-95 duration-200">
-            
             <div className="flex justify-between items-center p-5 border-b bg-gray-50">
                <h3 className="font-bold text-lg text-slate-800">Financial Settlement & Receipt</h3>
                <button onClick={() => setReceiptModal({isOpen: false, trip: null})} className="p-2 hover:bg-gray-200 rounded-lg text-gray-500 transition cursor-pointer"><X className="h-5 w-5" /></button>
@@ -326,7 +646,6 @@ function Trips() {
 
             <div className="flex-1 overflow-y-auto p-6 bg-gray-100">
                <div ref={receiptRef} className="bg-white p-10 mx-auto shadow-sm border border-gray-200 rounded-xl max-w-3xl">
-                  
                   <div className="border-b-2 border-slate-900 pb-6 mb-8 flex justify-between items-end">
                       <div><h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">JAIN FREIGHT CARRIERS</h1><p className="text-gray-500 mt-1 font-medium text-sm">Logistics & Transportation Services</p></div>
                       <div className="text-right"><h2 className="text-xl font-bold text-gray-800">FREIGHT RECEIPT</h2><p className="text-sm font-semibold text-gray-500 mt-1">TRK: {receiptModal.trip.tracking_number}</p>{activeCharges.bill_no && finance.bill_no && (<p className="text-sm font-bold text-blue-700 mt-1 uppercase tracking-wide">BILL NO: {finance.bill_no}</p>)}</div>
@@ -351,7 +670,7 @@ function Trips() {
                      <label className="text-xs font-bold text-blue-900 uppercase whitespace-nowrap">Select Deposit Bank Account:</label>
                      <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                          <select className="border border-blue-200 bg-white p-2 rounded-lg text-sm font-bold text-blue-800 outline-none cursor-pointer flex-1" value={isCustomBank ? 'Other' : finance.bank_account} onChange={e => setFinance({...finance, bank_account: e.target.value === 'Other' ? '' : e.target.value})}>
-                            {['JTA 0706', 'JTA 0611', 'JFC 7734', 'JFC 1487'].map(bank => <option key={bank} value={bank}>{bank}</option>)}
+                            {PRESET_BANKS.map(bank => <option key={bank} value={bank}>{bank}</option>)}
                             <option value="Other">Other (Custom)</option>
                          </select>
                          {isCustomBank && <input type="text" placeholder="Custom bank..." className="border border-blue-300 p-2 rounded-lg text-sm font-bold text-blue-900 w-full sm:w-48" value={finance.bank_account} onChange={e => setFinance({...finance, bank_account: e.target.value})} />}
@@ -370,7 +689,7 @@ function Trips() {
                         </div>
 
                         <div className="border-b border-gray-100 pb-2 mb-2">
-                          <div className="flex justify-between items-center"><label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer"><input type="checkbox" checked={activeCharges.holding} onChange={() => toggleCharge('holding')} className="rounded print:hidden" /> Holding Charge</label>{activeCharges.holding ? <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.holding_charge} onChange={e => handleFinanceChange('holding_charge', e.target.value)} /> : <span className="w-32 text-right text-gray-400 print:hidden">Excluded</span>}</div>
+                          <div className="flex justify-between items-center"><label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer"><input type="checkbox" checked={activeCharges.holding} onChange={() => toggleCharge('holding')} className="rounded print:hidden" /> Rate Difference</label>{activeCharges.holding ? <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.holding_charge} onChange={e => handleFinanceChange('holding_charge', e.target.value)} /> : <span className="w-32 text-right text-gray-400 print:hidden">Excluded</span>}</div>
                           {activeCharges.holding && <label className="flex items-center gap-1.5 text-[11px] text-gray-500 mt-1 print:hidden pl-5"><input type="checkbox" checked={finance.include_holding_in_gst} onChange={e => handleFinanceChange('include_holding_in_gst', e.target.checked)} className="rounded" /> Include in GST</label>}
                         </div>
 
@@ -390,13 +709,12 @@ function Trips() {
                            ))}
                         </div>
                         <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><label className="text-sm font-semibold text-gray-700">TDS (₹)</label><input className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" type="number" value={finance.tds || ''} onChange={e => handleFinanceChange('tds', e.target.value)} /></div>
-                        <div className="flex justify-between items-center border-b border-gray-100 pb-2"><input className="text-sm font-semibold text-gray-700 border-b border-dashed w-32 bg-transparent" placeholder="Extra Deduction..." /><input className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" type="number" value={finance.extra_deduction || ''} onChange={e => handleFinanceChange('extra_deduction', e.target.value)} /></div>
+                        <div className="flex justify-between items-center border-b border-gray-100 pb-2"><input className="text-sm font-semibold text-gray-700 border-b border-dashed w-32 bg-transparent outline-none" placeholder="Extra Deduction..." /><input className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" type="number" value={finance.extra_deduction || ''} onChange={e => handleFinanceChange('extra_deduction', e.target.value)} /></div>
                       </div>
                       
                       <div className="col-span-2 mt-4 p-4 border-2 border-slate-900 rounded-lg flex justify-between items-center bg-emerald-50/30"><span className="font-extrabold text-lg text-slate-900">NET BALANCE PAYABLE</span><span className="font-extrabold text-2xl text-emerald-600">₹{calculatePending()}</span></div>
                   </div>
 
-                  {/* OPERATIONAL TRACKING */}
                   <h3 className="font-bold text-base mb-4 mt-8 text-slate-800 uppercase tracking-wide border-b pb-2">Operational Tracking (Internal)</h3>
                   <div className="grid grid-cols-2 gap-x-8 gap-y-4">
                       <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 print:p-0 print:border-none">
@@ -432,7 +750,6 @@ function Trips() {
                       <div className="flex justify-between items-center border-b border-gray-200 pb-2 col-span-2 bg-blue-100 p-2 rounded"><span className="font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span><span className="font-extrabold text-slate-700">₹{finance.driver_total || 0}</span></div>
                   </div>
 
-                  {/* 🌟 PRINTABLE MAP EMBEDDED IN RECEIPT */}
                   {receiptModal.trip?.telemetry?.lat && (
                     <div className="mt-8 border-2 border-slate-900 rounded-lg p-4 bg-white print:border-2 print:border-slate-900 print:break-inside-avoid">
                         <h3 className="font-bold text-base mb-3 text-slate-800 uppercase tracking-wide border-b border-slate-200 pb-2">Geospatial Tracking Record</h3>
@@ -460,12 +777,11 @@ function Trips() {
                <button onClick={handlePrint} className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-2.5 rounded-lg font-bold transition cursor-pointer"><Printer className="h-5 w-5"/> Print Receipt</button>
                <button onClick={handleSaveFinance} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-2.5 rounded-lg font-bold shadow-sm transition cursor-pointer"><Save className="h-5 w-5"/> Save Financial Ledger</button>
             </div>
-
           </div>
         </div>
       )}
 
-      {/* COMPLETE TRIP STATUS MODAL */}
+      {/* MODAL 3: COMPLETE TRIP STATUS MODAL */}
       {completeModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col p-6 space-y-5 animate-in fade-in zoom-in-95">
@@ -545,25 +861,25 @@ function Trips() {
         </div>
       )}
 
-      {/* EDIT MODAL */}
+      {/* MODAL 4: EDIT TRIP MODAL */}
       {editModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-            <div className="flex justify-between items-center p-5 border-b bg-gray-50"><h3 className="font-bold text-lg text-slate-800">Edit Trip: {editModal.tripData.tracking_number}</h3><button onClick={() => setEditModal({isOpen: false, tripData: null})} className="p-2 hover:bg-gray-200 rounded-lg text-gray-500"><X className="h-5 w-5" /></button></div>
+            <div className="flex justify-between items-center p-5 border-b bg-gray-50"><h3 className="font-bold text-lg text-slate-800">Edit Trip: {editModal.tripData.tracking_number}</h3><button onClick={() => setEditModal({isOpen: false, tripData: null})} className="p-2 hover:bg-gray-200 rounded-lg text-gray-500 cursor-pointer"><X className="h-5 w-5" /></button></div>
             <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 h-96 overflow-y-auto">
-                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Vehicle</label><input className="w-full border p-2.5 rounded-lg text-sm bg-gray-100" value={editModal.tripData.vehicle_number} disabled /></div>
+                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Vehicle</label><input className="w-full border p-2.5 rounded-lg text-sm bg-gray-100 uppercase" value={editModal.tripData.vehicle_number} disabled /></div>
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Launch Date</label><input type="date" className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.trip_start_date || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, trip_start_date: e.target.value}})} /></div>
-                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Source</label><input className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.source_city} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, source_city: e.target.value}})} /></div>
-                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Destination</label><input className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.destination_city} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, destination_city: e.target.value}})} /></div>
-                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Party Name</label><input className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.party_name || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, party_name: e.target.value}})} /></div>
-                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Owner Name</label><input className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.owner_name || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, owner_name: e.target.value}})} /></div>
-                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">GTA Name</label><input className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.gta_name || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, gta_name: e.target.value}})} /></div>
-                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">LR / Bilty No</label><input className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.lr_no || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, lr_no: e.target.value}})} /></div>
-                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">E-Way Bill Expiry Date</label><input type="date" className="w-full border p-2.5 rounded-lg text-sm bg-white text-gray-700 outline-none focus:ring-2 focus:ring-blue-100"value={editModal.tripData.eway_bill_expiry || ''}onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, eway_bill_expiry: e.target.value}})}/></div>
+                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Source</label><input className="w-full border p-2.5 rounded-lg text-sm uppercase" value={editModal.tripData.source_city} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, source_city: e.target.value}})} /></div>
+                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Destination</label><input className="w-full border p-2.5 rounded-lg text-sm uppercase" value={editModal.tripData.destination_city} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, destination_city: e.target.value}})} /></div>
+                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Party Name</label><input className="w-full border p-2.5 rounded-lg text-sm uppercase" value={editModal.tripData.party_name || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, party_name: e.target.value}})} /></div>
+                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Owner Name</label><input className="w-full border p-2.5 rounded-lg text-sm uppercase" value={editModal.tripData.owner_name || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, owner_name: e.target.value}})} /></div>
+                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">GTA Name</label><input className="w-full border p-2.5 rounded-lg text-sm uppercase" value={editModal.tripData.gta_name || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, gta_name: e.target.value}})} /></div>
+                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">LR / Bilty No</label><input className="w-full border p-2.5 rounded-lg text-sm uppercase" value={editModal.tripData.lr_no || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, lr_no: e.target.value}})} /></div>
+                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">E-Way Bill Expiry Date</label><input type="date" className="w-full border p-2.5 rounded-lg text-sm bg-white text-gray-700 outline-none focus:ring-2 focus:ring-blue-100" value={editModal.tripData.eway_bill_expiry || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, eway_bill_expiry: e.target.value}})}/></div>
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Estimated Route KM</label><input type="number" className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.total_km || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, total_km: e.target.value}})} /></div>
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Rough Freight (₹)</label><input type="number" className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.freight_amount || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, freight_amount: e.target.value}})} /></div>
             </div>
-            <div className="p-5 border-t bg-white flex justify-end gap-3"><button onClick={() => setEditModal({isOpen: false, tripData: null})} className="px-5 py-2.5 text-gray-600">Cancel</button><button onClick={handleUpdateTrip} className="bg-slate-900 text-white px-6 py-2.5 rounded-lg font-bold">Save Changes</button></div>
+            <div className="p-5 border-t bg-white flex justify-end gap-3"><button onClick={() => setEditModal({isOpen: false, tripData: null})} className="px-5 py-2.5 text-gray-600 hover:bg-gray-100 rounded-lg cursor-pointer">Cancel</button><button onClick={handleUpdateTrip} className="bg-slate-900 text-white px-6 py-2.5 rounded-lg font-bold hover:bg-slate-800 transition cursor-pointer">Save Changes</button></div>
           </div>
         </div>
       )}

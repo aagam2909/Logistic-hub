@@ -19,7 +19,6 @@ TAABI_API_KEY = os.getenv("TAABI_API_KEY")
 
 app = FastAPI(title="Jain Freight Carrier")
 
-# 🌟 STRICT CORS FIX: Explicitly allowing your Vite frontend to prevent blocking
 app.add_middleware(
     CORSMiddleware, 
     allow_origins=[
@@ -106,11 +105,15 @@ class DriverSettleUpdate(BaseModel):
     trip_id: int
     payment_date: date
 
+class TrackingUpdate(BaseModel):
+    tracking_location: str
+    tracking_status: str
+
 # --- TAABI TELEMETRY & V3 FUEL API ---
 def get_taabi_live_data(vehicle_number):
     url = "https://dev-api-dtwin.taabi.ai/graphql"
-    # 🌟 Added `location` here as well
-    query = "query getAllDeviceLocations($configs: Configs) { devices: getAllDeviceLocations(configs: $configs) { vehicleNumber, speed, haltStatus, latitude, longitude, fuelValueLtrs, adblue_level, location } }"
+    # 🌟 FIX: Removed `location` from GraphQL query to prevent schema crash
+    query = "query getAllDeviceLocations($configs: Configs) { devices: getAllDeviceLocations(configs: $configs) { vehicleNumber, speed, haltStatus, latitude, longitude, fuelValueLtrs, adblue_level } }"
     payload = {"query": query, "variables": {"configs": {}}}
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {TAABI_API_KEY}"}
     try:
@@ -120,12 +123,15 @@ def get_taabi_live_data(vehicle_number):
         for dev in devices:
             api_clean = str(dev['vehicleNumber']).replace("-", "").replace(" ", "").upper()
             if db_clean in api_clean or api_clean in db_clean:
+                lat = dev.get('latitude')
+                lng = dev.get('longitude')
+                loc_str = f"Lat: {lat}, Lng: {lng}" if lat and lng else ""
                 return {
                     "internal_id": dev.get('vehicleNumber', vehicle_number),
-                    "speed": dev['speed'], "lat": dev['latitude'], "lng": dev['longitude'],
+                    "speed": dev['speed'], "lat": lat, "lng": lng,
                     "fuel_level": dev.get('fuelValueLtrs', 'N/A'), "urea_level": dev.get('adblue_level', 'N/A'),
                     "status": "Halted" if dev['haltStatus'] else "Moving",
-                    "location": dev.get('location', '') # 🌟 Storing Address
+                    "location": loc_str # 🌟 Auto-formatting Coordinates
                 }
         return {"internal_id": vehicle_number, "speed": 0, "fuel_level": "N/A", "urea_level": "N/A", "status": "Not Found", "location": ""}
     except Exception:
@@ -171,26 +177,49 @@ def get_taabi_fuel_analytics(internal_device_id: str, start_date, end_date):
 @app.get("/taabi/bulk")
 def get_bulk_taabi():
     url = "https://dev-api-dtwin.taabi.ai/graphql"
-    # 🌟 Added `location` to exactly pull the Proper Name Address
-    query = "query getAllDeviceLocations($configs: Configs) { devices: getAllDeviceLocations(configs: $configs) { vehicleNumber, fuelValueLtrs, speed, haltStatus, latitude, longitude, location } }"
+    # 🌟 FIX: Removed `location` from GraphQL query
+    query = """
+    query getAllDeviceLocations($configs: Configs) {
+        devices: getAllDeviceLocations(configs: $configs) {
+            vehicleNumber
+            fuelValueLtrs
+            speed
+            haltStatus
+            latitude
+            longitude
+        }
+    }
+    """
     payload = {"query": query, "variables": {"configs": {}}}
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {TAABI_API_KEY}"}
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {TAABI_API_KEY}"
+    }
     try:
-        devices = requests.post(url, json=payload, headers=headers, timeout=10).json().get("data", {}).get("devices", [])
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        devices = response.json().get("data", {}).get("devices", [])
         fuel_map = {}
         for dev in devices:
-            clean_vn = str(dev['vehicleNumber']).replace("-", "").replace(" ", "").upper()
+            clean_vn = str(dev.get('vehicleNumber', '')).replace("-", "").replace(" ", "").upper()
+            
+            lat = dev.get('latitude')
+            lng = dev.get('longitude')
+            loc_str = f"Lat: {lat}, Lng: {lng}" if lat and lng else ""
+
             fuel_map[clean_vn] = {
                 "internal_id": dev.get('vehicleNumber', clean_vn),
-                "fuel": dev.get('fuelValueLtrs', 'N/A'), "speed": dev.get('speed', 0),
+                "fuel": dev.get('fuelValueLtrs', 'N/A'),
+                "speed": dev.get('speed', 0),
                 "status": "Halted" if dev.get('haltStatus') else "Moving",
-                "lat": dev.get('latitude', ''), "lng": dev.get('longitude', ''),
-                "location": dev.get('location', '') # 🌟 Storing Address
+                "lat": lat,
+                "lng": lng,
+                "location": loc_str or "Location Unavailable" # 🌟 Using custom coordinate string
             }
         return fuel_map
-    except Exception:
+    except Exception as e:
+        print(f"Taabi API Error: {e}")
         return {}
-
+    
 @app.get("/taabi/bulk-fuel-active")
 def get_bulk_fuel_active():
     conn = get_db_connection()
@@ -252,8 +281,15 @@ def delete_asset(vehicle_number: str):
 
 @app.post("/trips")
 def create_trip(trip: TripCreate):
-    conn = get_db_connection(); cursor = conn.cursor()
+    conn = get_db_connection()
+    cursor = conn.cursor()
     try:
+        # 🌟 NEW ANTI-DUPLICATE SHIELD: Check if the truck is already running a trip!
+        cursor.execute("SELECT current_status FROM assets WHERE vehicle_number = %s", (trip.vehicle_number.upper().strip(),))
+        status_row = cursor.fetchone()
+        if status_row and status_row[0] == 'In-Transit':
+            raise HTTPException(status_code=400, detail=f"Truck {trip.vehicle_number} is already In-Transit! Please complete its active trip before launching a new one.")
+
         cursor.execute("INSERT INTO trips (vehicle_number, source_city, destination_city, party_name, owner_name, gta_name, lr_no, eway_bill, eway_bill_expiry, trip_start_date, lw) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING trip_id;", (trip.vehicle_number.upper().strip(), trip.source_city, trip.destination_city, trip.party_name, trip.owner_name, trip.gta_name, trip.lr_no, trip.eway_bill, trip.eway_bill_expiry, trip.trip_start_date, trip.lw))
         trip_id = cursor.fetchone()[0]
         date_str = (trip.trip_start_date if trip.trip_start_date else datetime.now().date()).strftime('%d%m%y')
@@ -279,10 +315,13 @@ def create_trip(trip: TripCreate):
         conn.commit()
         return {"message": "Trip launched", "tracking_number": tracking_number}
     except Exception as e:
-        conn.rollback(); raise HTTPException(status_code=400, detail=str(e))
+        conn.rollback()
+        # Ensure the frontend gets a clean error message
+        raise HTTPException(status_code=400, detail=str(e))
     finally:
-        cursor.close(); conn.close()
-
+        cursor.close()
+        conn.close()
+        
 @app.put("/trips/{trip_id}")
 def update_trip(trip_id: int, trip_data: dict):
     conn = get_db_connection()
@@ -410,64 +449,112 @@ def locked_edit_trip(trip_id: int, trip_data: dict):
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         cursor.close(); conn.close()
-@app.get("/trips/history")
-def get_trip_history():
+
+@app.put("/trips/{trip_id}/tracking")
+def update_trip_tracking(trip_id: int, data: TrackingUpdate):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT t.*, 
-               f.freight_amount, f.adv_amt, f.balance_payment, f.total_km, 
-               f.diesel_liters_needed, f.fastag_estimate, f.driver_advance, 
-               f.driver_remaining, f.driver_total, f.driver_paid, f.driver_payment_date,
-               f.trip_unloaded, f.pod_status, f.pod_arrived_office_date, 
-               f.pod_forwarded_client_date, f.pod_received_client_date, f.amount_cleared
-        FROM trips t 
-        LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
-        WHERE t.actual_delivery_date IS NOT NULL 
-        ORDER BY t.actual_delivery_date DESC, t.trip_id DESC;
-    """)
-    res = [dict(zip([d[0] for d in cursor.description], row)) for row in cursor.fetchall()]
-    cursor.close()
-    conn.close()
-    return res
-
+    try:
+        cursor.execute("""
+            UPDATE trips 
+            SET tracking_location = %s, tracking_status = %s 
+            WHERE trip_id = %s
+        """, (data.tracking_location, data.tracking_status, trip_id))
+        conn.commit()
+        return {"status": "Success", "message": "Manual tracking updated."}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
 
 @app.get("/trips/active")
 def get_active_trips():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT t.*, a.driver_name, 
-               f.freight_amount, f.adv_amt, f.balance_payment, f.total_km, 
-               f.diesel_liters_needed, f.fastag_estimate, f.driver_advance, 
-               f.driver_remaining, f.driver_total, f.driver_paid, f.driver_payment_date,
-               f.trip_unloaded, f.pod_status, f.pod_arrived_office_date, 
-               f.pod_forwarded_client_date, f.pod_received_client_date, f.amount_cleared
-        FROM trips t 
-        LEFT JOIN assets a ON t.vehicle_number = a.vehicle_number 
-        LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
-        WHERE t.actual_delivery_date IS NULL 
-        ORDER BY t.trip_start_date DESC;
+        SELECT * FROM (
+            SELECT DISTINCT ON (t.trip_id) t.*, a.driver_name, 
+                   f.freight_amount, f.adv_amt, f.balance_payment, f.total_km, 
+                   f.diesel_liters_needed, f.fastag_estimate, f.driver_advance, 
+                   f.driver_remaining, f.driver_total, f.driver_paid, f.driver_payment_date,
+                   f.trip_unloaded, f.pod_status, f.pod_arrived_office_date, 
+                   f.pod_forwarded_client_date, f.pod_received_client_date, f.amount_cleared,
+                   f.advance_details, f.fastag_details, f.loading_charge, f.holding_charge, 
+                   f.gst, f.tds, f.extra_deduction
+            FROM trips t 
+            LEFT JOIN assets a ON t.vehicle_number = a.vehicle_number 
+            LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
+            WHERE t.actual_delivery_date IS NULL 
+        ) sub
+        ORDER BY trip_start_date DESC, trip_id DESC;
     """)
-    res = [dict(zip([d[0] for d in cursor.description], row)) for row in cursor.fetchall()]
+    cols = [d[0] for d in cursor.description]
+    active_trips = [dict(zip(cols, row)) for row in cursor.fetchall()]
     cursor.close()
     conn.close()
-    return res
-@app.get("/trips/all")
-def get_all_trips():
+
+    try:
+        bulk_gps = get_bulk_taabi()
+    except Exception:
+        bulk_gps = {}
+
+    for trip in active_trips:
+        clean_vn = str(trip.get('vehicle_number', '')).replace("-", "").replace(" ", "").upper()
+        gps_info = bulk_gps.get(clean_vn)
+        
+        if gps_info and gps_info.get("location") and gps_info.get("location") != "Location Unavailable":
+            trip['tracking_location'] = gps_info["location"]
+        else:
+            trip['tracking_location'] = trip.get('tracking_location') or trip.get('source_city')
+            
+        trip['tracking_status'] = trip.get('tracking_status') or 'RUNNING'
+
+    return active_trips
+
+@app.get("/trips/history")
+def get_trip_history():
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT t.*, f.total_km, f.freight_amount, f.balance_payment, f.pod_status AS finance_pod_status 
-        FROM trips t 
-        LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
-        ORDER BY t.trip_id DESC;
+        SELECT * FROM (
+            SELECT DISTINCT ON (t.trip_id) t.*, 
+                   f.freight_amount, f.adv_amt, f.balance_payment, f.total_km, 
+                   f.diesel_liters_needed, f.fastag_estimate, f.driver_advance, 
+                   f.driver_remaining, f.driver_total, f.driver_paid, f.driver_payment_date,
+                   f.trip_unloaded, f.pod_status, f.pod_arrived_office_date, 
+                   f.pod_forwarded_client_date, f.pod_received_client_date, f.amount_cleared,
+                   f.advance_details, f.fastag_details, f.loading_charge, f.holding_charge, 
+                   f.gst, f.tds, f.extra_deduction
+            FROM trips t 
+            LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
+            WHERE t.actual_delivery_date IS NOT NULL 
+        ) sub
+        ORDER BY actual_delivery_date DESC, trip_id DESC;
     """)
     res = [dict(zip([d[0] for d in cursor.description], row)) for row in cursor.fetchall()]
     cursor.close()
     conn.close()
     return res
 
+@app.get("/trips/all")
+def get_all_trips():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT * FROM (
+            SELECT DISTINCT ON (t.trip_id) t.*, f.total_km, f.freight_amount, f.balance_payment, f.pod_status AS finance_pod_status,
+                   f.advance_details, f.fastag_details, f.loading_charge, f.holding_charge, f.gst, f.tds, f.extra_deduction, f.adv_amt
+            FROM trips t 
+            LEFT JOIN trip_finances f ON t.trip_id = f.trip_id 
+        ) sub
+        ORDER BY trip_id DESC;
+    """)
+    res = [dict(zip([d[0] for d in cursor.description], row)) for row in cursor.fetchall()]
+    cursor.close()
+    conn.close()
+    return res
 
 @app.delete("/trips/{trip_id}")
 def force_delete_trip(trip_id: int):
@@ -548,7 +635,6 @@ def get_track_data(trip_id: str):
     res['fuel_analytics'] = get_taabi_fuel_analytics(internal_id, res['trip_start_date'], res.get('actual_delivery_date'))
     return res
 
-
 @app.get("/trips/details/{trip_id}")
 def get_trip_details(trip_id: int):
     conn = get_db_connection()
@@ -570,6 +656,13 @@ def get_trip_details(trip_id: int):
     res = dict(zip([d[0] for d in cursor.description], row))
     cursor.close()
     conn.close()
+    
+    # 🌟 Embed Taabi data explicitly into trip details
+    telemetry_data = get_taabi_live_data(res['vehicle_number'])
+    internal_id = telemetry_data.get('internal_id', res['vehicle_number'])
+    res['telemetry'] = telemetry_data
+    res['fuel_analytics'] = get_taabi_fuel_analytics(internal_id, res['trip_start_date'], res.get('actual_delivery_date'))
+
     return res
 
 @app.post("/finances/calculate")
@@ -597,7 +690,6 @@ def calculate_finance(data: dict):
         
         total_km = safe_float(data.get('total_km'))
         
-        # 🌟 UPDATED: Fetching vehicle_number along with mileage
         cursor.execute("SELECT a.mileage, t.vehicle_number FROM trips t LEFT JOIN assets a ON t.vehicle_number = a.vehicle_number WHERE t.trip_id = %s;", (trip_id,))
         m_row = cursor.fetchone()
         mile = float(m_row[0]) if m_row and m_row[0] else 5.5
@@ -623,7 +715,6 @@ def calculate_finance(data: dict):
             trip_id
         ))
         
-        # 🌟 UPDATED: Log only the last 4 digits of the truck
         last_4 = vehicle_no[-4:] if len(vehicle_no) >= 4 else vehicle_no
         log_details = f"Financial ledger updated for Truck ending in {last_4}. Freight: ₹{freight}, New Balance: ₹{balance}"
         cursor.execute("""

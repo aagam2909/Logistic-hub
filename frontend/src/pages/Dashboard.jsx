@@ -138,12 +138,12 @@ function Dashboard() {
             const isObj = typeof taabi === 'object';
             
             const liveStatus = isObj && taabi.status ? (taabi.status === 'Moving' ? `Moving (${taabi.speed}km/h)` : 'Halted') : 'Offline';
+            const apiLocation = isObj && taabi.location ? taabi.location : (isObj && taabi.lat ? `[${taabi.lat}, ${taabi.lng}]` : trip.source_city);
             
-            // 🌟 1. PROPER LOCATION NAME INSTEAD OF LAT/LNG
-            const liveLocation = isObj && taabi.location ? taabi.location : (isObj && taabi.lat ? `[${taabi.lat}, ${taabi.lng}]` : '-');
+            const finalLocation = trip.tracking_location || apiLocation || '-';
+            const finalStatus = trip.tracking_status || liveStatus || 'Offline';
+
             const tele = getTelemetry(trip);
-            
-            // 🌟 2. EXACT MATH FOR DRIVER ADVANCE (KM * 3.5)
             const km = parseFloat(trip.total_km) || 0;
             const driverAdvance = parseFloat((km * 3.5).toFixed(2));
 
@@ -154,14 +154,13 @@ function Dashboard() {
                 'PARTY': trip.party_name || '-',
                 'FROM': trip.source_city || '-', 
                 'TO': trip.destination_city || '-', 
-                'TOTAL KMS': km, // 🌟 3. NEW TOTAL KMS COLUMN ADDED HERE
-                'M LOCATION': liveLocation, 
-                'STATUS': trip.pod_status === 'Pending' ? liveStatus : trip.pod_status,
-                'YSD KMS': '', // 🌟 4. YSD KMS READY TO POPULATE
+                'TOTAL KMS': km, 
+                'M LOCATION': finalLocation, 
+                'STATUS': finalStatus,
+                'YSD KMS': '', 
                 'REASON': '', 
                 'L/R & PAPER CHECK': trip.lr_no || '-', 
-                'ADVANCE Y/N': driverAdvance > 0 ? 'Y' : 'N',
-                'adv': driverAdvance, // DRIVER ADVANCE APPLIED
+                'adv': driverAdvance, 
                 'ADV ROUND OFF': driverAdvance, 
                 'Adv paid': trip.driver_paid ? driverAdvance : 0, 
                 'Adv pending': trip.driver_paid ? 0 : driverAdvance,
@@ -170,17 +169,32 @@ function Dashboard() {
                 'HSD IN TANK': tele.dieselLeft, 
                 'HSD Issued': tele.refuelVolume || '',
                 'HSD pending': tele.theftVolume > 0 ? `THEFT: ${tele.theftVolume}` : '', 
-                'ICICI': '', 'idfc': '', 'AXIS': '', 'provider': ''
+                'ICICI': '', 'idfc': '', 'AXIS': ''
             };
          });
       }
       else if (exportType === 'detailed') {
          filename = `Detailed_Ledger_ORANGE_${todayStr}.csv`; 
          csvData = targetTrips.map(trip => {
+            
+            // 🌟 1. MULTIPLE ADVANCES FIX (10000 + 1000)
             let advDate = '';
+            let advString = trip.adv_amt || 0;
+
             try {
                 const advList = typeof trip.advance_details === 'string' ? JSON.parse(trip.advance_details) : (trip.advance_details || []);
-                if (advList.length > 0) advDate = advList[0].date || '';
+                const validAdvs = advList.filter(a => parseFloat(a.amount || 0) > 0);
+                
+                if (validAdvs.length > 0) {
+                    advString = validAdvs.map(a => parseFloat(a.amount)).join(' + ');
+                    
+                    advDate = validAdvs.map(a => {
+                        if(!a.date) return '';
+                        const parts = a.date.split('-');
+                        if(parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0].slice(-2)}`;
+                        return a.date;
+                    }).filter(Boolean).join(', ');
+                }
             } catch(e) {}
             
             const freight = parseFloat(trip.freight_amount) || 0;
@@ -189,27 +203,28 @@ function Dashboard() {
             const gst = parseFloat(trip.gst) || 0;
             const totalFreight = freight + loading + holding + gst;
 
+            // 🌟 2. E-WAY BILL COMBINED FIX
+            const ewayString = trip.eway_bill ? `${trip.eway_bill} ${trip.eway_bill_expiry ? `(Exp: ${trip.eway_bill_expiry})` : ''}`.trim() : '-';
+
             return {
                 'DATE': trip.trip_start_date || '-', 'FROM': trip.source_city || '-', 'TO': trip.destination_city || '-', 'VEHICLE NO': trip.vehicle_number || '-',
                 'PARTY': trip.party_name || '-', 'OWNER NAME': trip.owner_name || '-', 'FREIGHT': freight, 'UNLOADING': loading, 'HOLDING': holding, 'GST': gst,
-                'TOTAL FREIGHT': totalFreight.toFixed(2), 'ADVANCE': trip.adv_amt || 0, 'ADVANCE DATE': advDate, 'TDS': trip.tds || 0,
-                '200': trip.extra_deduction || 0, 'BALANCE': trip.balance_payment || 0, 'POD RECEIVED DATE': trip.pod_received_client_date || '-', 'GTA': trip.gta_name || '-',
+                'TOTAL FREIGHT': totalFreight.toFixed(2), 
+                'ADVANCE': advString, 
+                'ADVANCE DATE': advDate || '-', 
+                'TDS': trip.tds || 0,
+                '200 ': trip.extra_deduction || 0, // 🌟 INVISIBLE SPACE KEEPS THIS COLUMN IN ORDER
+                'BALANCE': trip.balance_payment || 0, 
+                'POD RECEIVED DATE': trip.pod_received_client_date || '-', 'GTA': trip.gta_name || '-',
                 'L R NO.': trip.lr_no || '-', 
-                'EWAY BILL': trip.eway_bill || '-',
-                'EWAY EXPIRY': trip.eway_bill_expiry || '-'
+                'EWAY BILL & DATE': ewayString
             };
          });
       }
       else if (exportType === 'today') {
          filename = `Todays_Activity_${todayStr}.csv`;
-         
          const tripsToday = allTrips.filter(t => t.trip_start_date === todayStr || t.actual_delivery_date === todayStr);
-         
          csvData = tripsToday.map((trip, idx) => {
-             const cleanVN = (trip.vehicle_number || '').replace(/[- ]/g, '').toUpperCase();
-             const taabi = taabiData[cleanVN] || {};
-             const liveLocation = typeof taabi === 'object' && taabi.location ? taabi.location : '-';
-             
              let actionToday = 'Ongoing';
              if (trip.trip_start_date === todayStr && trip.actual_delivery_date === todayStr) actionToday = 'Launched & Delivered Today';
              else if (trip.trip_start_date === todayStr) actionToday = 'Launched Today';
@@ -218,7 +233,7 @@ function Dashboard() {
              return {
                 'SR': idx + 1, 'VEHICLE': trip.vehicle_number || '-', 'EVENT TODAY': actionToday, 'FROM': trip.source_city || '-',
                 'TO': trip.destination_city || '-', 'PARTY': trip.party_name || '-', 'FREIGHT': trip.freight_amount || 0,
-                'STATUS': trip.pod_status || 'Pending', 'LOCATION': liveLocation
+                'STATUS': trip.tracking_status || 'Ongoing', 'LOCATION': trip.tracking_location || trip.source_city
              }
          });
       }
@@ -313,20 +328,20 @@ function Dashboard() {
   const getPreviewData = () => {
       if (exportType === 'finance_ledger') {
           return {
-              headers: ['SR', 'VEH', 'LOADING DATE', 'PARTY', 'FROM', 'TO', 'TOTAL KMS', 'M LOCATION', 'STATUS', 'YSD KMS', 'ADVANCE Y/N', 'adv'],
-              rows: [['1', 'RJ14-8674', '20/08/2026', 'MAHAVEERA', 'BANGALORE', 'DURG', '1450', 'Delhi Highway Toll Plaza', 'Moving', '', 'Y', '5075']]
+              headers: ['SR', 'VEH', 'LOADING DATE', 'PARTY', 'FROM', 'TO', 'TOTAL KMS', 'M LOCATION', 'STATUS', 'YSD KMS', 'REASON', 'L/R', 'adv', 'ICICI'],
+              rows: [['1', 'RJ14-8674', '20/08/2026', 'MAHAVEERA', 'BANGALORE', 'DURG', '1450', 'JAIPUR', 'RUNNING', '', '', '152', '5075', '']]
           };
       }
       if (exportType === 'detailed') {
           return {
-              headers: ['DATE', 'FROM', 'TO', 'VEHICLE NO', 'PARTY', 'OWNER NAME', 'FREIGHT', 'UNLOADING', 'HOLDING', 'GST', 'TOTAL FREIGHT', 'ADVANCE', 'ADVANCE DATE', 'TDS', '200', 'BALANCE', 'POD RECEIVED DATE', 'GTA', 'L R NO.', 'EWAY BILL'],
-              rows: [['02 Apr 26', 'BHIWADI', 'JAIPUR', '8674', 'GODREJ', 'JFC (A)', '17000', '3060', '0', '0', '20060.00', '19720', '21/05/2026', '340', '-', '0', '04/04/2026', 'JFC', '1520', '03/04/2026']]
+              headers: ['DATE', 'FROM', 'TO', 'VEHICLE NO', 'PARTY', 'OWNER NAME', 'FREIGHT', 'UNLOADING', 'HOLDING', 'GST', 'TOTAL FREIGHT', 'ADVANCE', 'ADVANCE DATE', 'TDS', '200 ', 'BALANCE', 'POD RECEIVED DATE', 'GTA', 'L R NO.', 'EWAY BILL & DATE'],
+              rows: [['02 Apr 26', 'BHIWADI', 'JAIPUR', '8674', 'GODREJ', 'JFC (A)', '17000', '3060', '0', '0', '20060.00', '10000 + 9720', '21/05/26, 25/05/26', '340', '0', '0', '04/04/2026', 'JFC', '1520', '8483728193 (Exp: 2026-04-05)']]
           };
       }
       if (exportType === 'today') {
          return {
              headers: ['SR', 'VEHICLE', 'EVENT TODAY', 'FROM', 'TO', 'PARTY', 'FREIGHT', 'STATUS', 'LOCATION'],
-             rows: [['1', 'RJ14GQ2305', 'Launched Today', 'JAIPUR', 'DELHI', 'GODREJ', '25000', 'Pending', 'Jaipur Hub']]
+             rows: [['1', 'RJ14GQ2305', 'Launched Today', 'JAIPUR', 'DELHI', 'GODREJ', '25000', 'RUNNING', 'JAIPUR']]
          };
       }
       if (exportType === 'party') {
@@ -439,7 +454,7 @@ function Dashboard() {
                   <td className="px-6 py-4 font-semibold text-gray-900">{trip.vehicle_number}</td>
                   <td className="px-6 py-4 text-gray-600">{trip.source_city} → {trip.destination_city}</td>
                   <td className="px-6 py-4 text-gray-600">{trip.party_name || '-'}</td>
-                  <td className="px-6 py-4 text-right"><span className="px-2.5 py-1 rounded-md text-xs font-medium bg-amber-50 text-amber-700 border border-amber-100">In-Transit</span></td>
+                  <td className="px-6 py-4 text-right"><span className="px-2.5 py-1 rounded-md text-xs font-medium bg-amber-50 text-amber-700 border border-amber-100">{trip.tracking_status || 'In-Transit'}</span></td>
                 </tr>
               ))}
             </tbody>
