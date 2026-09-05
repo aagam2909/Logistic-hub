@@ -1,0 +1,14 @@
+.gitignore
+  h_b6895d6280a977 1-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "30fee1f0a02df05f558bf4888dc3664c4d0b354d",
+  "prompts": {},
+  "humans": {
+    "h_b6895d6280a977": {
+      "author": "aagam2909 <aagamjain1325@gmail.com>"
+    }
+  }
+}
