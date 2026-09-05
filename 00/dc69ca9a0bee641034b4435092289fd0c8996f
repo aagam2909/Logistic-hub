@@ -1,0 +1,20 @@
+backend/.env
+  h_b6895d6280a977 12-14
+  h_b6895d6280a977 11
+frontend/src/pages/Dashboard.jsx
+  h_b6895d6280a977 122,161,212,327-328
+backend/main.py
+  h_b6895d6280a977 16,20,114-126,142,154-195,256-257,261-262,271-276,297-305,389,700-706,734-739
+  h_b6895d6280a977 148,269
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "00dc69ca9a0bee641034b4435092289fd0c8996f",
+  "prompts": {},
+  "humans": {
+    "h_b6895d6280a977": {
+      "author": "aagam2909 <aagamjain1325@gmail.com>"
+    }
+  }
+}
