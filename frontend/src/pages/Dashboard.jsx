@@ -119,6 +119,7 @@ function Dashboard() {
               actualConsumed: fData.fuelConsumed || 0,
               theftVolume: fData.pilfregeVolume || 0,
               refuelVolume: fData.refuelVolume || 0,
+              ysdDistance: fData.yesterday_distance || 0  // 🌟 Fetched Yesterday's distance
           };
       };
 
@@ -157,9 +158,8 @@ function Dashboard() {
                 'TOTAL KMS': km, 
                 'M LOCATION': finalLocation, 
                 'STATUS': finalStatus,
-                'YSD KMS': '', 
+                'YSD KMS': tele.ysdDistance, // 🌟 Now perfectly populating from Taabi
                 'REASON': '', 
-                'L/R & PAPER CHECK': trip.lr_no || '-', 
                 'adv': driverAdvance, 
                 'ADV ROUND OFF': driverAdvance, 
                 'Adv paid': trip.driver_paid ? driverAdvance : 0, 
@@ -176,8 +176,6 @@ function Dashboard() {
       else if (exportType === 'detailed') {
          filename = `Detailed_Ledger_ORANGE_${todayStr}.csv`; 
          csvData = targetTrips.map(trip => {
-            
-            // 🌟 1. MULTIPLE ADVANCES FIX (10000 + 1000)
             let advDate = '';
             let advString = trip.adv_amt || 0;
 
@@ -187,7 +185,6 @@ function Dashboard() {
                 
                 if (validAdvs.length > 0) {
                     advString = validAdvs.map(a => parseFloat(a.amount)).join(' + ');
-                    
                     advDate = validAdvs.map(a => {
                         if(!a.date) return '';
                         const parts = a.date.split('-');
@@ -203,7 +200,6 @@ function Dashboard() {
             const gst = parseFloat(trip.gst) || 0;
             const totalFreight = freight + loading + holding + gst;
 
-            // 🌟 2. E-WAY BILL COMBINED FIX
             const ewayString = trip.eway_bill ? `${trip.eway_bill} ${trip.eway_bill_expiry ? `(Exp: ${trip.eway_bill_expiry})` : ''}`.trim() : '-';
 
             return {
@@ -213,7 +209,7 @@ function Dashboard() {
                 'ADVANCE': advString, 
                 'ADVANCE DATE': advDate || '-', 
                 'TDS': trip.tds || 0,
-                '200 ': trip.extra_deduction || 0, // 🌟 INVISIBLE SPACE KEEPS THIS COLUMN IN ORDER
+                '200 ': trip.extra_deduction || 0, 
                 'BALANCE': trip.balance_payment || 0, 
                 'POD RECEIVED DATE': trip.pod_received_client_date || '-', 'GTA': trip.gta_name || '-',
                 'L R NO.': trip.lr_no || '-', 
@@ -328,8 +324,8 @@ function Dashboard() {
   const getPreviewData = () => {
       if (exportType === 'finance_ledger') {
           return {
-              headers: ['SR', 'VEH', 'LOADING DATE', 'PARTY', 'FROM', 'TO', 'TOTAL KMS', 'M LOCATION', 'STATUS', 'YSD KMS', 'REASON', 'L/R', 'adv', 'ICICI'],
-              rows: [['1', 'RJ14-8674', '20/08/2026', 'MAHAVEERA', 'BANGALORE', 'DURG', '1450', 'JAIPUR', 'RUNNING', '', '', '152', '5075', '']]
+              headers: ['SR', 'VEH', 'LOADING DATE', 'PARTY', 'FROM', 'TO', 'TOTAL KMS', 'M LOCATION', 'STATUS', 'YSD KMS', 'REASON', 'adv', 'ICICI'],
+              rows: [['1', 'RJ14-8674', '20/08/2026', 'MAHAVEERA', 'BANGALORE', 'DURG', '1450', 'JAIPUR', 'RUNNING', '412.5', '', '5075', '']]
           };
       }
       if (exportType === 'detailed') {

@@ -13,9 +13,11 @@ import time
 import concurrent.futures
 from dotenv import load_dotenv
 from typing import Optional
+from datetime import date, datetime, timedelta, timezone
 
 load_dotenv()
 TAABI_API_KEY = os.getenv("TAABI_API_KEY")
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 
 app = FastAPI(title="Jain Freight Carrier")
 
@@ -109,10 +111,22 @@ class TrackingUpdate(BaseModel):
     tracking_location: str
     tracking_status: str
 
+# 🌟 Google Maps Reverse Geocoding Helper
+def reverse_geocode(lat, lng):
+    if not lat or not lng or not GOOGLE_MAPS_API_KEY:
+        return f"Lat: {lat}, Lng: {lng}"
+    try:
+        url = f"https://maps.googleapis.com/maps/api/geocode/json?latlng={lat},{lng}&key={GOOGLE_MAPS_API_KEY}"
+        response = requests.get(url, timeout=5).json()
+        if response.get('status') == 'OK':
+            return response['results'][0]['formatted_address']
+    except Exception as e:
+        print(f"Geocoding Error: {e}")
+    return f"Lat: {lat}, Lng: {lng}"
+
 # --- TAABI TELEMETRY & V3 FUEL API ---
 def get_taabi_live_data(vehicle_number):
     url = "https://dev-api-dtwin.taabi.ai/graphql"
-    # 🌟 FIX: Removed `location` from GraphQL query to prevent schema crash
     query = "query getAllDeviceLocations($configs: Configs) { devices: getAllDeviceLocations(configs: $configs) { vehicleNumber, speed, haltStatus, latitude, longitude, fuelValueLtrs, adblue_level } }"
     payload = {"query": query, "variables": {"configs": {}}}
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {TAABI_API_KEY}"}
@@ -125,19 +139,60 @@ def get_taabi_live_data(vehicle_number):
             if db_clean in api_clean or api_clean in db_clean:
                 lat = dev.get('latitude')
                 lng = dev.get('longitude')
-                loc_str = f"Lat: {lat}, Lng: {lng}" if lat and lng else ""
+                loc_str = reverse_geocode(lat, lng) if lat and lng else ""
                 return {
                     "internal_id": dev.get('vehicleNumber', vehicle_number),
                     "speed": dev['speed'], "lat": lat, "lng": lng,
                     "fuel_level": dev.get('fuelValueLtrs', 'N/A'), "urea_level": dev.get('adblue_level', 'N/A'),
                     "status": "Halted" if dev['haltStatus'] else "Moving",
-                    "location": loc_str # 🌟 Auto-formatting Coordinates
+                    "location": loc_str 
                 }
         return {"internal_id": vehicle_number, "speed": 0, "fuel_level": "N/A", "urea_level": "N/A", "status": "Not Found", "location": ""}
     except Exception:
         return {"internal_id": vehicle_number, "speed": 0, "fuel_level": "N/A", "urea_level": "N/A", "status": "Offline", "location": ""}
 
-    
+# 🌟 Updated: Fetch Yesterday's Distance (Milliseconds Timestamp Fix for Taabi V3)
+def get_taabi_yesterday_distance(internal_device_id: str):
+    url = "https://dev-api-dtwin.taabi.ai/graphql"
+    try:
+        ist = timezone(timedelta(hours=5, minutes=30))
+        now_ist = datetime.now(ist)
+        
+        today_midnight = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+        yesterday_midnight = today_midnight - timedelta(days=1)
+        
+        # Taabi V3 API expects timestamps in milliseconds (multiply by 1000)
+        from_time = int(yesterday_midnight.timestamp() * 1000)
+        to_time = int((today_midnight - timedelta(seconds=1)).timestamp() * 1000)
+
+        query = """query GetFuelDataV3($uniqueid: String!, $fromTime: Long!, $toTime: Long!, $timezone: String, $isEstimatedLoss: Boolean) {
+            getFuelData: getFuelDataV3(uniqueid: $uniqueid, fromTime: $fromTime, toTime: $toTime, timezone: $timezone, isEstimatedLoss: $isEstimatedLoss) {
+                distance
+            }
+        }"""
+        
+        payload = {
+            "query": query,
+            "variables": { 
+                "uniqueid": str(internal_device_id).strip(), 
+                "fromTime": from_time, 
+                "toTime": to_time, 
+                "timezone": "Asia/Kolkata", 
+                "isEstimatedLoss": False 
+            }
+        }
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {TAABI_API_KEY}"}
+        
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        data = response.json().get("data", {})
+        
+        if data and data.get("getFuelData"):
+            return data["getFuelData"].get("distance", 0)
+        return 0
+    except Exception as e:
+        print(f"YSD Distance Error: {e}")
+        return 0
+        
 def get_taabi_fuel_analytics(internal_device_id: str, start_date, end_date):
     url = "https://dev-api-dtwin.taabi.ai/graphql"
     try:
@@ -177,7 +232,6 @@ def get_taabi_fuel_analytics(internal_device_id: str, start_date, end_date):
 @app.get("/taabi/bulk")
 def get_bulk_taabi():
     url = "https://dev-api-dtwin.taabi.ai/graphql"
-    # 🌟 FIX: Removed `location` from GraphQL query
     query = """
     query getAllDeviceLocations($configs: Configs) {
         devices: getAllDeviceLocations(configs: $configs) {
@@ -199,22 +253,27 @@ def get_bulk_taabi():
         response = requests.post(url, json=payload, headers=headers, timeout=10)
         devices = response.json().get("data", {}).get("devices", [])
         fuel_map = {}
-        for dev in devices:
+        
+        def process_device(dev):
             clean_vn = str(dev.get('vehicleNumber', '')).replace("-", "").replace(" ", "").upper()
-            
             lat = dev.get('latitude')
             lng = dev.get('longitude')
-            loc_str = f"Lat: {lat}, Lng: {lng}" if lat and lng else ""
-
-            fuel_map[clean_vn] = {
+            loc_str = reverse_geocode(lat, lng) if lat and lng else "Location Unavailable"
+            return clean_vn, {
                 "internal_id": dev.get('vehicleNumber', clean_vn),
                 "fuel": dev.get('fuelValueLtrs', 'N/A'),
                 "speed": dev.get('speed', 0),
                 "status": "Halted" if dev.get('haltStatus') else "Moving",
                 "lat": lat,
                 "lng": lng,
-                "location": loc_str or "Location Unavailable" # 🌟 Using custom coordinate string
+                "location": loc_str 
             }
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            results = executor.map(process_device, devices)
+            for clean_vn, data in results:
+                fuel_map[clean_vn] = data
+                
         return fuel_map
     except Exception as e:
         print(f"Taabi API Error: {e}")
@@ -235,7 +294,15 @@ def get_bulk_fuel_active():
     def fetch_for_vehicle(vn, s_date):
         clean_vn = vn.replace("-", "").replace(" ", "").upper()
         internal_id = bulk_live.get(clean_vn, {}).get("internal_id", vn)
-        return vn, get_taabi_fuel_analytics(internal_id, s_date, None)
+        
+        data = get_taabi_fuel_analytics(internal_id, s_date, None)
+        if not isinstance(data, dict):
+            data = {}
+        
+        # 🌟 Automatically fetch yesterday's distance and append to the dictionary
+        data['yesterday_distance'] = get_taabi_yesterday_distance(internal_id)
+        
+        return vn, data
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         futures = [executor.submit(fetch_for_vehicle, row[0], row[1]) for row in active_trips]
@@ -284,7 +351,6 @@ def create_trip(trip: TripCreate):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        # 🌟 NEW ANTI-DUPLICATE SHIELD: Check if the truck is already running a trip!
         cursor.execute("SELECT current_status FROM assets WHERE vehicle_number = %s", (trip.vehicle_number.upper().strip(),))
         status_row = cursor.fetchone()
         if status_row and status_row[0] == 'In-Transit':
@@ -316,12 +382,11 @@ def create_trip(trip: TripCreate):
         return {"message": "Trip launched", "tracking_number": tracking_number}
     except Exception as e:
         conn.rollback()
-        # Ensure the frontend gets a clean error message
         raise HTTPException(status_code=400, detail=str(e))
     finally:
         cursor.close()
         conn.close()
-        
+
 @app.put("/trips/{trip_id}")
 def update_trip(trip_id: int, trip_data: dict):
     conn = get_db_connection()
@@ -632,7 +697,13 @@ def get_track_data(trip_id: str):
     internal_id = telemetry_data.get('internal_id', res['vehicle_number'])
     
     res['telemetry'] = telemetry_data
-    res['fuel_analytics'] = get_taabi_fuel_analytics(internal_id, res['trip_start_date'], res.get('actual_delivery_date'))
+    
+    fuel_data = get_taabi_fuel_analytics(internal_id, res['trip_start_date'], res.get('actual_delivery_date'))
+    if not isinstance(fuel_data, dict):
+        fuel_data = {}
+    fuel_data['yesterday_distance'] = get_taabi_yesterday_distance(internal_id)
+    res['fuel_analytics'] = fuel_data
+    
     return res
 
 @app.get("/trips/details/{trip_id}")
@@ -657,11 +728,15 @@ def get_trip_details(trip_id: int):
     cursor.close()
     conn.close()
     
-    # 🌟 Embed Taabi data explicitly into trip details
     telemetry_data = get_taabi_live_data(res['vehicle_number'])
     internal_id = telemetry_data.get('internal_id', res['vehicle_number'])
     res['telemetry'] = telemetry_data
-    res['fuel_analytics'] = get_taabi_fuel_analytics(internal_id, res['trip_start_date'], res.get('actual_delivery_date'))
+    
+    fuel_data = get_taabi_fuel_analytics(internal_id, res['trip_start_date'], res.get('actual_delivery_date'))
+    if not isinstance(fuel_data, dict):
+        fuel_data = {}
+    fuel_data['yesterday_distance'] = get_taabi_yesterday_distance(internal_id)
+    res['fuel_analytics'] = fuel_data
 
     return res
 
