@@ -1,2 +1,21 @@
-.vercel
-.env*
+# Environment variables & secrets
+.env
+.env.*
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+ENV/
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Node & Build
+node_modules/
+dist/
+build/
