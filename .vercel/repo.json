@@ -1,0 +1,11 @@
+{
+  "remoteName": "origin",
+  "projects": [
+    {
+      "id": "prj_oeZMEM0ggZJOvGQfLyqWvkMt6GN9",
+      "name": "logistic-hub",
+      "directory": "frontend",
+      "orgId": "team_QUcaWo7p8cPbXI7NhNdzPo0p"
+    }
+  ]
+}
