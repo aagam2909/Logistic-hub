@@ -1,0 +1,18 @@
+backend/main.py
+  h_b6895d6280a977 29-30
+.vercel/README.txt
+  h_b6895d6280a977 1-11
+.vercel/repo.json
+  h_b6895d6280a977 1-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "940f9342144bb3c1e902369e783153043bf8c5e3",
+  "prompts": {},
+  "humans": {
+    "h_b6895d6280a977": {
+      "author": "aagam2909 <aagamjain1325@gmail.com>"
+    }
+  }
+}
