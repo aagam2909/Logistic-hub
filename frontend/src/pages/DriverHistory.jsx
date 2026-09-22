@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { useLocation } from 'react-router-dom';
+import { useLocation, Link } from 'react-router-dom';
 import { Users, Search, Plus, Phone, FileSignature, MapPin, Trash2, Edit, Printer, X, Receipt, IndianRupee, AlertCircle, CheckCircle } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 
@@ -22,16 +22,37 @@ function DriversHistory() {
   const [editingDriver, setEditingDriver] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   
-  // 🌟 READS STATE PASSED FROM DASHBOARD
   const [filterExpiring, setFilterExpiring] = useState(location.state?.filterExpiring || false); 
   
   const [newDriver, setNewDriver] = useState({ name: '', dl_number: '', aadhaar_number: '', mobile_number: '', dl_expiry_date: '' });
   const [settleDates, setSettleDates] = useState({});
 
+  // 🌟 State to hold the bulk hisaab entries for the receipt modal
+  const [bulkHisaab, setBulkHisaab] = useState({});
+
   const receiptRef = useRef(null);
   const handlePrint = useReactToPrint({ contentRef: receiptRef });
 
   useEffect(() => { fetchDrivers(); }, []);
+
+  // 🌟 Fetch Hisaab entries automatically when the Bulk Receipt modal opens
+  useEffect(() => {
+    if (showReceipt && history.length > 0) {
+      const fetchAllHisaab = async () => {
+        const hisaabData = {};
+        await Promise.all(history.map(async (trip) => {
+          try {
+            const res = await axios.get(`${API_BASE}/trips/${trip.trip_id}/driver-hisaab`);
+            hisaabData[trip.trip_id] = Array.isArray(res.data) ? res.data : [];
+          } catch (err) {
+            hisaabData[trip.trip_id] = [];
+          }
+        }));
+        setBulkHisaab(hisaabData);
+      };
+      fetchAllHisaab();
+    }
+  }, [showReceipt, history]);
 
   const fetchDrivers = async () => {
     try {
@@ -71,7 +92,6 @@ function DriversHistory() {
     }
   };
 
-  // 🌟 ALLOWS CLICKING EDIT FROM THE RIGHT PANEL WITHOUT AN EVENT
   const startEditingDriver = (driver, e = null) => {
     if (e) e.stopPropagation();
     setEditingDriver(driver);
@@ -222,7 +242,7 @@ function DriversHistory() {
                   onClick={() => setShowReceipt(true)} 
                   className="bg-slate-900 text-white px-5 py-2.5 rounded-lg font-semibold hover:bg-slate-800 shadow-sm text-sm transition inline-flex items-center gap-2 cursor-pointer"
                 >
-                  <Receipt className="h-4 w-4"/> Hisaab Receipt
+                  <Receipt className="h-4 w-4"/> Bulk Hisaab Receipt
                 </button>
             </div>
 
@@ -235,7 +255,7 @@ function DriversHistory() {
                      <p className="text-xs text-rose-700 font-medium mt-0.5">Unsettled remaining balances for <strong>{selectedDriver.name}</strong></p>
                   </div>
                   <div className="bg-white px-5 py-2.5 rounded-xl border border-rose-200 shadow-sm text-right">
-                     <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Total Driver Due</p>
+                     <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-0.5">Total Amount to Give Later</p>
                      <p className="text-2xl font-black text-rose-600 flex items-center gap-0.5">
                         <IndianRupee className="h-5 w-5"/> {totalDriverDue.toLocaleString('en-IN')}
                      </p>
@@ -251,11 +271,11 @@ function DriversHistory() {
                               return (
                                 <div key={trip.trip_id} className="border border-gray-200 p-4 rounded-xl shadow-sm bg-gray-50 flex flex-col justify-between space-y-3">
                                     <div>
-                                       <span className="font-bold text-blue-700 text-xs">{trip.tracking_number}</span>
+                                       <Link to={`/trip-details/${trip.trip_id}`} className="font-bold text-blue-700 text-xs hover:underline">{trip.tracking_number}</Link>
                                        <p className="text-xs text-gray-500 mt-0.5">{trip.source_city} → {trip.destination_city}</p>
                                        <div className="flex justify-between items-center mt-2">
-                                           <span className="text-xs text-gray-600">Remaining Pay:</span>
-                                           <span className="font-extrabold text-base text-rose-600">₹{driverRemaining}</span>
+                                           <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">Remaining Balance:</span>
+                                           <span className="font-extrabold text-base text-rose-600">₹{driverRemaining.toFixed(2)}</span>
                                        </div>
                                     </div>
                                     <div className="pt-2 border-t border-gray-200 flex items-center gap-2">
@@ -291,7 +311,6 @@ function DriversHistory() {
                     <p className="text-sm mb-1 text-gray-500">Phone: <span className="font-medium text-gray-800">{selectedDriver.mobile_number || '-'}</span></p>
                     <p className="text-sm text-gray-500">Aadhaar: <span className="font-medium text-gray-800">{selectedDriver.aadhaar_number ? selectedDriver.aadhaar_number.replace(/\d(?=\d{4})/g, "*") : '-'}</span></p>
                 </div>
-                {/* 🌟 NEW EDIT BUTTON DIRECTLY ON THE CARD */}
                 <div className="bg-white p-5 rounded-2xl border shadow-sm relative group">
                     <div className="flex justify-between items-center mb-3">
                         <h4 className="font-bold text-gray-800 text-sm flex items-center gap-1.5"><FileSignature className="h-4 w-4 text-gray-400" />License Details</h4>
@@ -308,44 +327,46 @@ function DriversHistory() {
             </div>
 
             <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
-                <div className="p-5 border-b bg-gray-50"><h3 className="font-bold text-gray-900">Complete Trip History, Diesel & Fastag Breakdown</h3></div>
+                <div className="p-5 border-b bg-gray-50"><h3 className="font-bold text-gray-900">Driver Settlement (Hisaab) & Complete Trip History</h3></div>
                 <div className="overflow-x-auto w-full">
                     <table className="w-full text-sm text-left whitespace-nowrap min-w-[1050px]">
                         <thead className="border-b text-gray-600 bg-white">
                             <tr>
                                 <th className="p-4">Trip ID</th>
-                                <th className="p-4">Vehicle</th>
-                                <th className="p-4">Route / KM</th>
-                                <th className="p-4">Diesel Needed</th>
-                                <th className="p-4">Fastag Est.</th>
-                                <th className="p-4">Driver Pay Status</th>
-                                <th className="p-4 text-center">Status</th>
+                                <th className="p-4">Vehicle & Route</th>
+                                <th className="p-4 text-slate-800">Total Pay (₹4.5/km)</th>
+                                <th className="p-4 text-blue-700">Advance Given (₹3.5/km)</th>
+                                <th className="p-4 text-rose-700">Pending Due (₹1.0/km)</th>
+                                <th className="p-4">Pay Status</th>
+                                <th className="p-4 text-center">Trip Status</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
                             {history.map((h, idx) => {
                                 const km = parseFloat(h.total_km) || 0;
-                                const mileage = parseFloat(h.mileage) || 5.5;
-                                const dieselNeeded = parseFloat(h.diesel_liters_needed) || (km > 0 ? (km / mileage).toFixed(2) : 0);
-                                const fastagEst = parseFloat(h.fastag_estimate) || (km > 0 ? (km * 5.75).toFixed(2) : 0);
-                                const driverRemaining = parseFloat(h.driver_remaining) || (km * 1.0);
+                                const totalPay = parseFloat(h.driver_total) || (km * 4.5);
+                                const advance = parseFloat(h.driver_advance) || (km * 3.5);
+                                const remaining = parseFloat(h.driver_remaining) || (km * 1.0);
 
                                 return (
                                     <tr key={idx} className="hover:bg-gray-50">
                                         <td className="p-4 font-semibold text-blue-600">
-                                            <a href={`/trip-details/${h.trip_id}`} className="hover:underline hover:text-blue-800">
+                                            <Link to={`/trip-details/${h.trip_id}`} className="hover:underline hover:text-blue-800">
                                                 {h.tracking_number}
-                                            </a>
+                                            </Link>
                                         </td>
-                                        <td className="p-4 font-bold text-gray-900">{h.vehicle_number}</td>
-                                        <td className="p-4 text-gray-600">{h.source_city} → {h.destination_city} ({km} km)</td>
-                                        <td className="p-4 font-semibold text-amber-600">{dieselNeeded} L</td>
-                                        <td className="p-4 font-semibold text-slate-700">₹{fastagEst}</td>
+                                        <td className="p-4">
+                                            <div className="font-bold text-gray-900">{h.vehicle_number}</div>
+                                            <div className="text-xs text-gray-500 mt-0.5">{h.source_city} → {h.destination_city} ({km} km)</div>
+                                        </td>
+                                        <td className="p-4 font-bold text-slate-700">₹{totalPay.toFixed(2)}</td>
+                                        <td className="p-4 font-bold text-blue-600">₹{advance.toFixed(2)}</td>
+                                        <td className="p-4 font-bold text-rose-600">₹{remaining.toFixed(2)}</td>
                                         <td className="p-4">
                                             {h.driver_paid ? (
-                                                <span className="text-xs bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-bold">Paid on {h.driver_payment_date}</span>
+                                                <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-full font-bold border border-emerald-200">Paid ({h.driver_payment_date})</span>
                                             ) : (
-                                                <span className="text-xs bg-rose-100 text-rose-800 px-2.5 py-1 rounded-full font-bold">Due: ₹{driverRemaining}</span>
+                                                <span className="text-[10px] bg-rose-100 text-rose-800 px-2.5 py-1 rounded-full font-bold border border-rose-200">Pending</span>
                                             )}
                                         </td>
                                         <td className="p-4 text-center"><HistoryTag completed={h.actual_delivery_date} /></td>
@@ -365,12 +386,13 @@ function DriversHistory() {
         )}
       </div>
 
+      {/* 🌟 Bulk Driver Hisaab Receipt Modal */}
       {showReceipt && selectedDriver && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh]">
             
             <div className="flex justify-between items-center p-5 border-b bg-gray-50">
-               <h3 className="font-bold text-lg text-slate-800">Driver Settlement Receipt</h3>
+               <h3 className="font-bold text-lg text-slate-800">Bulk Driver Settlement Receipt</h3>
                <button onClick={() => setShowReceipt(false)} className="p-2 hover:bg-gray-200 rounded-lg text-gray-500 transition cursor-pointer"><X className="h-5 w-5" /></button>
             </div>
 
@@ -388,34 +410,73 @@ function DriversHistory() {
                       </div>
                   </div>
 
-                  <h3 className="font-bold text-sm mb-4 text-slate-800 uppercase tracking-wide border-b pb-2">Trip, Diesel & Fastag Breakdown</h3>
+                  <h3 className="font-bold text-sm mb-4 text-slate-800 uppercase tracking-wide border-b pb-2">Trip By Trip Hisaab Breakdown</h3>
                   
                   {history.map(trip => {
                       const km = parseFloat(trip.total_km) || 0;
-                      const mileage = parseFloat(trip.mileage) || 5.5;
-                      const dieselNeeded = parseFloat(trip.diesel_liters_needed) || (km > 0 ? (km / mileage).toFixed(2) : 0);
-                      const fastagEst = parseFloat(trip.fastag_estimate) || (km > 0 ? (km * 5.75).toFixed(2) : 0);
+                      const driverTotal = parseFloat(trip.driver_total) || (km * 4.5);
                       const driverAdvance = parseFloat(trip.driver_advance) || (km * 3.5);
                       const driverRemaining = parseFloat(trip.driver_remaining) || (km * 1.0);
+                      const hisaabLogs = bulkHisaab[trip.trip_id] || [];
 
                       return (
-                        <div key={trip.trip_id} className="mb-6 p-4 border border-gray-200 rounded-lg bg-slate-50 print:bg-transparent print:border-b">
+                        <div key={trip.trip_id} className="mb-6 p-4 border border-gray-200 rounded-lg bg-slate-50 print:bg-transparent print:border-b print:p-2">
                             <div className="flex justify-between mb-3 text-sm border-b pb-2">
                                 <span className="font-bold text-slate-800">TRK: {trip.tracking_number}</span>
-                                <span className="font-semibold text-gray-600">{trip.source_city} → {trip.destination_city}</span>
+                                <span className="font-semibold text-gray-600">{trip.source_city} → {trip.destination_city} ({km} km)</span>
                             </div>
-                            <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
-                                <div className="flex justify-between"><span className="text-gray-600">Total KM:</span> <span className="font-bold">{km} km</span></div>
-                                <div className="flex justify-between"><span className="text-gray-600">Diesel Needed:</span> <span className="font-bold text-amber-600">{dieselNeeded} L</span></div>
-                                <div className="flex justify-between"><span className="text-gray-600">Fastag Est:</span> <span className="font-bold text-slate-700">₹{fastagEst}</span></div>
-                                <div className="flex justify-between"><span className="text-gray-600">Driver Advance:</span> <span className="font-bold text-slate-900">₹{driverAdvance}</span></div>
-                                <div className="flex justify-between"><span className="text-gray-600">Remaining Balance:</span> <span className="font-bold text-slate-900">₹{driverRemaining}</span></div>
-                                <div className="flex justify-between col-span-2 bg-blue-50/50 print:bg-transparent p-1.5 rounded mt-1">
-                                    <span className="font-extrabold text-gray-900">Payment Status:</span>
-                                    <span className={`font-extrabold ${trip.driver_paid ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                        {trip.driver_paid ? `Paid on ${trip.driver_payment_date}` : `Pending (₹${driverRemaining})`}
+                            
+                            <div className="grid grid-cols-3 gap-x-8 gap-y-2 text-sm">
+                                <div className="flex flex-col">
+                                    <span className="text-gray-500 text-[11px] uppercase font-bold tracking-wider mb-0.5">Total Pay</span>
+                                    <span className="font-black text-slate-900 text-base">₹{driverTotal.toFixed(2)}</span>
+                                </div>
+                                <div className="flex flex-col">
+                                    <span className="text-blue-600 text-[11px] uppercase font-bold tracking-wider mb-0.5">Advance Given</span>
+                                    <span className="font-black text-blue-700 text-base">₹{driverAdvance.toFixed(2)}</span>
+                                </div>
+                                <div className="flex flex-col">
+                                    <span className="text-rose-600 text-[11px] uppercase font-bold tracking-wider mb-0.5">Pending Due</span>
+                                    <span className="font-black text-rose-700 text-base">₹{driverRemaining.toFixed(2)}</span>
+                                </div>
+                                
+                                <div className="col-span-3 bg-white border border-gray-200 print:border-none print:bg-transparent p-2 rounded mt-2 flex justify-between items-center">
+                                    <span className="font-extrabold text-gray-800 text-[11px] uppercase tracking-wider">Payment Status:</span>
+                                    <span className={`font-extrabold text-sm ${trip.driver_paid ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                        {trip.driver_paid ? `Paid on ${trip.driver_payment_date}` : `Unsettled (₹${driverRemaining.toFixed(2)} remaining)`}
                                     </span>
                                 </div>
+                            </div>
+
+                            {/* 🌟 Embedded Read-Only Detailed Hisaab Log (Always rendered) */}
+                            <div className="mt-4 border border-gray-200 rounded-xl overflow-hidden bg-white print:border-gray-300">
+                                <table className="w-full text-left text-xs">
+                                    <thead className="bg-slate-100 text-slate-700 uppercase font-bold border-b border-gray-200 print:bg-gray-50">
+                                        <tr>
+                                            <th className="p-2.5">Date</th>
+                                            <th className="p-2.5">Category</th>
+                                            <th className="p-2.5">Details (Liters / Place / Note)</th>
+                                            <th className="p-2.5 text-right">Amount</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {hisaabLogs.map((log, idx) => (
+                                            <tr key={idx} className="font-medium text-gray-700 print:text-black">
+                                                <td className="p-2.5 text-gray-600">{log.date}</td>
+                                                <td className="p-2.5 font-bold text-slate-800">{log.category}</td>
+                                                <td className="p-2.5 text-gray-600">
+                                                    {log.category === 'Diesel' ? `${log.liters || 0} Ltrs at ${log.place || 'N/A'}` : (log.reason || log.place || '-')}
+                                                </td>
+                                                <td className="p-2.5 text-right font-bold text-rose-600">₹{log.amount || 0}</td>
+                                            </tr>
+                                        ))}
+                                        {hisaabLogs.length === 0 && (
+                                            <tr>
+                                                <td colSpan="4" className="p-4 text-center text-gray-400 italic">No driver hisaab entries recorded yet.</td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                       );

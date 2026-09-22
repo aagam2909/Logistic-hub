@@ -2,26 +2,11 @@ import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import { useReactToPrint } from 'react-to-print';
 import { Link } from 'react-router-dom';
-import { Search, Filter, Printer, CheckCircle2, X, Edit, AlertCircle, CheckCircle, FileSignature, Lock, Save, PlusCircle, FileText, Receipt } from 'lucide-react';
+import { Search, Filter, Printer, CheckCircle2, X, Edit, AlertCircle, CheckCircle, FileSignature, Lock, Save, PlusCircle, Plus, Trash2 } from 'lucide-react';
 import ActivityLog from '../utils/ActivityLog';
 
 const API_BASE = import.meta.env.VITE_API_URL;
 const PRESET_BANKS = ['JTA 0706', 'JTA 0611', 'JFC 7734', 'JFC 1487'];
-
-function numberToWords(num) {
-    if (!num || isNaN(num) || num === 0) return "ZERO ONLY";
-    const a = ['', 'ONE ', 'TWO ', 'THREE ', 'FOUR ', 'FIVE ', 'SIX ', 'SEVEN ', 'EIGHT ', 'NINE ', 'TEN ', 'ELEVEN ', 'TWELVE ', 'THIRTEEN ', 'FOURTEEN ', 'FIFTEEN ', 'SIXTEEN ', 'SEVENTEEN ', 'EIGHTEEN ', 'NINETEEN '];
-    const b = ['', '', 'TWENTY', 'THIRTY', 'FORTY', 'FIFTY', 'SIXTY', 'SEVENTY', 'EIGHTY', 'NINETY'];
-    const n = ('000000000' + num).substr(-9).match(/^(\d{2})(\d{2})(\d{2})(\d{1})(\d{2})$/);
-    if (!n) return;
-    let str = '';
-    str += (n[1] != 0) ? (a[Number(n[1])] || b[n[1][0]] + ' ' + a[n[1][1]]) + 'CRORE ' : '';
-    str += (n[2] != 0) ? (a[Number(n[2])] || b[n[2][0]] + ' ' + a[n[2][1]]) + 'LAKH ' : '';
-    str += (n[3] != 0) ? (a[Number(n[3])] || b[n[3][0]] + ' ' + a[n[3][1]]) + 'THOUSAND ' : '';
-    str += (n[4] != 0) ? (a[Number(n[4])] || b[n[4][0]] + ' ' + a[n[4][1]]) + 'HUNDRED ' : '';
-    str += (n[5] != 0) ? ((str != '') ? 'AND ' : '') + (a[Number(n[5])] || b[n[5][0]] + ' ' + a[n[5][1]]) + 'ONLY' : 'ONLY';
-    return str;
-}
 
 const Badge = ({ active, label, isWarning = false }) => (
   <span className={`px-2 py-0.5 rounded text-[10px] font-bold border flex w-max items-center gap-1 ${active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : (isWarning ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-rose-50 text-rose-700 border-rose-200')}`}>
@@ -44,10 +29,7 @@ function TripHistory() {
     pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: ''
   });
 
-  const [viewType, setViewType] = useState('receipt'); 
-  const [localBillDate, setLocalBillDate] = useState('');
-
-  // --- EDITABLE FINANCE STATE ---
+  // Finance State
   const [activeCharges, setActiveCharges] = useState({ loading: false, holding: false, gst: false, bill_no: false });
   const [finance, setFinance] = useState({ 
     freight_amount: 0, tds: 0, finance_remarks: '', loading_charge: 0, gst: 0, holding_charge: 0, extra_deduction: 0,
@@ -55,6 +37,15 @@ function TripHistory() {
     advance_details: [{ date: '', amount: '' }], fastag_details: [], bill_no: '', bank_account: 'JFC 7734', 
     gst_enabled: false, include_loading_in_gst: false, include_holding_in_gst: false
   });
+
+  // Driver Hisaab State
+  const [hisaabEntries, setHisaabEntries] = useState([]);
+  const [hAmount, setHAmount] = useState('');
+  const [hDate, setHDate] = useState(new Date().toISOString().split('T')[0]);
+  const [hCategory, setHCategory] = useState('Diesel');
+  const [hLiters, setHLiters] = useState('');
+  const [hPlace, setHPlace] = useState('');
+  const [hReason, setHReason] = useState('');
 
   const receiptRef = useRef(null);
   const handlePrint = useReactToPrint({ contentRef: receiptRef });
@@ -104,8 +95,13 @@ function TripHistory() {
       });
       setActiveCharges({ loading: parseFloat(tripData.loading_charge || 0) > 0, holding: parseFloat(tripData.holding_charge || 0) > 0, gst: Boolean(tripData.gst_enabled), bill_no: !!tripData.bill_no });
       
-      setLocalBillDate(tripData.trip_start_date || new Date().toISOString().split('T')[0]);
       setReceiptModal({ isOpen: true, trip: tripData });
+
+      try {
+        const hisaabRes = await axios.get(`${API_BASE}/trips/${tripData.trip_id}/driver-hisaab`);
+        setHisaabEntries(Array.isArray(hisaabRes.data) ? hisaabRes.data : []);
+      } catch (err) { setHisaabEntries([]); }
+
     } catch (err) {
       alert("Error loading trip finance details.");
     }
@@ -158,6 +154,25 @@ function TripHistory() {
     } catch (err) {
       alert("Error saving finance data.");
     }
+  };
+
+  const handleAddHisaab = async (e) => {
+    e.preventDefault();
+    if (!receiptModal.trip?.trip_id) return;
+    try {
+      const payload = { amount: parseFloat(hAmount || 0), date: hDate, category: hCategory, liters: hCategory === 'Diesel' ? parseFloat(hLiters || 0) : 0, place: hPlace, reason: hReason };
+      const res = await axios.post(`${API_BASE}/trips/${receiptModal.trip.trip_id}/driver-hisaab`, payload);
+      setHisaabEntries(res.data.entries || []);
+      setHAmount(''); setHLiters(''); setHPlace(''); setHReason('');
+    } catch (err) { alert("Failed to save driver hisaab entry."); }
+  };
+
+  const handleDeleteHisaab = async (index) => {
+    if (!window.confirm("Remove this entry?")) return;
+    try {
+      const res = await axios.delete(`${API_BASE}/trips/${receiptModal.trip.trip_id}/driver-hisaab/${index}`);
+      setHisaabEntries(res.data.entries || []);
+    } catch (err) { alert("Failed to delete entry."); }
   };
 
   const openStatusModal = (trip) => {
@@ -217,19 +232,6 @@ function TripHistory() {
   const pendingBalance = parseFloat(statusModal.trip?.balance_payment ?? statusModal.trip?.freight_amount ?? 0);
   const isCustomBank = finance.bank_account === '' || !PRESET_BANKS.includes(finance.bank_account);
   const totalFastagActual = finance.fastag_details.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
-
-  const freight = parseFloat(finance.freight_amount || 0);
-  const unloading = activeCharges.loading ? parseFloat(finance.loading_charge || 0) : 0; 
-  const holdingCharge = activeCharges.holding ? parseFloat(finance.holding_charge || 0) : 0; 
-
-  const exactBillTotalFreight = freight + unloading + holdingCharge; 
-  const gstAmount = parseFloat(finance.gst || 0);
-  const gstHalf = (gstAmount / 2).toFixed(2);
-  const isIGST = receiptModal.trip?.source_city?.toLowerCase() !== receiptModal.trip?.destination_city?.toLowerCase(); 
-  const isGstEnabled = finance.gst_enabled;
-  const finalTotalAmount = exactBillTotalFreight + gstAmount;
-  const totalAdvances = finance.advance_details.reduce((sum, adv) => sum + parseFloat(adv.amount || 0), 0);
-  const finalBalancePayable = finalTotalAmount - totalAdvances;
 
   const currentOwner = receiptModal.trip?.owner_name?.toUpperCase() || '';
   const isJFC = currentOwner === 'JFC'; 
@@ -365,375 +367,240 @@ function TripHistory() {
       {/* 🌟 EDITABLE RECEIPT MODAL FOR COMPLETED TRIPS */}
       {receiptModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] animate-in fade-in zoom-in-95 duration-200">
             
             <div className="flex justify-between items-center p-5 border-b bg-gray-50">
                <h3 className="font-bold text-lg text-slate-800">Financial Settlement & Document Gen</h3>
                <button onClick={() => setReceiptModal({isOpen: false, trip: null})} className="p-2 hover:bg-gray-200 rounded-lg text-gray-500 transition cursor-pointer"><X className="h-5 w-5" /></button>
             </div>
 
-            <div className="bg-white p-3 border-b flex items-center justify-center gap-2 shadow-sm relative z-10">
-                <button onClick={() => setViewType('receipt')} className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold transition cursor-pointer ${viewType === 'receipt' ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'}`}><Receipt className="h-4 w-4"/> Internal Receipt</button>
-                <button onClick={() => setViewType('bill')} className={`flex items-center gap-2 px-6 py-2 rounded-lg font-bold transition cursor-pointer ${viewType === 'bill' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-100'}`}><FileText className="h-4 w-4"/> Exact Client Bill</button>
-            </div>
-            
-            {/* 🌟 ACTION ROW INSIDE MODAL */}
-            <div className="print:hidden flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-4 shadow-sm border-b border-gray-200 gap-4">
-                <div className="flex flex-wrap items-center gap-4 w-full sm:w-auto">
-                    <div className="flex items-center gap-2">
-                        <label className="font-bold text-gray-600 text-sm">Billing Company:</label>
-                        <div className="bg-gray-100 px-3 py-2 rounded-lg text-sm font-bold text-slate-800 border border-gray-200 flex items-center gap-2 flex-wrap">
-                            {currentComp.name}
-                            <span className="bg-emerald-100 text-emerald-800 text-[9px] px-1.5 py-0.5 rounded font-black tracking-wider uppercase shrink-0">Auto-Assigned</span>
-                        </div>
-                    </div>
-
-                    {/* 🌟 EDITABLE INVOICE INPUT & DATE FOR BILL */}
-                    {viewType === 'bill' && (
-                        <>
-                            <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
-                                <label className="font-bold text-blue-900 text-sm whitespace-nowrap">Invoice No:</label>
-                                <input 
-                                    type="text" 
-                                    placeholder="Leave blank" 
-                                    className="bg-white border border-blue-200 rounded px-2 py-1 text-sm font-bold text-blue-900 outline-none focus:border-blue-500 w-28"
-                                    value={finance.bill_no}
-                                    onChange={(e) => handleFinanceChange('bill_no', e.target.value)}
-                                />
-                            </div>
-                            <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
-                                <label className="font-bold text-blue-900 text-sm whitespace-nowrap">Date:</label>
-                                <input 
-                                    type="date" 
-                                    className="bg-white border border-blue-200 rounded px-2 py-1 text-sm font-bold text-blue-900 outline-none focus:border-blue-500"
-                                    value={localBillDate}
-                                    onChange={(e) => setLocalBillDate(e.target.value)}
-                                />
-                            </div>
-                        </>
-                    )}
-                </div>
-            </div>
-
             <div className="flex-1 overflow-y-auto p-6 bg-gray-100">
                <div ref={receiptRef} className="bg-white p-10 print:p-0 mx-auto shadow-sm border border-gray-200 rounded-xl">
                   
-                  {viewType === 'receipt' && (
-                    <>
-                      <div className="border-b-2 border-slate-900 pb-6 mb-8 flex justify-between items-end">
-                          <div>
-                            <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight uppercase">{currentComp.name}</h1>
-                            <p className="text-gray-500 mt-1 font-medium text-sm">Logistics & Transportation Services</p>
-                          </div>
-                          <div className="text-right"><h2 className="text-xl font-bold text-gray-800">FREIGHT RECEIPT</h2><p className="text-sm font-semibold text-gray-500 mt-1">TRK: {receiptModal.trip.tracking_number}</p>{activeCharges.bill_no && finance.bill_no && (<p className="text-sm font-bold text-blue-700 mt-1 uppercase tracking-wide">BILL NO: {finance.bill_no}</p>)}</div>
+                  <div className="border-b-2 border-slate-900 pb-6 mb-8 flex justify-between items-end">
+                      <div>
+                        <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight uppercase">{currentComp.name}</h1>
+                        <p className="text-gray-500 mt-1 font-medium text-sm">Logistics & Transportation Services</p>
+                      </div>
+                      <div className="text-right">
+                        <h2 className="text-xl font-bold text-gray-800">FREIGHT RECEIPT</h2>
+                        <p className="text-sm font-semibold text-gray-500 mt-1">TRK: {receiptModal.trip.tracking_number}</p>
+                        {activeCharges.bill_no && finance.bill_no && (<p className="text-sm font-bold text-blue-700 mt-1 uppercase tracking-wide">BILL NO: {finance.bill_no}</p>)}
+                      </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-8 mb-6 text-sm">
+                      <div className="space-y-3">
+                        <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Date of Dispatch:</span> <span className="font-bold">{receiptModal.trip.trip_start_date || '-'}</span></div>
+                        <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Vehicle No:</span> <span className="font-bold text-base">{receiptModal.trip.vehicle_number}</span></div>
+                        <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Route:</span> <span className="font-bold">{receiptModal.trip.source_city} → {receiptModal.trip.destination_city}</span></div>
+                        <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Bank Account:</span> <span className="font-bold text-blue-700">{finance.bank_account || 'N/A'}</span></div>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Billed To (Party):</span> <span className="font-bold">{receiptModal.trip.party_name || 'N/A'}</span></div>
+                        <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Owner Name:</span> <span className="font-bold">{receiptModal.trip.owner_name || 'N/A'}</span></div>
+                        <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">GTA Name:</span> <span className="font-bold">{receiptModal.trip.gta_name || 'N/A'}</span></div>
+                        <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">LR / Bilty No:</span> <span className="font-bold">{receiptModal.trip.lr_no || 'N/A'}</span></div>
+                      </div>
+                  </div>
+
+                  <div className="print:hidden mb-6 bg-blue-50 p-3 rounded-lg border border-blue-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                     <label className="text-xs font-bold text-blue-900 uppercase whitespace-nowrap">Select Deposit Bank Account:</label>
+                     <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                         <select className="border border-blue-200 bg-white p-2 rounded-lg text-sm font-bold text-blue-800 outline-none cursor-pointer flex-1" value={isCustomBank ? 'Other' : finance.bank_account} onChange={e => setFinance({...finance, bank_account: e.target.value === 'Other' ? '' : e.target.value})}>
+                            {PRESET_BANKS.map(bank => <option key={bank} value={bank}>{bank}</option>)}
+                            <option value="Other">Other (Custom)</option>
+                         </select>
+                         {isCustomBank && <input type="text" placeholder="Custom bank..." className="border border-blue-300 p-2 rounded-lg text-sm font-bold text-blue-900 w-full sm:w-48" value={finance.bank_account} onChange={e => setFinance({...finance, bank_account: e.target.value})} />}
+                     </div>
+                  </div>
+
+                  <h3 className="font-bold text-base mb-4 text-slate-800 uppercase tracking-wide border-b pb-2">Financial Settlement</h3>
+                  <div className="grid grid-cols-2 gap-x-12 gap-y-6">
+                      <div>
+                        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Additions (+)</h4>
+                        <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Total Freight (₹)</span><input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.freight_amount || ''} onChange={e => handleFinanceChange('freight_amount', e.target.value)} /></div>
+                        
+                        <div className="border-b border-gray-100 pb-2 mb-2">
+                          <div className="flex justify-between items-center"><label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer"><input type="checkbox" checked={activeCharges.loading} onChange={() => toggleCharge('loading')} className="rounded print:hidden" /> Loading/Unloading</label>{activeCharges.loading ? <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.loading_charge} onChange={e => handleFinanceChange('loading_charge', e.target.value)} /> : <span className="w-32 text-right text-gray-400 print:hidden">Excluded</span>}</div>
+                          {activeCharges.loading && <label className="flex items-center gap-1.5 text-[11px] text-gray-500 mt-1 print:hidden pl-5"><input type="checkbox" checked={finance.include_loading_in_gst} onChange={e => handleFinanceChange('include_loading_in_gst', e.target.checked)} className="rounded" /> Include in GST</label>}
+                        </div>
+
+                        <div className="border-b border-gray-100 pb-2 mb-2">
+                          <div className="flex justify-between items-center"><label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer"><input type="checkbox" checked={activeCharges.holding} onChange={() => toggleCharge('holding')} className="rounded print:hidden" /> Rate Difference</label>{activeCharges.holding ? <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.holding_charge} onChange={e => handleFinanceChange('holding_charge', e.target.value)} /> : <span className="w-32 text-right text-gray-400 print:hidden">Excluded</span>}</div>
+                          {activeCharges.holding && <label className="flex items-center gap-1.5 text-[11px] text-gray-500 mt-1 print:hidden pl-5"><input type="checkbox" checked={finance.include_holding_in_gst} onChange={e => handleFinanceChange('include_holding_in_gst', e.target.checked)} className="rounded" /> Include in GST</label>}
+                        </div>
+
+                        <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2 bg-slate-50/50 print:bg-transparent px-1 rounded"><label className="flex items-center gap-2 text-sm font-bold text-gray-900 cursor-pointer"><input type="checkbox" checked={finance.gst_enabled} onChange={e => handleFinanceChange('gst_enabled', e.target.checked)} className="rounded text-emerald-600 print:hidden" /> GST (18%)</label>{finance.gst_enabled ? <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent text-emerald-600" type="number" value={finance.gst} onChange={e => handleFinanceChange('gst', e.target.value)} /> : <span className="w-32 text-right text-gray-400 print:hidden">Unchecked</span>}</div>
+                        <div className="flex justify-between items-center border-b border-gray-100 pb-2"><label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer"><input type="checkbox" checked={activeCharges.bill_no} onChange={() => toggleCharge('bill_no')} className="rounded print:hidden" /> Bill Number</label>{activeCharges.bill_no ? <input className="border p-1.5 rounded w-32 font-bold text-blue-700 print:hidden" type="text" value={finance.bill_no} onChange={e => handleFinanceChange('bill_no', e.target.value)} /> : <span className="w-32 text-right text-gray-400 print:hidden">Excluded</span>}</div>
+                      </div>
+
+                      <div>
+                        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Deductions (-)</h4>
+                        <div className="border-b border-gray-100 pb-2 mb-2">
+                           <div className="flex justify-between items-center mb-2"><label className="text-sm font-semibold text-gray-700 flex items-center gap-2">Advance Received <button onClick={(e) => { e.preventDefault(); addArrayRow('advance_details', {date:'', amount:''}); }} className="flex items-center gap-1 text-blue-700 bg-blue-100 px-2 py-0.5 rounded text-xs print:hidden font-bold"><PlusCircle className="h-3 w-3" /> Add</button></label></div>
+                           {finance.advance_details.map((adv, idx) => (
+                              <div key={idx} className="flex justify-between items-center mb-1 gap-2 text-sm">
+                                 <input type="date" className="border p-1 rounded text-xs text-gray-500 w-[110px]" value={adv.date} onChange={e => handleArrayChange('advance_details', idx, 'date', e.target.value)} />
+                                 <div className="flex items-center gap-1"><input type="number" className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" value={adv.amount || ''} onChange={e => handleArrayChange('advance_details', idx, 'amount', e.target.value)} placeholder="₹" />{idx > 0 && <button onClick={(e) => { e.preventDefault(); removeArrayRow('advance_details', idx); }} className="text-rose-400 print:hidden p-1"><X className="h-4 w-4"/></button>}</div>
+                              </div>
+                           ))}
+                        </div>
+                        <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><label className="text-sm font-semibold text-gray-700">TDS (₹)</label><input className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" type="number" value={finance.tds || ''} onChange={e => handleFinanceChange('tds', e.target.value)} /></div>
+                        <div className="flex justify-between items-center border-b border-gray-100 pb-2"><input className="text-sm font-semibold text-gray-700 border-b border-dashed w-32 bg-transparent outline-none" placeholder="Extra Deduction..." /><input className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" type="number" value={finance.extra_deduction || ''} onChange={e => handleFinanceChange('extra_deduction', e.target.value)} /></div>
                       </div>
                       
-                      <div className="grid grid-cols-2 gap-8 mb-6 text-sm">
-                          <div className="space-y-3">
-                            <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Date of Dispatch:</span> <span className="font-bold">{receiptModal.trip.trip_start_date || '-'}</span></div>
-                            <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Vehicle No:</span> <span className="font-bold text-base">{receiptModal.trip.vehicle_number}</span></div>
-                            <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Route:</span> <span className="font-bold">{receiptModal.trip.source_city} → {receiptModal.trip.destination_city}</span></div>
-                            <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Bank Account:</span> <span className="font-bold text-blue-700">{finance.bank_account || 'N/A'}</span></div>
+                      <div className="col-span-2 mt-4 p-4 border-2 border-slate-900 rounded-lg flex justify-between items-center bg-emerald-50/30"><span className="font-extrabold text-lg text-slate-900">NET BALANCE PAYABLE</span><span className="font-extrabold text-2xl text-emerald-600">₹{calculatePending()}</span></div>
+                  </div>
+
+                  <h3 className="font-bold text-base mb-4 mt-8 text-slate-800 uppercase tracking-wide border-b pb-2">Operational Tracking (Internal)</h3>
+                  <div className="grid grid-cols-2 gap-x-8 gap-y-4">
+                      <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 print:p-0 print:border-none">
+                          <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Diesel & Fastag (Estimates)</h4>
+                          <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2">
+                              <label className="text-sm font-semibold text-gray-700">Total KM Traveled</label>
+                              <input className="border border-gray-300 p-1.5 rounded w-28 text-right font-bold text-slate-700 print:border-none print:p-0 print:bg-transparent" type="number" value={finance.total_km || ''} onChange={handleKmChange} />
                           </div>
-                          <div className="space-y-3">
-                            <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Billed To (Party):</span> <span className="font-bold">{receiptModal.trip.party_name || 'N/A'}</span></div>
-                            <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Owner Name:</span> <span className="font-bold">{receiptModal.trip.owner_name || 'N/A'}</span></div>
-                            <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">GTA Name:</span> <span className="font-bold">{receiptModal.trip.gta_name || 'N/A'}</span></div>
-                            <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">LR / Bilty No:</span> <span className="font-bold">{receiptModal.trip.lr_no || 'N/A'}</span></div>
-                          </div>
-                      </div>
-
-                      <div className="print:hidden mb-6 bg-blue-50 p-3 rounded-lg border border-blue-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                         <label className="text-xs font-bold text-blue-900 uppercase whitespace-nowrap">Select Deposit Bank Account:</label>
-                         <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                             <select className="border border-blue-200 bg-white p-2 rounded-lg text-sm font-bold text-blue-800 outline-none cursor-pointer flex-1" value={isCustomBank ? 'Other' : finance.bank_account} onChange={e => setFinance({...finance, bank_account: e.target.value === 'Other' ? '' : e.target.value})}>
-                                {PRESET_BANKS.map(bank => <option key={bank} value={bank}>{bank}</option>)}
-                                <option value="Other">Other (Custom)</option>
-                             </select>
-                             {isCustomBank && <input type="text" placeholder="Custom bank..." className="border border-blue-300 p-2 rounded-lg text-sm font-bold text-blue-900 w-full sm:w-48" value={finance.bank_account} onChange={e => setFinance({...finance, bank_account: e.target.value})} />}
-                         </div>
-                      </div>
-
-                      <h3 className="font-bold text-base mb-4 text-slate-800 uppercase tracking-wide border-b pb-2">Financial Settlement</h3>
-                      <div className="grid grid-cols-2 gap-x-12 gap-y-6">
-                          <div>
-                            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Additions (+)</h4>
-                            <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Total Freight (₹)</span><input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.freight_amount || ''} onChange={e => handleFinanceChange('freight_amount', e.target.value)} /></div>
-                            
-                            <div className="border-b border-gray-100 pb-2 mb-2">
-                              <div className="flex justify-between items-center"><label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer"><input type="checkbox" checked={activeCharges.loading} onChange={() => toggleCharge('loading')} className="rounded print:hidden" /> Loading/Unloading</label>{activeCharges.loading ? <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.loading_charge} onChange={e => handleFinanceChange('loading_charge', e.target.value)} /> : <span className="w-32 text-right text-gray-400 print:hidden">Excluded</span>}</div>
-                              {activeCharges.loading && <label className="flex items-center gap-1.5 text-[11px] text-gray-500 mt-1 print:hidden pl-5"><input type="checkbox" checked={finance.include_loading_in_gst} onChange={e => handleFinanceChange('include_loading_in_gst', e.target.checked)} className="rounded" /> Include in GST</label>}
-                            </div>
-
-                            <div className="border-b border-gray-100 pb-2 mb-2">
-                              <div className="flex justify-between items-center"><label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer"><input type="checkbox" checked={activeCharges.holding} onChange={() => toggleCharge('holding')} className="rounded print:hidden" /> Rate Difference</label>{activeCharges.holding ? <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent" type="number" value={finance.holding_charge} onChange={e => handleFinanceChange('holding_charge', e.target.value)} /> : <span className="w-32 text-right text-gray-400 print:hidden">Excluded</span>}</div>
-                              {activeCharges.holding && <label className="flex items-center gap-1.5 text-[11px] text-gray-500 mt-1 print:hidden pl-5"><input type="checkbox" checked={finance.include_holding_in_gst} onChange={e => handleFinanceChange('include_holding_in_gst', e.target.checked)} className="rounded" /> Include in GST</label>}
-                            </div>
-
-                            <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2 bg-slate-50/50 print:bg-transparent px-1 rounded"><label className="flex items-center gap-2 text-sm font-bold text-gray-900 cursor-pointer"><input type="checkbox" checked={finance.gst_enabled} onChange={e => handleFinanceChange('gst_enabled', e.target.checked)} className="rounded text-emerald-600 print:hidden" /> GST (18%)</label>{finance.gst_enabled ? <input className="border p-1.5 rounded w-32 text-right font-bold print:border-0 print:p-0 print:bg-transparent text-emerald-600" type="number" value={finance.gst} onChange={e => handleFinanceChange('gst', e.target.value)} /> : <span className="w-32 text-right text-gray-400 print:hidden">Unchecked</span>}</div>
-                            <div className="flex justify-between items-center border-b border-gray-100 pb-2"><label className="flex items-center gap-2 text-sm font-semibold text-gray-700 cursor-pointer"><input type="checkbox" checked={activeCharges.bill_no} onChange={() => toggleCharge('bill_no')} className="rounded print:hidden" /> Bill Number</label>{activeCharges.bill_no ? <input className="border p-1.5 rounded w-32 font-bold text-blue-700 print:hidden" type="text" value={finance.bill_no} onChange={e => handleFinanceChange('bill_no', e.target.value)} /> : <span className="w-32 text-right text-gray-400 print:hidden">Excluded</span>}</div>
-                          </div>
-
-                          <div>
-                            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Deductions (-)</h4>
-                            <div className="border-b border-gray-100 pb-2 mb-2">
-                               <div className="flex justify-between items-center mb-2"><label className="text-sm font-semibold text-gray-700 flex items-center gap-2">Advance Received <button onClick={() => addArrayRow('advance_details', {date:'', amount:''})} className="flex items-center gap-1 text-blue-700 bg-blue-100 px-2 py-0.5 rounded text-xs print:hidden font-bold"><PlusCircle className="h-3 w-3" /> Add</button></label></div>
-                               {finance.advance_details.map((adv, idx) => (
-                                  <div key={idx} className="flex justify-between items-center mb-1 gap-2 text-sm">
-                                     <input type="date" className="border p-1 rounded text-xs text-gray-500 w-[110px]" value={adv.date} onChange={e => handleArrayChange('advance_details', idx, 'date', e.target.value)} />
-                                     <div className="flex items-center gap-1"><input type="number" className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" value={adv.amount || ''} onChange={e => handleArrayChange('advance_details', idx, 'amount', e.target.value)} placeholder="₹" />{idx > 0 && <button onClick={() => removeArrayRow('advance_details', idx)} className="text-rose-400 print:hidden p-1"><X className="h-4 w-4"/></button>}</div>
-                                  </div>
-                               ))}
-                            </div>
-                            <div className="flex justify-between items-center border-b border-gray-100 pb-2 mb-2"><label className="text-sm font-semibold text-gray-700">TDS (₹)</label><input className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" type="number" value={finance.tds || ''} onChange={e => handleFinanceChange('tds', e.target.value)} /></div>
-                            <div className="flex justify-between items-center border-b border-gray-100 pb-2"><input className="text-sm font-semibold text-gray-700 border-b border-dashed w-32 bg-transparent outline-none" placeholder="Extra Deduction..." /><input className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" type="number" value={finance.extra_deduction || ''} onChange={e => handleFinanceChange('extra_deduction', e.target.value)} /></div>
-                          </div>
-                          
-                          <div className="col-span-2 mt-4 p-4 border-2 border-slate-900 rounded-lg flex justify-between items-center bg-emerald-50/30"><span className="font-extrabold text-lg text-slate-900">NET BALANCE PAYABLE</span><span className="font-extrabold text-2xl text-emerald-600">₹{calculatePending()}</span></div>
-                      </div>
-
-                      <h3 className="font-bold text-base mb-4 mt-8 text-slate-800 uppercase tracking-wide border-b pb-2">Operational Tracking (Internal)</h3>
-                      <div className="grid grid-cols-2 gap-x-8 gap-y-4">
-                          <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 print:p-0 print:border-none">
-                              <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Diesel & Fastag (Estimates)</h4>
-                              <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2"><label className="text-sm font-semibold text-gray-700">Total KM Traveled</label><input className="border p-1.5 rounded w-24 text-right font-bold text-slate-700 print:border-none" type="number" value={finance.total_km || ''} onChange={handleKmChange} /></div>
-                              <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Diesel Required (Est)</span><span className="font-bold text-slate-900">{finance.diesel_liters_needed || 0} Liters</span></div>
-                              <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="text-sm font-semibold text-gray-700">Fastag (Est @ ₹5.75/km)</span><span className="font-bold text-slate-900">₹{(finance.fastag_estimate || 0).toFixed(2)}</span></div>
-                          </div>
-
-                          <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 print:p-0 print:border-none">
-                              <div className="flex justify-between items-center mb-3">
-                                  <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider">Actual Fastag Logs</h4>
-                                  <button onClick={() => addArrayRow('fastag_details', {date:'', place:'', amount:''})} className="flex items-center gap-1 text-amber-700 bg-amber-200/50 px-2 py-0.5 rounded text-xs print:hidden font-bold"><PlusCircle className="h-3 w-3" /> Add Toll</button>
+                          <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2">
+                              <span className="text-sm font-semibold text-gray-700">Diesel Required (Est/Act)</span>
+                              <div className="flex items-center gap-1">
+                                  <input className="border border-gray-300 p-1.5 rounded w-28 text-right font-bold text-slate-900 print:border-none print:p-0 print:bg-transparent focus:ring-2 focus:ring-blue-100 outline-none" type="number" step="any" value={finance.diesel_liters_needed || ''} onChange={e => handleFinanceChange('diesel_liters_needed', e.target.value)} />
+                                  <span className="font-bold text-slate-900 text-sm">Liters</span>
                               </div>
-                              {finance.fastag_details.map((f, idx) => (
-                                  <div key={idx} className="flex justify-between items-center mb-1.5 gap-2 text-sm">
-                                     <input type="date" className="border border-amber-200 p-1 rounded text-[10px] text-gray-700 w-[95px] print:border-none" value={f.date || ''} onChange={e => handleArrayChange('fastag_details', idx, 'date', e.target.value)} />
-                                     <input type="text" placeholder="Location (Opt)..." className="border border-amber-200 p-1 rounded text-xs w-[100px] print:border-none" value={f.place || ''} onChange={e => handleArrayChange('fastag_details', idx, 'place', e.target.value)} />
-                                     <div className="flex items-center gap-1"><input type="number" className="border border-amber-200 p-1.5 rounded w-[70px] text-right font-bold text-rose-600 print:border-none print:p-0" value={f.amount || ''} onChange={e => handleArrayChange('fastag_details', idx, 'amount', e.target.value)} placeholder="₹" /><button onClick={() => removeArrayRow('fastag_details', idx)} className="text-rose-400 print:hidden p-0.5"><X className="h-4 w-4"/></button></div>
-                                  </div>
-                              ))}
-                              <div className="flex justify-between items-center mt-3 pt-2 border-t border-amber-300">
-                                 <span className="text-sm font-extrabold text-amber-900">Total Actual Fastag</span>
-                                 <span className="font-extrabold text-rose-600">₹{totalFastagActual}</span>
+                          </div>
+                          <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                              <span className="text-sm font-semibold text-gray-700">Fastag (Est/Act)</span>
+                              <div className="flex items-center gap-1">
+                                  <span className="font-bold text-slate-900 text-sm">₹</span>
+                                  <input className="border border-gray-300 p-1.5 rounded w-28 text-right font-bold text-slate-900 print:border-none print:p-0 print:bg-transparent focus:ring-2 focus:ring-blue-100 outline-none" type="number" step="any" value={finance.fastag_estimate || ''} onChange={e => handleFinanceChange('fastag_estimate', e.target.value)} />
                               </div>
                           </div>
                       </div>
 
-                      <h3 className="font-bold text-base mb-4 mt-8 text-slate-800 uppercase tracking-wide border-b pb-2">Driver Settlement (Hisaab)</h3>
-                      <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-6 grid grid-cols-2 gap-x-8 gap-y-4 print:bg-transparent print:border-none print:p-0 text-sm">
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 print:p-0 print:border-none">
+                          <div className="flex justify-between items-center mb-3">
+                              <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider">Actual Fastag Logs</h4>
+                              <button onClick={(e) => { e.preventDefault(); addArrayRow('fastag_details', {date:'', place:'', amount:''}); }} className="flex items-center gap-1 text-amber-700 bg-amber-200/50 px-2 py-0.5 rounded text-xs print:hidden font-bold"><PlusCircle className="h-3 w-3" /> Add Toll</button>
+                          </div>
+                          {finance.fastag_details.map((f, idx) => (
+                              <div key={idx} className="flex justify-between items-center mb-1.5 gap-2 text-sm">
+                                 <input type="date" className="border border-amber-200 p-1 rounded text-[10px] text-gray-700 w-[95px] print:border-none" value={f.date || ''} onChange={e => handleArrayChange('fastag_details', idx, 'date', e.target.value)} />
+                                 <input type="text" placeholder="Location (Opt)..." className="border border-amber-200 p-1 rounded text-xs w-[100px] print:border-none" value={f.place || ''} onChange={e => handleArrayChange('fastag_details', idx, 'place', e.target.value)} />
+                                 <div className="flex items-center gap-1"><input type="number" className="border border-amber-200 p-1.5 rounded w-[70px] text-right font-bold text-rose-600 print:border-none print:p-0" value={f.amount || ''} onChange={e => handleArrayChange('fastag_details', idx, 'amount', e.target.value)} placeholder="₹" /><button onClick={(e) => { e.preventDefault(); removeArrayRow('fastag_details', idx); }} className="text-rose-400 print:hidden p-0.5"><X className="h-4 w-4"/></button></div>
+                              </div>
+                          ))}
+                          <div className="flex justify-between items-center mt-3 pt-2 border-t border-amber-300">
+                             <span className="text-sm font-extrabold text-amber-900">Total Actual Fastag</span>
+                             <span className="font-extrabold text-rose-600">₹{totalFastagActual}</span>
+                          </div>
+                      </div>
+                  </div>
+
+                  {/* 🌟 FULL DRIVER HISAAB MODULE INSERTED HERE */}
+                  <div className="mt-8 print:mt-4">
+                      <h3 className="font-bold text-base mb-4 text-slate-800 uppercase tracking-wide border-b pb-2 flex justify-between items-center">
+                          <span>Driver Settlement (Hisaab) Ledger</span>
+                      </h3>
+
+                      <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-4 grid grid-cols-2 gap-x-8 gap-y-4 mb-6 text-sm">
                           <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Driver Advance (₹3.5/km)</span><span className="font-bold text-slate-900">₹{receiptModal.trip.driver_advance || 0}</span></div>
                           <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Remaining Balance (₹1.0/km)</span><span className="font-bold text-slate-900">₹{receiptModal.trip.driver_remaining || 0}</span></div>
                           <div className="flex justify-between items-center border-b border-gray-200 pb-2 col-span-2 bg-blue-100 p-2 rounded"><span className="font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span><span className="font-extrabold text-slate-700">₹{receiptModal.trip.driver_total || 0}</span></div>
                       </div>
-                      
-                      <div className="hidden print:flex justify-between mt-20 pt-8">
-                          <div className="border-t border-gray-400 w-48 text-center pt-2 font-semibold text-sm">Receiver's Signature</div>
-                          <div className="border-t border-gray-400 w-48 text-center pt-2 font-semibold text-sm">Authorized Signatory</div>
-                      </div>
-                    </>
-                  )}
 
-                  {viewType === 'bill' && (
-                      <div className="w-full max-w-[900px] text-black font-sans leading-snug mx-auto p-2 print:p-0">
-                          <div className="text-center mb-2">
-                              <h1 className="text-3xl font-extrabold text-black tracking-widest leading-none mb-1">{currentComp.name}</h1>
-                              <p className="text-[13px] font-bold whitespace-pre-line leading-tight">{currentComp.address}</p>
-                              <div className="flex justify-center gap-6 mt-1 text-[12px] font-bold"><span>GST NO.: {currentComp.gst}</span><span>PAN No.: {currentComp.pan}</span></div>
-                              <p className="text-[11px] font-bold mt-1">Email: {currentComp.email}, Mob. {currentComp.phone}</p>
+                      {/* Add Entry Form (Hidden on Print) */}
+                      <form onSubmit={handleAddHisaab} className="print:hidden bg-gray-50 border border-gray-200 rounded-xl p-4 mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-3">
+                          <div>
+                              <label className="block text-[11px] font-bold text-gray-600 mb-1">Amount (₹)</label>
+                              <input type="number" step="any" value={hAmount} onChange={(e) => setHAmount(e.target.value)} required placeholder="Amt" className="w-full p-2 bg-white border border-gray-200 rounded text-sm font-bold" />
+                          </div>
+                          <div>
+                              <label className="block text-[11px] font-bold text-gray-600 mb-1">Date</label>
+                              <input type="date" value={hDate} onChange={(e) => setHDate(e.target.value)} required className="w-full p-2 bg-white border border-gray-200 rounded text-sm font-bold" />
+                          </div>
+                          <div>
+                              <label className="block text-[11px] font-bold text-gray-600 mb-1">Reason / Category</label>
+                              <select value={hCategory} onChange={(e) => setHCategory(e.target.value)} className="w-full p-2 bg-white border border-gray-200 rounded text-sm font-bold">
+                                  <option value="Diesel">Diesel</option>
+                                  <option value="Fastag">Fastag</option>
+                                  <option value="Miscellaneous">Miscellaneous</option>
+                              </select>
                           </div>
 
-                          <div className="border border-black flex justify-between">
-                              <div className="w-[60%] border-r border-black p-2 text-[12px]">
-                                  <p className="font-bold">TO,</p>
-                                  <p className="font-bold mt-1 leading-tight">{receiptModal.trip.party_name?.toUpperCase() || 'VELINK INDIA PVT. LTD.'}</p>
-                                  <p className="font-bold leading-tight">{(receiptModal.trip.destination_city || 'RAIPUR').toUpperCase()}, RAJ.</p>
-                                  <p className="font-bold mt-2">GST:- {receiptModal.trip.party_gst || '08AAGCV0492E1ZB'}</p>
-                                  <p className="font-bold">STATE: RAJASTHAN / STATE CODE: 08</p>
-                              </div>
-                              <div className="w-[40%] text-[13px] font-bold">
-                                  <div className="border-b border-black p-2 flex justify-between">
-                                      <span>Invoice No.:</span>
-                                      {/* 🌟 BLANK OR FROM INPUT */}
-                                      <span>{finance.bill_no}</span>
+                          {hCategory === 'Diesel' ? (
+                              <>
+                                  <div>
+                                      <label className="block text-[11px] font-bold text-gray-600 mb-1">Liters</label>
+                                      <input type="number" step="any" value={hLiters} onChange={(e) => setHLiters(e.target.value)} placeholder="Ltrs" className="w-full p-2 bg-white border border-gray-200 rounded text-sm font-bold" />
                                   </div>
-                                  <div className="p-2 flex justify-between">
-                                      <span>Date:</span>
-                                      <span>{localBillDate || receiptModal.trip.trip_start_date || ''}</span>
+                                  <div className="sm:col-span-2">
+                                      <label className="block text-[11px] font-bold text-gray-600 mb-1">Pump / Place</label>
+                                      <input type="text" value={hPlace} onChange={(e) => setHPlace(e.target.value)} placeholder="Location name" className="w-full p-2 bg-white border border-gray-200 rounded text-sm font-bold" />
                                   </div>
+                              </>
+                          ) : (
+                              <div className="sm:col-span-3">
+                                  <label className="block text-[11px] font-bold text-gray-600 mb-1">Remarks / Note</label>
+                                  <input type="text" value={hReason} onChange={(e) => setHReason(e.target.value)} placeholder="Optional details..." className="w-full p-2 bg-white border border-gray-200 rounded text-sm font-bold" />
                               </div>
-                          </div>
-                          
-                          <div className="border-x border-b border-black p-1 text-center text-[12px] font-bold">GST PAYABLE UNDER REVERSE CHARGES - YES/NO</div>
+                          )}
 
-                          {/* 🌟 WIDE 11-COLUMN TABLE NO OVERLAP */}
-                          <table className="w-full table-fixed border-collapse border border-black text-[10px] font-bold text-center mt-[-1px]">
-                              <thead>
+                          <div className="sm:col-span-2 md:col-span-6 flex justify-end">
+                              <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded text-sm flex items-center gap-1.5 transition cursor-pointer">
+                                  <Plus className="h-4 w-4"/> Add Hisaab Entry
+                              </button>
+                          </div>
+                      </form>
+
+                      {/* Hisaab Entries List Table with Delete Button */}
+                      <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                          <table className="w-full text-left text-xs">
+                              <thead className="bg-slate-100 text-slate-700 uppercase font-bold border-b border-gray-200">
                                   <tr>
-                                      <th className="border border-black p-1.5 w-[8%] leading-tight">LOADING<br/>DATE</th>
-                                      <th className="border border-black p-1.5 w-[6%] leading-tight break-words">LR.NO.</th>
-                                      <th className="border border-black p-1.5 w-[11%] leading-tight break-words">VEHICLE<br/>NO.</th>
-                                      <th className="border border-black p-1.5 w-[13%] leading-tight break-words">FROM</th>
-                                      <th className="border border-black p-1.5 w-[14%] leading-tight break-words">TO</th>
-                                      <th className="border border-black p-1.5 w-[5%] leading-tight">WT</th>
-                                      <th className="border border-black p-1.5 w-[5%] leading-tight">RATE</th>
-                                      <th className="border border-black p-1.5 w-[9%] leading-tight">FREIGHT</th>
-                                      <th className="border border-black p-1.5 w-[9%] leading-tight break-words">UNLOADING<br/>CHG</th>
-                                      <th className="border border-black p-1.5 w-[9%] leading-tight break-words">RATE<br/>DIFFERENCE</th>
-                                      <th className="border border-black p-1.5 w-[11%] leading-tight">TOTAL<br/>FREIGHT</th>
+                                      <th className="p-2.5">Date</th>
+                                      <th className="p-2.5">Category</th>
+                                      <th className="p-2.5">Details (Liters / Place / Note)</th>
+                                      <th className="p-2.5 text-right">Amount</th>
+                                      <th className="p-2.5 w-10 text-center print:hidden">Action</th>
                                   </tr>
                               </thead>
-                              <tbody>
-                                  <tr>
-                                      <td className="border-r border-black p-1.5 align-top pt-2 h-16">{receiptModal.trip.trip_start_date || '05/08/2026'}</td>
-                                      <td className="border-r border-black p-1.5 align-top pt-2">{receiptModal.trip.lr_no || '---'}</td>
-                                      <td className="border-r border-black p-1.5 align-top pt-2 break-words">{receiptModal.trip.vehicle_number}</td>
-                                      <td className="border-r border-black p-1.5 align-top pt-2 uppercase break-words">{receiptModal.trip.source_city}</td>
-                                      <td className="border-r border-black p-1.5 align-top pt-2 uppercase break-words">{receiptModal.trip.destination_city}</td>
-                                      <td className="border-r border-black p-1.5 align-top pt-2"></td>
-                                      <td className="border-r border-black p-1.5 align-top pt-2"></td>
-                                      <td className="border-r border-black p-1.5 align-top pt-2 text-right pr-2">{freight.toFixed(2)}</td>
-                                      <td className="border-r border-black p-1.5 align-top pt-2 text-right pr-2">{loadingCharge > 0 ? loadingCharge.toFixed(2) : ''}</td>
-                                      <td className="border-r border-black p-1.5 align-top pt-2 text-right pr-2">{holdingCharge > 0 ? holdingCharge.toFixed(2) : ''}</td>
-                                      <td className="p-1.5 align-top pt-2 text-right pr-2">{exactBillTotalFreight.toFixed(2)}</td>
-                                  </tr>
-                                  
-                                  <tr className="border-t border-black">
-                                      <td colSpan="8" rowSpan="7" className="border-r border-black p-2 align-bottom text-left uppercase text-[12px]">
-                                          TOTAL INVOICE AMOUNT (IN WORDS):<br/>
-                                          {numberToWords(finalBalancePayable)}
-                                      </td>
-                                      <td colSpan="2" className="border-r border-black p-1 text-left pl-2">TOTAL</td>
-                                      <td className="p-1 text-right pr-2">{exactBillTotalFreight.toFixed(2)}</td>
-                                  </tr>
-                                  <tr>
-                                      <td colSpan="2" className="border-r border-t border-black p-1 text-left pl-2">ADD:SGST</td>
-                                      <td className="border-t border-black p-1 text-right pr-2">{(!isIGST && isGstEnabled && gstAmount > 0) ? gstHalf : ''}</td>
-                                  </tr>
-                                  <tr>
-                                      <td colSpan="2" className="border-r border-t border-black p-1 text-left pl-2">ADD:CGST</td>
-                                      <td className="border-t border-black p-1 text-right pr-2">{(!isIGST && isGstEnabled && gstAmount > 0) ? gstHalf : ''}</td>
-                                  </tr>
-                                  <tr>
-                                      <td colSpan="2" className="border-r border-t border-black p-1 text-left pl-2">ADD:IGST</td>
-                                      <td className="border-t border-black p-1 text-right pr-2">{(isIGST && isGstEnabled && gstAmount > 0) ? gstAmount.toFixed(2) : ''}</td>
-                                  </tr>
-                                  <tr>
-                                      <td colSpan="2" className="border-r border-t border-black p-1 text-left pl-2">TOTAL TAX AMOUNT</td>
-                                      <td className="border-t border-black p-1 text-right pr-2">{(isGstEnabled && gstAmount > 0) ? gstAmount.toFixed(2) : ''}</td>
-                                  </tr>
-                                  <tr>
-                                      <td colSpan="2" className="border-r border-t border-black p-1 text-left pl-2">TOTAL AMOUNT</td>
-                                      <td className="border-t border-black p-1 text-right pr-2">{finalTotalAmount.toFixed(2)}</td>
-                                  </tr>
-                                  <tr>
-                                      <td colSpan="2" className="border-r border-t border-black p-1 text-left pl-2">ADVANCE</td>
-                                      <td className="border-t border-black p-1 text-right pr-2">{totalAdvances > 0 ? totalAdvances.toFixed(2) : ''}</td>
-                                  </tr>
-                                  <tr className="border-t border-black">
-                                      <td colSpan="8" className="border-r border-black p-0 text-left align-top">
-                                          <div className="bg-black text-white text-center py-0.5 text-[11px]">BANK DETAILS</div>
-                                          <div className="flex text-[10px]">
-                                              <div className="w-1/2 p-1 border-r border-black">
-                                                  A/C NO. <br/>510605010060611<br/>IFSC CODE: UBIN0551066<br/>BRANCH: SSI, JAIPUR<br/>UNION BANK OF INDIA
-                                              </div>
-                                              <div className="w-1/2 p-1">
-                                                  A/C NO. <br/>756001010050706<br/>IFSC CODE: UBIN0575607<br/>BRANCH: NEW SANGANER ROAD<br/>UNION BANK OF INDIA
-                                              </div>
-                                          </div>
-                                      </td>
-                                      <td colSpan="2" className="border-r border-black p-1 text-left pl-2 text-[12px]">BALANCE</td>
-                                      <td className="p-1 text-right pr-2 text-[12px]">{balancePayment.toFixed(2)}</td>
-                                  </tr>
+                              <tbody className="divide-y divide-gray-100">
+                                  {hisaabEntries.map((item, idx) => (
+                                      <tr key={idx} className="hover:bg-gray-50 font-medium">
+                                          <td className="p-2.5 text-gray-600">{item.date}</td>
+                                          <td className="p-2.5 font-bold text-slate-800">{item.category}</td>
+                                          <td className="p-2.5 text-gray-600">
+                                              {item.category === 'Diesel' ? `${item.liters || 0} Ltrs at ${item.place || 'N/A'}` : (item.reason || item.place || '-')}
+                                          </td>
+                                          <td className="p-2.5 text-right font-bold text-rose-600">₹{item.amount || 0}</td>
+                                          <td className="p-2.5 text-center print:hidden">
+                                              <button onClick={(e) => { e.preventDefault(); handleDeleteHisaab(idx); }} className="text-rose-400 hover:text-rose-600 hover:bg-rose-50 p-1 rounded transition cursor-pointer">
+                                                  <Trash2 className="h-4 w-4" />
+                                              </button>
+                                          </td>
+                                      </tr>
+                                  ))}
+                                  {hisaabEntries.length === 0 && (
+                                      <tr>
+                                          <td colSpan="5" className="p-4 text-center text-gray-400 italic">No driver hisaab entries recorded yet.</td>
+                                      </tr>
+                                  )}
                               </tbody>
                           </table>
-
-                          <div className="flex justify-end mt-12 pr-4 text-[12px] font-bold">
-                              <div className="text-center"><p className="mb-8">For {currentComp.name}</p><p>Auth. Signatory</p></div>
-                          </div>
                       </div>
-                  )}
+                  </div>
 
+                  <div className="hidden print:flex justify-between mt-20 pt-8">
+                      <div className="border-t border-gray-400 w-48 text-center pt-2 font-semibold text-sm">Receiver's Signature</div>
+                      <div className="border-t border-gray-400 w-48 text-center pt-2 font-semibold text-sm">Authorized Signatory</div>
+                  </div>
                </div>
             </div>
 
             <div className="p-5 border-t bg-white flex justify-end gap-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-               <button onClick={handlePrint} className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-2.5 rounded-lg font-bold transition cursor-pointer"><Printer className="h-5 w-5"/> Print Document</button>
+               <button onClick={handlePrint} className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-2.5 rounded-lg font-bold transition cursor-pointer"><Printer className="h-5 w-5"/> Print Receipt</button>
                <button onClick={handleSaveFinance} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-2.5 rounded-lg font-bold shadow-sm transition cursor-pointer"><Save className="h-5 w-5"/> Save Financial Ledger</button>
             </div>
-
-          </div>
-        </div>
-      )}
-
-      {/* UPDATE STATUS MODAL */}
-      {statusModal.isOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col p-6 space-y-5 animate-in fade-in zoom-in-95">
-             <div className="flex justify-between items-center border-b pb-4">
-                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                  <AlertCircle className="h-5 w-5 text-blue-600"/> Update Status
-                </h3>
-                <button onClick={() => setStatusModal({isOpen: false, trip: null})} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 cursor-pointer"><X className="h-5 w-5"/></button>
-             </div>
-             <p className="text-sm text-gray-600">Update checklist for <strong>{statusModal.trip?.tracking_number}</strong>:</p>
-             <div className="space-y-3">
-                <label className="flex items-center gap-3 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer hover:border-blue-300 transition">
-                   <input type="checkbox" className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer" checked={statusModal.trip_unloaded} onChange={e => setStatusModal({...statusModal, trip_unloaded: e.target.checked})} />
-                   <span className="font-bold text-slate-800 text-sm">Trip Unloaded</span>
-                </label>
-                
-                <div className="p-3 rounded-xl border border-gray-200 bg-gray-50 flex flex-col gap-2 transition hover:border-blue-300">
-                    <span className="font-bold text-slate-800 text-sm">Log New Payment</span>
-                    <div className="flex flex-col gap-2 mt-1">
-                        <span className="text-xs text-slate-500 font-bold">Current Pending Balance: <span className="text-blue-600">₹{pendingBalance.toFixed(2)}</span></span>
-                        {pendingBalance <= 0 ? (
-                            <span className="text-xs font-bold text-emerald-700 bg-emerald-100 p-2 rounded-lg text-center block w-full mt-1 border border-emerald-200">✓ Balance is fully paid.</span>
-                        ) : (
-                            <div className="flex gap-2">
-                                <input type="number" placeholder="Amount Received (₹)" className="w-full border border-gray-300 rounded p-2 text-sm text-gray-700 outline-none focus:border-blue-400 font-bold" value={statusModal.cleared_amount} onChange={e => setStatusModal({...statusModal, cleared_amount: e.target.value})} />
-                                <input type="date" className="w-full border border-gray-300 rounded p-2 text-sm text-gray-700 outline-none focus:border-blue-400" value={statusModal.cleared_date} onChange={e => setStatusModal({...statusModal, cleared_date: e.target.value})} />
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50 flex flex-col gap-3 mt-2">
-                    <label className="font-bold text-blue-900 text-sm">POD Tracking Stage</label>
-                    <select className="border border-blue-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-400 outline-none w-full bg-white font-semibold text-slate-700 cursor-pointer" value={statusModal.pod_status} onChange={e => setStatusModal({...statusModal, pod_status: e.target.value})}>
-                       <option value="Pending">Pending (Not received yet)</option>
-                       <option value="Received">Received at Office</option>
-                       <option value="Forwarded">Forwarded to Party</option>
-                       <option value="Client Received">Received by Party</option>
-                    </select>
-                    
-                    <div className="space-y-2 mt-1">
-                        {['Received', 'Forwarded', 'Client Received'].includes(statusModal.pod_status) && (
-                            <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm">
-                               <span className="text-xs font-semibold text-gray-600">Office Arrival:</span>
-                               {statusModal.originalTrip?.pod_arrived_office_date ? <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">✓ {statusModal.originalTrip.pod_arrived_office_date}</span> : <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_arrived_office_date} onChange={e => setStatusModal({...statusModal, pod_arrived_office_date: e.target.value})} />}
-                            </div>
-                        )}
-                        {['Forwarded', 'Client Received'].includes(statusModal.pod_status) && (
-                            <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm">
-                               <span className="text-xs font-semibold text-gray-600">Forwarded:</span>
-                               {statusModal.originalTrip?.pod_forwarded_client_date ? <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">✓ {statusModal.originalTrip.pod_forwarded_client_date}</span> : <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_forwarded_client_date} onChange={e => setStatusModal({...statusModal, pod_forwarded_client_date: e.target.value})} />}
-                            </div>
-                        )}
-                        {statusModal.pod_status === 'Client Received' && (
-                            <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm">
-                               <span className="text-xs font-semibold text-gray-600">Client Received:</span>
-                               {statusModal.originalTrip?.pod_received_client_date ? <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">✓ {statusModal.originalTrip.pod_received_client_date}</span> : <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_received_client_date} onChange={e => setStatusModal({...statusModal, pod_received_client_date: e.target.value})} />}
-                            </div>
-                        )}
-                    </div>
-                </div>
-             </div>
-
-             <div className="flex justify-end gap-3 pt-4 border-t">
-                <button onClick={() => setStatusModal({isOpen: false, trip: null})} className="px-4 py-2 rounded-lg font-semibold text-gray-600 hover:bg-gray-100 text-sm cursor-pointer">Cancel</button>
-                <button onClick={handleUpdateStatus} className="text-white px-6 py-2 rounded-lg font-bold text-sm shadow-sm transition bg-blue-600 hover:bg-blue-700 cursor-pointer">Save Status</button>
-             </div>
           </div>
         </div>
       )}

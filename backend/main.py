@@ -112,6 +112,16 @@ class TrackingUpdate(BaseModel):
     tracking_location: str
     tracking_status: str
 
+class DriverHisaabItem(BaseModel):
+    amount: float
+    date: str
+    category: str  # "Diesel", "Fastag", "Miscellaneous"
+    liters: Optional[float] = 0.0
+    place: Optional[str] = ""
+    reason: Optional[str] = ""
+
+
+
 # 🌟 Google Maps Reverse Geocoding Helper
 def reverse_geocode(lat, lng):
     if not lat or not lng or not GOOGLE_MAPS_API_KEY:
@@ -771,7 +781,12 @@ def calculate_finance(data: dict):
         mile = float(m_row[0]) if m_row and m_row[0] else 5.5
         vehicle_no = str(m_row[1]).strip() if m_row and m_row[1] else "0000"
         
-        diesel_needed = round(total_km / mile, 2) if mile > 0 else 0
+        # 🌟 ALLOW MANUAL OVERRIDE FOR DIESEL AND FASTAG
+        passed_diesel = data.get('diesel_liters_needed')
+        diesel_needed = safe_float(passed_diesel) if passed_diesel not in [None, ''] else (round(total_km / mile, 2) if mile > 0 else 0)
+
+        passed_fastag = data.get('fastag_estimate')
+        fastag_est = safe_float(passed_fastag) if passed_fastag not in [None, ''] else (total_km * 5.75)
         
         cursor.execute("""
             UPDATE trip_finances 
@@ -785,7 +800,7 @@ def calculate_finance(data: dict):
             freight, total_adv, tds, balance, data.get('finance_remarks', ''), 
             loading, gst, holding, extra, total_km, 
             total_km * 3.5, total_km * 1.0, total_km * 4.5, 
-            json.dumps(advances), json.dumps(fastag_det), total_km * 5.75, 
+            json.dumps(advances), json.dumps(fastag_det), fastag_est, 
             data.get('bill_no', ''), diesel_needed, data.get('bank_account', ''), 
             gst_en, bool(data.get('include_loading_in_gst', False)), bool(data.get('include_holding_in_gst', False)), 
             trip_id
@@ -968,6 +983,91 @@ def get_system_logs():
         return res
     except Exception as e:
         return []
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.get("/trips/{trip_id}/driver-hisaab")
+def get_driver_hisaab(trip_id: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT driver_hisaab_entries FROM trip_finances WHERE trip_id = %s;", (trip_id,))
+        row = cursor.fetchone()
+        if not row:
+            return []
+        entries = row[0]
+        if isinstance(entries, str):
+            entries = json.loads(entries)
+        return entries or []
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.post("/trips/{trip_id}/driver-hisaab")
+def add_driver_hisaab(trip_id: int, item: DriverHisaabItem):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT driver_hisaab_entries FROM trip_finances WHERE trip_id = %s;", (trip_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Trip finances not found")
+        
+        entries = row[0]
+        if isinstance(entries, str):
+            entries = json.loads(entries)
+        if not isinstance(entries, list):
+            entries = []
+            
+        new_entry = {
+            "amount": item.amount,
+            "date": item.date,
+            "category": item.category,
+            "liters": item.liters if item.category == "Diesel" else 0.0,
+            "place": item.place,
+            "reason": item.reason
+        }
+        entries.append(new_entry)
+        
+        cursor.execute("UPDATE trip_finances SET driver_hisaab_entries = %s WHERE trip_id = %s;", (json.dumps(entries), trip_id))
+        conn.commit()
+        return {"status": "Success", "entries": entries}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
+
+@app.delete("/trips/{trip_id}/driver-hisaab/{index}")
+def delete_driver_hisaab(trip_id: int, index: int):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT driver_hisaab_entries FROM trip_finances WHERE trip_id = %s;", (trip_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Trip finances not found")
+        
+        entries = row[0]
+        if isinstance(entries, str):
+            entries = json.loads(entries)
+        if not isinstance(entries, list):
+            entries = []
+            
+        if 0 <= index < len(entries):
+            entries.pop(index)
+            cursor.execute("UPDATE trip_finances SET driver_hisaab_entries = %s WHERE trip_id = %s;", (json.dumps(entries), trip_id))
+            conn.commit()
+            return {"status": "Success", "entries": entries}
+        else:
+            raise HTTPException(status_code=400, detail="Invalid entry index")
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
     finally:
         cursor.close()
         conn.close()

@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { 
   Search, FileUp, PlusCircle, X, Printer, Save, Edit, Filter, 
-  Trash2, CheckCircle2, Navigation, MapPin, Loader2, Calendar, Truck 
+  Trash2, CheckCircle2, Navigation, MapPin, Loader2, Calendar, Truck,
+  Plus
 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
@@ -46,7 +47,7 @@ function Trips() {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('newest'); 
   const [loading, setLoading] = useState(true);
-  const [isLaunching, setIsLaunching] = useState(false); // 🌟 Anti-Double Click Shield
+  const [isLaunching, setIsLaunching] = useState(false); 
 
   // Form State
   const [tripData, setTripData] = useState({
@@ -69,6 +70,15 @@ function Trips() {
   const [trackingModal, setTrackingModal] = useState({
     isOpen: false, trip_id: null, vehicle_number: '', tracking_location: '', tracking_status: 'RUNNING'
   });
+
+  // Driver Hisaab State for Modal
+  const [hisaabEntries, setHisaabEntries] = useState([]);
+  const [hAmount, setHAmount] = useState('');
+  const [hDate, setHDate] = useState(new Date().toISOString().split('T')[0]);
+  const [hCategory, setHCategory] = useState('Diesel');
+  const [hLiters, setHLiters] = useState('');
+  const [hPlace, setHPlace] = useState('');
+  const [hReason, setHReason] = useState('');
 
   // Finance State inside Modal
   const [activeCharges, setActiveCharges] = useState({ loading: false, holding: false, gst: false, bill_no: false });
@@ -152,14 +162,11 @@ function Trips() {
   const uniqueDestinations = [...new Set([...activeTrips, ...allHistoricalTrips].map(t => t.destination_city).filter(Boolean))];
   const uniqueGtas = [...new Set([...activeTrips, ...allHistoricalTrips].map(t => t.gta_name).filter(Boolean))];
 
-  // 🌟 Anti-Double Click Shield Implemented Here
   const handleAddTrip = async () => {
     if (!tripData.vehicle_number.trim() || !tripData.source_city.trim() || !tripData.destination_city.trim()) {
       return alert("Please fill mandatory fields (Vehicle, Source, Destination)!");
     }
-    
-    setIsLaunching(true); // Lock the button immediately
-    
+    setIsLaunching(true); 
     try {
       await axios.post(`${API_BASE}/trips`, { 
         ...tripData, 
@@ -171,10 +178,9 @@ function Trips() {
       setTripData({ vehicle_number: '', source_city: '', destination_city: '', party_name: '', owner_name: '', gta_name: '', lr_no: '', eway_bill: '', eway_bill_expiry: '', trip_start_date: '', lw: '', freight_amount: '', total_km: ''});
       fetchAllData();
     } catch (err) { 
-      // Displays the specific backend error if truck is already running
       alert(err.response?.data?.detail || "Failed to launch trip."); 
     } finally {
-      setIsLaunching(false); // Unlock the button when done
+      setIsLaunching(false); 
     }
   };
 
@@ -311,7 +317,15 @@ function Trips() {
         bill_no: tripData.bill_no || '', bank_account: tripData.bank_account || defaultBank, gst_enabled: gstActive, include_loading_in_gst: incLoadingGst, include_holding_in_gst: incHoldingGst
       });
       setActiveCharges({ loading: parseFloat(tripData.loading_charge || 0) > 0, holding: parseFloat(tripData.holding_charge || 0) > 0, gst: Boolean(tripData.gst_enabled), bill_no: !!tripData.bill_no });
+      
       setReceiptModal({ isOpen: true, trip: tripData });
+
+      try {
+        const hisaabRes = await axios.get(`${API_BASE}/trips/${tripData.trip_id}/driver-hisaab`);
+        setHisaabEntries(Array.isArray(hisaabRes.data) ? hisaabRes.data : []);
+      } catch (err) {
+        setHisaabEntries([]);
+      }
     } catch (err) { 
       alert("Error loading receipt details."); 
     }
@@ -374,6 +388,29 @@ function Trips() {
     }
   };
 
+  // 🌟 DRIVER HISAAB LOGIC
+  const handleAddHisaab = async (e) => {
+    e.preventDefault();
+    if (!receiptModal.trip?.trip_id) return;
+    try {
+      const payload = {
+        amount: parseFloat(hAmount || 0), date: hDate, category: hCategory,
+        liters: hCategory === 'Diesel' ? parseFloat(hLiters || 0) : 0, place: hPlace, reason: hReason
+      };
+      const res = await axios.post(`${API_BASE}/trips/${receiptModal.trip.trip_id}/driver-hisaab`, payload);
+      setHisaabEntries(res.data.entries || []);
+      setHAmount(''); setHLiters(''); setHPlace(''); setHReason('');
+    } catch (err) { alert("Failed to save driver hisaab entry."); }
+  };
+
+  const handleDeleteHisaab = async (index) => {
+    if (!window.confirm("Remove this entry?")) return;
+    try {
+      const res = await axios.delete(`${API_BASE}/trips/${receiptModal.trip.trip_id}/driver-hisaab/${index}`);
+      setHisaabEntries(res.data.entries || []);
+    } catch (err) { alert("Failed to delete entry."); }
+  };
+
   let processedTrips = activeTrips.filter(t => 
     (t.tracking_number || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
     (t.vehicle_number || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -387,6 +424,14 @@ function Trips() {
 
   const isCustomBank = finance.bank_account === '' || !PRESET_BANKS.includes(finance.bank_account);
   const totalFastagActual = finance.fastag_details.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
+  const currentOwner = receiptModal.trip?.owner_name?.toUpperCase() || '';
+  const isJFC = currentOwner === 'JFC'; 
+  const activeCompanyCode = isJFC ? 'JFC' : 'JTA';
+  const companyDetails = {
+      JTA: { name: "JAIPUR TRANSPORT AGENCY", address: "K-13 GRAM ASARPUR, GOPALPURA BY PASS\nNARAYAN VIHAR, JAIPUR-302026", gst: "08AEOPJ8154L2ZT", pan: "AEOPJ8154L", email: "rohit_jain_2006@yahoo.com", phone: "9351925015, 9314111968" },
+      JFC: { name: "JAIN FREIGHT CARRIER", address: "K-13 GRAM ASARPUR, GOPALPURA BY PASS\nNARAYAN VIHAR, JAIPUR-302026", gst: "08AEOPJ8154L2ZT", pan: "AEOPJ8154L", email: "rohit_jain_2006@yahoo.com", phone: "9351925015, 9314111968" }
+  };
+  const currentComp = companyDetails[activeCompanyCode];
 
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
@@ -635,7 +680,7 @@ function Trips() {
         </div>
       )}
 
-      {/* MODAL 2: FINANCE RECEIPT MODAL */}
+      {/* 🌟 MODAL 2: FINANCE RECEIPT MODAL (CLEANED) */}
       {receiptModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] animate-in fade-in zoom-in-95 duration-200">
@@ -719,9 +764,24 @@ function Trips() {
                   <div className="grid grid-cols-2 gap-x-8 gap-y-4">
                       <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 print:p-0 print:border-none">
                           <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Diesel & Fastag (Estimates)</h4>
-                          <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2"><label className="text-sm font-semibold text-gray-700">Total KM Traveled</label><input className="border p-1.5 rounded w-24 text-right font-bold text-slate-700 print:border-none" type="number" value={finance.total_km || ''} onChange={handleKmChange} /></div>
-                          <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2"><span className="text-sm font-semibold text-gray-700">Diesel Required (Est)</span><span className="font-bold text-slate-900">{finance.diesel_liters_needed || 0} Liters</span></div>
-                          <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="text-sm font-semibold text-gray-700">Fastag (Est @ ₹5.75/km)</span><span className="font-bold text-slate-900">₹{(finance.fastag_estimate || 0).toFixed(2)}</span></div>
+                          <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2">
+                              <label className="text-sm font-semibold text-gray-700">Total KM Traveled</label>
+                              <input className="border border-gray-300 p-1.5 rounded w-28 text-right font-bold text-slate-700 print:border-none print:p-0 print:bg-transparent" type="number" value={finance.total_km || ''} onChange={handleKmChange} />
+                          </div>
+                          <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2">
+                              <span className="text-sm font-semibold text-gray-700">Diesel Required (Est/Act)</span>
+                              <div className="flex items-center gap-1">
+                                  <input className="border border-gray-300 p-1.5 rounded w-28 text-right font-bold text-slate-900 print:border-none print:p-0 print:bg-transparent focus:ring-2 focus:ring-blue-100 outline-none" type="number" step="any" value={finance.diesel_liters_needed || ''} onChange={e => handleFinanceChange('diesel_liters_needed', e.target.value)} />
+                                  <span className="font-bold text-slate-900 text-sm">Liters</span>
+                              </div>
+                          </div>
+                          <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                              <span className="text-sm font-semibold text-gray-700">Fastag (Est/Act)</span>
+                              <div className="flex items-center gap-1">
+                                  <span className="font-bold text-slate-900 text-sm">₹</span>
+                                  <input className="border border-gray-300 p-1.5 rounded w-28 text-right font-bold text-slate-900 print:border-none print:p-0 print:bg-transparent focus:ring-2 focus:ring-blue-100 outline-none" type="number" step="any" value={finance.fastag_estimate || ''} onChange={e => handleFinanceChange('fastag_estimate', e.target.value)} />
+                              </div>
+                          </div>
                       </div>
 
                       <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 print:p-0 print:border-none">
@@ -743,11 +803,98 @@ function Trips() {
                       </div>
                   </div>
 
-                  <h3 className="font-bold text-base mb-4 mt-8 text-slate-800 uppercase tracking-wide border-b pb-2">Driver Settlement (Hisaab)</h3>
-                  <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-6 grid grid-cols-2 gap-x-8 gap-y-4 print:bg-transparent text-sm">
-                      <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Driver Advance (₹3.5/km)</span><span className="font-bold text-slate-900">₹{finance.driver_advance || 0}</span></div>
-                      <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Remaining Balance (₹1.0/km)</span><span className="font-bold text-slate-900">₹{finance.driver_remaining || 0}</span></div>
-                      <div className="flex justify-between items-center border-b border-gray-200 pb-2 col-span-2 bg-blue-100 p-2 rounded"><span className="font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span><span className="font-extrabold text-slate-700">₹{finance.driver_total || 0}</span></div>
+                  {/* 🌟 FULL DRIVER HISAAB MODULE INSERTED HERE */}
+                  <div className="mt-8 print:mt-4">
+                      <h3 className="font-bold text-base mb-4 text-slate-800 uppercase tracking-wide border-b pb-2 flex justify-between items-center">
+                          <span>Driver Settlement (Hisaab) Ledger</span>
+                      </h3>
+
+                      <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-4 grid grid-cols-2 gap-x-8 gap-y-4 mb-6 text-sm">
+                          <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Driver Advance (₹3.5/km)</span><span className="font-bold text-slate-900">₹{receiptModal.trip.driver_advance || 0}</span></div>
+                          <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Remaining Balance (₹1.0/km)</span><span className="font-bold text-slate-900">₹{receiptModal.trip.driver_remaining || 0}</span></div>
+                          <div className="flex justify-between items-center border-b border-gray-200 pb-2 col-span-2 bg-blue-100 p-2 rounded"><span className="font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span><span className="font-extrabold text-slate-700">₹{receiptModal.trip.driver_total || 0}</span></div>
+                      </div>
+
+                      {/* Add Entry Form (Hidden on Print) */}
+                      <form onSubmit={handleAddHisaab} className="print:hidden bg-gray-50 border border-gray-200 rounded-xl p-4 mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-3">
+                          <div>
+                              <label className="block text-[11px] font-bold text-gray-600 mb-1">Amount (₹)</label>
+                              <input type="number" step="any" value={hAmount} onChange={(e) => setHAmount(e.target.value)} required placeholder="Amt" className="w-full p-2 bg-white border border-gray-200 rounded text-sm font-bold" />
+                          </div>
+                          <div>
+                              <label className="block text-[11px] font-bold text-gray-600 mb-1">Date</label>
+                              <input type="date" value={hDate} onChange={(e) => setHDate(e.target.value)} required className="w-full p-2 bg-white border border-gray-200 rounded text-sm font-bold" />
+                          </div>
+                          <div>
+                              <label className="block text-[11px] font-bold text-gray-600 mb-1">Reason / Category</label>
+                              <select value={hCategory} onChange={(e) => setHCategory(e.target.value)} className="w-full p-2 bg-white border border-gray-200 rounded text-sm font-bold">
+                                  <option value="Diesel">Diesel</option>
+                                  <option value="Fastag">Fastag</option>
+                                  <option value="Miscellaneous">Miscellaneous</option>
+                              </select>
+                          </div>
+
+                          {hCategory === 'Diesel' ? (
+                              <>
+                                  <div>
+                                      <label className="block text-[11px] font-bold text-gray-600 mb-1">Liters</label>
+                                      <input type="number" step="any" value={hLiters} onChange={(e) => setHLiters(e.target.value)} placeholder="Ltrs" className="w-full p-2 bg-white border border-gray-200 rounded text-sm font-bold" />
+                                  </div>
+                                  <div className="sm:col-span-2">
+                                      <label className="block text-[11px] font-bold text-gray-600 mb-1">Pump / Place</label>
+                                      <input type="text" value={hPlace} onChange={(e) => setHPlace(e.target.value)} placeholder="Location name" className="w-full p-2 bg-white border border-gray-200 rounded text-sm font-bold" />
+                                  </div>
+                              </>
+                          ) : (
+                              <div className="sm:col-span-3">
+                                  <label className="block text-[11px] font-bold text-gray-600 mb-1">Remarks / Note</label>
+                                  <input type="text" value={hReason} onChange={(e) => setHReason(e.target.value)} placeholder="Optional details..." className="w-full p-2 bg-white border border-gray-200 rounded text-sm font-bold" />
+                              </div>
+                          )}
+
+                          <div className="sm:col-span-2 md:col-span-6 flex justify-end">
+                              <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-4 py-2 rounded text-sm flex items-center gap-1.5 transition cursor-pointer">
+                                  <Plus className="h-4 w-4"/> Add Hisaab Entry
+                              </button>
+                          </div>
+                      </form>
+
+                      {/* Hisaab Entries List Table with Delete Button */}
+                      <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                          <table className="w-full text-left text-xs">
+                              <thead className="bg-slate-100 text-slate-700 uppercase font-bold border-b border-gray-200">
+                                  <tr>
+                                      <th className="p-2.5">Date</th>
+                                      <th className="p-2.5">Category</th>
+                                      <th className="p-2.5">Details (Liters / Place / Note)</th>
+                                      <th className="p-2.5 text-right">Amount</th>
+                                      <th className="p-2.5 w-10 text-center print:hidden">Action</th>
+                                  </tr>
+                              </thead>
+                              <tbody className="divide-y divide-gray-100">
+                                  {hisaabEntries.map((item, idx) => (
+                                      <tr key={idx} className="hover:bg-gray-50 font-medium">
+                                          <td className="p-2.5 text-gray-600">{item.date}</td>
+                                          <td className="p-2.5 font-bold text-slate-800">{item.category}</td>
+                                          <td className="p-2.5 text-gray-600">
+                                              {item.category === 'Diesel' ? `${item.liters || 0} Ltrs at ${item.place || 'N/A'}` : (item.reason || item.place || '-')}
+                                          </td>
+                                          <td className="p-2.5 text-right font-bold text-rose-600">₹{item.amount || 0}</td>
+                                          <td className="p-2.5 text-center print:hidden">
+                                              <button onClick={(e) => { e.preventDefault(); handleDeleteHisaab(idx); }} className="text-rose-400 hover:text-rose-600 hover:bg-rose-50 p-1 rounded transition cursor-pointer">
+                                                  <Trash2 className="h-4 w-4" />
+                                              </button>
+                                          </td>
+                                      </tr>
+                                  ))}
+                                  {hisaabEntries.length === 0 && (
+                                      <tr>
+                                          <td colSpan="5" className="p-4 text-center text-gray-400 italic">No driver hisaab entries recorded yet.</td>
+                                      </tr>
+                                  )}
+                              </tbody>
+                          </table>
+                      </div>
                   </div>
 
                   {receiptModal.trip?.telemetry?.lat && (
