@@ -2,11 +2,26 @@ import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import { useReactToPrint } from 'react-to-print';
 import { Link } from 'react-router-dom';
-import { Search, Filter, Printer, CheckCircle2, X, Edit, AlertCircle, CheckCircle, FileSignature, Lock, Save, PlusCircle, Plus, Trash2 } from 'lucide-react';
+import { Search, Filter, Printer, CheckCircle2, X, Edit, AlertCircle, CheckCircle, FileSignature, Lock, Save, PlusCircle, FileText, Receipt, Plus, Trash2 } from 'lucide-react';
 import ActivityLog from '../utils/ActivityLog';
 
 const API_BASE = import.meta.env.VITE_API_URL;
 const PRESET_BANKS = ['JTA 0706', 'JTA 0611', 'JFC 7734', 'JFC 1487'];
+
+function numberToWords(num) {
+    if (!num || isNaN(num) || num === 0) return "ZERO ONLY";
+    const a = ['', 'ONE ', 'TWO ', 'THREE ', 'FOUR ', 'FIVE ', 'SIX ', 'SEVEN ', 'EIGHT ', 'NINE ', 'TEN ', 'ELEVEN ', 'TWELVE ', 'THIRTEEN ', 'FOURTEEN ', 'FIFTEEN ', 'SIXTEEN ', 'SEVENTEEN ', 'EIGHTEEN ', 'NINETEEN '];
+    const b = ['', '', 'TWENTY', 'THIRTY', 'FORTY', 'FIFTY', 'SIXTY', 'SEVENTY', 'EIGHTY', 'NINETY'];
+    const n = ('000000000' + num).substr(-9).match(/^(\d{2})(\d{2})(\d{2})(\d{1})(\d{2})$/);
+    if (!n) return;
+    let str = '';
+    str += (n[1] != 0) ? (a[Number(n[1])] || b[n[1][0]] + ' ' + a[n[1][1]]) + 'CRORE ' : '';
+    str += (n[2] != 0) ? (a[Number(n[2])] || b[n[2][0]] + ' ' + a[n[2][1]]) + 'LAKH ' : '';
+    str += (n[3] != 0) ? (a[Number(n[3])] || b[n[3][0]] + ' ' + a[n[3][1]]) + 'THOUSAND ' : '';
+    str += (n[4] != 0) ? (a[Number(n[4])] || b[n[4][0]] + ' ' + a[n[4][1]]) + 'HUNDRED ' : '';
+    str += (n[5] != 0) ? ((str != '') ? 'AND ' : '') + (a[Number(n[5])] || b[n[5][0]] + ' ' + a[n[5][1]]) + 'ONLY' : 'ONLY';
+    return str;
+}
 
 const Badge = ({ active, label, isWarning = false }) => (
   <span className={`px-2 py-0.5 rounded text-[10px] font-bold border flex w-max items-center gap-1 ${active ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : (isWarning ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-rose-50 text-rose-700 border-rose-200')}`}>
@@ -23,13 +38,18 @@ function TripHistory() {
 
   const [receiptModal, setReceiptModal] = useState({ isOpen: false, trip: null });
   const [editLogisticsModal, setEditLogisticsModal] = useState({ isOpen: false, tripData: null });
+  
+  // 🌟 Update Status Modal State
   const [statusModal, setStatusModal] = useState({ 
     isOpen: false, trip: null, originalTrip: null, trip_unloaded: false, 
     cleared_amount: '', cleared_date: '',
     pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: ''
   });
 
-  // Finance State
+  const [viewType, setViewType] = useState('receipt'); 
+  const [localBillDate, setLocalBillDate] = useState('');
+
+  // --- EDITABLE FINANCE STATE ---
   const [activeCharges, setActiveCharges] = useState({ loading: false, holding: false, gst: false, bill_no: false });
   const [finance, setFinance] = useState({ 
     freight_amount: 0, tds: 0, finance_remarks: '', loading_charge: 0, gst: 0, holding_charge: 0, extra_deduction: 0,
@@ -38,7 +58,7 @@ function TripHistory() {
     gst_enabled: false, include_loading_in_gst: false, include_holding_in_gst: false
   });
 
-  // Driver Hisaab State
+  // --- DRIVER HISAAB STATE ---
   const [hisaabEntries, setHisaabEntries] = useState([]);
   const [hAmount, setHAmount] = useState('');
   const [hDate, setHDate] = useState(new Date().toISOString().split('T')[0]);
@@ -95,6 +115,7 @@ function TripHistory() {
       });
       setActiveCharges({ loading: parseFloat(tripData.loading_charge || 0) > 0, holding: parseFloat(tripData.holding_charge || 0) > 0, gst: Boolean(tripData.gst_enabled), bill_no: !!tripData.bill_no });
       
+      setLocalBillDate(tripData.trip_start_date || new Date().toISOString().split('T')[0]);
       setReceiptModal({ isOpen: true, trip: tripData });
 
       try {
@@ -229,9 +250,23 @@ function TripHistory() {
   if (sortBy === 'newest') processedTrips.sort((a, b) => new Date(b.actual_delivery_date || b.trip_start_date) - new Date(a.actual_delivery_date || a.trip_start_date));
   else if (sortBy === 'oldest') processedTrips.sort((a, b) => new Date(a.actual_delivery_date || a.trip_start_date) - new Date(b.actual_delivery_date || b.trip_start_date));
 
+  // --- UNIFIED MATH ---
   const pendingBalance = parseFloat(statusModal.trip?.balance_payment ?? statusModal.trip?.freight_amount ?? 0);
   const isCustomBank = finance.bank_account === '' || !PRESET_BANKS.includes(finance.bank_account);
   const totalFastagActual = finance.fastag_details.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
+
+  const freight = parseFloat(finance.freight_amount || 0);
+  const unloading = activeCharges.loading ? parseFloat(finance.loading_charge || 0) : 0; 
+  const holdingCharge = activeCharges.holding ? parseFloat(finance.holding_charge || 0) : 0; 
+
+  const exactBillTotalFreight = freight + unloading + holdingCharge; 
+  const gstAmount = parseFloat(finance.gst || 0);
+  const gstHalf = (gstAmount / 2).toFixed(2);
+  const isIGST = receiptModal.trip?.source_city?.toLowerCase() !== receiptModal.trip?.destination_city?.toLowerCase(); 
+  const isGstEnabled = finance.gst_enabled;
+  const finalTotalAmount = exactBillTotalFreight + gstAmount;
+  const totalAdvances = finance.advance_details.reduce((sum, adv) => sum + parseFloat(adv.amount || 0), 0);
+  const finalBalancePayable = finalTotalAmount - totalAdvances;
 
   const currentOwner = receiptModal.trip?.owner_name?.toUpperCase() || '';
   const isJFC = currentOwner === 'JFC'; 
@@ -594,6 +629,7 @@ function TripHistory() {
                       <div className="border-t border-gray-400 w-48 text-center pt-2 font-semibold text-sm">Receiver's Signature</div>
                       <div className="border-t border-gray-400 w-48 text-center pt-2 font-semibold text-sm">Authorized Signatory</div>
                   </div>
+
                </div>
             </div>
 
@@ -601,6 +637,78 @@ function TripHistory() {
                <button onClick={handlePrint} className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-6 py-2.5 rounded-lg font-bold transition cursor-pointer"><Printer className="h-5 w-5"/> Print Receipt</button>
                <button onClick={handleSaveFinance} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-2.5 rounded-lg font-bold shadow-sm transition cursor-pointer"><Save className="h-5 w-5"/> Save Financial Ledger</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* UPDATE STATUS MODAL */}
+      {statusModal.isOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col p-6 space-y-5 animate-in fade-in zoom-in-95">
+             <div className="flex justify-between items-center border-b pb-4">
+                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-blue-600"/> Update Status
+                </h3>
+                <button onClick={() => setStatusModal({isOpen: false, trip: null})} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 cursor-pointer"><X className="h-5 w-5"/></button>
+             </div>
+             <p className="text-sm text-gray-600">Update checklist for <strong>{statusModal.trip?.tracking_number}</strong>:</p>
+             <div className="space-y-3">
+                <label className="flex items-center gap-3 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer hover:border-blue-300 transition">
+                   <input type="checkbox" className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer" checked={statusModal.trip_unloaded} onChange={e => setStatusModal({...statusModal, trip_unloaded: e.target.checked})} />
+                   <span className="font-bold text-slate-800 text-sm">Trip Unloaded</span>
+                </label>
+                
+                <div className="p-3 rounded-xl border border-gray-200 bg-gray-50 flex flex-col gap-2 transition hover:border-blue-300">
+                    <span className="font-bold text-slate-800 text-sm">Log New Payment</span>
+                    <div className="flex flex-col gap-2 mt-1">
+                        <span className="text-xs text-slate-500 font-bold">Current Pending Balance: <span className="text-blue-600">₹{parseFloat(statusModal.trip?.balance_payment ?? statusModal.trip?.freight_amount ?? 0).toFixed(2)}</span></span>
+                        {parseFloat(statusModal.trip?.balance_payment ?? statusModal.trip?.freight_amount ?? 0) <= 0 ? (
+                            <span className="text-xs font-bold text-emerald-700 bg-emerald-100 p-2 rounded-lg text-center block w-full mt-1 border border-emerald-200">✓ Balance is fully paid.</span>
+                        ) : (
+                            <div className="flex gap-2">
+                                <input type="number" placeholder="Amount Received (₹)" className="w-full border border-gray-300 rounded p-2 text-sm text-gray-700 outline-none focus:border-blue-400 font-bold" value={statusModal.cleared_amount} onChange={e => setStatusModal({...statusModal, cleared_amount: e.target.value})} />
+                                <input type="date" className="w-full border border-gray-300 rounded p-2 text-sm text-gray-700 outline-none focus:border-blue-400" value={statusModal.cleared_date} onChange={e => setStatusModal({...statusModal, cleared_date: e.target.value})} />
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50 flex flex-col gap-3 mt-2">
+                    <label className="font-bold text-blue-900 text-sm">POD Tracking Stage</label>
+                    <select className="border border-blue-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-400 outline-none w-full bg-white font-semibold text-slate-700 cursor-pointer" value={statusModal.pod_status} onChange={e => setStatusModal({...statusModal, pod_status: e.target.value})}>
+                       <option value="Pending">Pending (Not received yet)</option>
+                       <option value="Received">Received at Office</option>
+                       <option value="Forwarded">Forwarded to Party</option>
+                       <option value="Client Received">Received by Party</option>
+                    </select>
+                    
+                    <div className="space-y-2 mt-1">
+                        {['Received', 'Forwarded', 'Client Received'].includes(statusModal.pod_status) && (
+                            <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm">
+                               <span className="text-xs font-semibold text-gray-600">Office Arrival:</span>
+                               {statusModal.originalTrip?.pod_arrived_office_date ? <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">✓ {statusModal.originalTrip.pod_arrived_office_date}</span> : <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_arrived_office_date} onChange={e => setStatusModal({...statusModal, pod_arrived_office_date: e.target.value})} />}
+                            </div>
+                        )}
+                        {['Forwarded', 'Client Received'].includes(statusModal.pod_status) && (
+                            <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm">
+                               <span className="text-xs font-semibold text-gray-600">Forwarded:</span>
+                               {statusModal.originalTrip?.pod_forwarded_client_date ? <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">✓ {statusModal.originalTrip.pod_forwarded_client_date}</span> : <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_forwarded_client_date} onChange={e => setStatusModal({...statusModal, pod_forwarded_client_date: e.target.value})} />}
+                            </div>
+                        )}
+                        {statusModal.pod_status === 'Client Received' && (
+                            <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm">
+                               <span className="text-xs font-semibold text-gray-600">Client Received:</span>
+                               {statusModal.originalTrip?.pod_received_client_date ? <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">✓ {statusModal.originalTrip.pod_received_client_date}</span> : <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_received_client_date} onChange={e => setStatusModal({...statusModal, pod_received_client_date: e.target.value})} />}
+                            </div>
+                        )}
+                    </div>
+                </div>
+             </div>
+
+             <div className="flex justify-end gap-3 pt-4 border-t">
+                <button onClick={() => setStatusModal({isOpen: false, trip: null})} className="px-4 py-2 rounded-lg font-semibold text-gray-600 hover:bg-gray-100 text-sm cursor-pointer">Cancel</button>
+                <button onClick={handleUpdateStatus} className="text-white px-6 py-2 rounded-lg font-bold text-sm shadow-sm transition bg-blue-600 hover:bg-blue-700 cursor-pointer">Save Status</button>
+             </div>
           </div>
         </div>
       )}
