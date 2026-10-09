@@ -1,0 +1,17 @@
+frontend/src/pages/TripHistory.jsx
+  h_b6895d6280a977 5,11-25,41-42,49-50,52,61,118,253,258-270,632,644-711
+  h_b6895d6280a977 51,712-715
+frontend/src/pages/DriverHistory.jsx
+  h_b6895d6280a977 508
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "09be0a75a2015e52a7e3651958f5d09991fb9e0a",
+  "prompts": {},
+  "humans": {
+    "h_b6895d6280a977": {
+      "author": "aagam2909 <aagamjain1325@gmail.com>"
+    }
+  }
+}
