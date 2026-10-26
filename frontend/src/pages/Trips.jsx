@@ -3,7 +3,7 @@ import axios from 'axios';
 import { 
   Search, FileUp, PlusCircle, X, Printer, Save, Edit, Filter, 
   Trash2, CheckCircle2, Navigation, MapPin, Loader2, Calendar, Truck,
-  Plus
+  Plus, CheckSquare
 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
@@ -52,7 +52,8 @@ function Trips() {
   // Form State
   const [tripData, setTripData] = useState({
     vehicle_number: '', source_city: '', destination_city: '', party_name: '', owner_name: '',
-    gta_name: '', lr_no: '', eway_bill: '', eway_bill_expiry: '', trip_start_date: '', lw: '', freight_amount: '', total_km: ''
+    gta_name: '', lr_no: '', eway_bill: '', eway_bill_expiry: '', trip_start_date: '', lw: '', freight_amount: '', total_km: '',
+    reported_date: '', unloading_date: ''
   });
   
   // POD Quick Update State
@@ -63,10 +64,15 @@ function Trips() {
   // Modal States
   const [receiptModal, setReceiptModal] = useState({ isOpen: false, trip: null });
   const [editModal, setEditModal] = useState({ isOpen: false, tripData: null });
+  
+  // 🌟 Complete Modal state now includes reported_date & unloading_date
   const [completeModal, setCompleteModal] = useState({ 
     isOpen: false, trip: null, trip_unloaded: false, cleared_amount: '', cleared_date: '',
+    reported_date: new Date().toISOString().split('T')[0],
+    unloading_date: new Date().toISOString().split('T')[0],
     pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: ''
   });
+  
   const [trackingModal, setTrackingModal] = useState({
     isOpen: false, trip_id: null, vehicle_number: '', tracking_location: '', tracking_status: 'RUNNING'
   });
@@ -167,19 +173,21 @@ function Trips() {
       return alert("Please fill mandatory fields (Vehicle, Source, Destination)!");
     }
     setIsLaunching(true); 
-    try {
+    try { 
       await axios.post(`${API_BASE}/trips`, { 
         ...tripData, 
         trip_start_date: tripData.trip_start_date || new Date().toISOString().slice(0, 10), 
+        reported_date: tripData.reported_date || null,
+        unloading_date: tripData.unloading_date || null,
         freight_amount: parseFloat(tripData.freight_amount) || 0, 
         total_km: parseFloat(tripData.total_km) || 0 
       });
       alert("Trip Launched Successfully! 🚀");
-      setTripData({ vehicle_number: '', source_city: '', destination_city: '', party_name: '', owner_name: '', gta_name: '', lr_no: '', eway_bill: '', eway_bill_expiry: '', trip_start_date: '', lw: '', freight_amount: '', total_km: ''});
+      setTripData({ vehicle_number: '', source_city: '', destination_city: '', party_name: '', owner_name: '', gta_name: '', lr_no: '', eway_bill: '', eway_bill_expiry: '', trip_start_date: '', lw: '', freight_amount: '', total_km: '', reported_date: '', unloading_date: ''});
       fetchAllData();
     } catch (err) { 
       alert(err.response?.data?.detail || "Failed to launch trip."); 
-    } finally {
+    } finally { 
       setIsLaunching(false); 
     }
   };
@@ -191,7 +199,7 @@ function Trips() {
       setEditModal({ isOpen: false, tripData: null }); 
       fetchTrips(); 
       fetchAllHistoryForMemory(); 
-    } catch (err) {
+    } catch (err) { 
       alert("Failed to update trip details.");
     }
   };
@@ -202,7 +210,7 @@ function Trips() {
       await axios.put(`${API_BASE}/finances/${podUpdate.trip_id}/pod`, podUpdate); 
       alert("POD Updated!"); 
       fetchTrips(); 
-    } catch (err) {
+    } catch (err) { 
       alert("Failed to update POD.");
     }
   };
@@ -214,6 +222,8 @@ function Trips() {
       trip_unloaded: trip.trip_unloaded || false, 
       cleared_amount: '', 
       cleared_date: new Date().toISOString().split('T')[0], 
+      reported_date: trip.reported_date || new Date().toISOString().split('T')[0],
+      unloading_date: trip.unloading_date || new Date().toISOString().split('T')[0],
       pod_status: trip.pod_status || 'Pending', 
       pod_arrived_office_date: trip.pod_arrived_office_date || '', 
       pod_forwarded_client_date: trip.pod_forwarded_client_date || '', 
@@ -223,7 +233,7 @@ function Trips() {
 
   const handleConfirmCompleteTrip = async () => {
     const trip = completeModal.trip;
-    try {
+    try { 
       let podPath = null;
       if (podFiles[trip.trip_id]) { 
         const formData = new FormData(); 
@@ -232,6 +242,8 @@ function Trips() {
       }
       await axios.put(`${API_BASE}/trips/${trip.trip_id}/complete`, { 
         actual_delivery_date: new Date().toISOString().split('T')[0], 
+        reported_date: completeModal.reported_date || null,
+        unloading_date: completeModal.unloading_date || null,
         pod_image_path: podPath, 
         trip_unloaded: completeModal.trip_unloaded, 
         amount_cleared: false, 
@@ -243,9 +255,9 @@ function Trips() {
         pod_received_client_date: completeModal.pod_received_client_date || null 
       });
       alert("Completed Successfully!"); 
-      setCompleteModal({ isOpen: false, trip: null, trip_unloaded: false, cleared_amount: '', cleared_date: '', pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: '' }); 
+      setCompleteModal({ isOpen: false, trip: null, trip_unloaded: false, cleared_amount: '', cleared_date: '', reported_date: '', unloading_date: '', pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: '' }); 
       fetchAllData();
-    } catch (err) {
+    } catch (err) { 
       alert("Failed to complete trip.");
     }
   };
@@ -256,7 +268,7 @@ function Trips() {
         await axios.delete(`${API_BASE}/trips/${trip_id}`); 
         alert("Deleted."); 
         fetchAllData(); 
-      } catch (err) {
+      } catch (err) { 
         alert("Delete failed.");
       }
     }
@@ -383,12 +395,11 @@ function Trips() {
       });
       alert("Ledger Saved!"); 
       fetchTrips(); 
-    } catch (err) {
+    } catch (err) { 
       alert("Error saving finance.");
     }
   };
 
-  // 🌟 DRIVER HISAAB LOGIC
   const handleAddHisaab = async (e) => {
     e.preventDefault();
     if (!receiptModal.trip?.trip_id) return;
@@ -463,6 +474,11 @@ function Trips() {
           <input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100" type="number" placeholder="Rough Freight (₹)" value={tripData.freight_amount} onChange={e => setTripData({...tripData, freight_amount: e.target.value})} />
           <input className="w-full border p-2.5 rounded-lg text-sm text-gray-500 outline-none focus:ring-2 focus:ring-blue-100" type="date" title="Launch Date" value={tripData.trip_start_date} onChange={e => setTripData({...tripData, trip_start_date: e.target.value})} />
           <input className="w-full border p-2.5 rounded-lg text-sm text-gray-500 outline-none focus:ring-2 focus:ring-blue-100" type="date" title="E-Way Bill Expiry Date" value={tripData.eway_bill_expiry} onChange={e => setTripData({...tripData, eway_bill_expiry: e.target.value})} />
+          
+          {/* Waiting & Unloading dates optional inputs */}
+          <input className="w-full border p-2.5 rounded-lg text-sm text-gray-500 outline-none focus:ring-2 focus:ring-blue-100" type="date" title="Reported at Destination / Waiting Date" value={tripData.reported_date} onChange={e => setTripData({...tripData, reported_date: e.target.value})} />
+          <input className="w-full border p-2.5 rounded-lg text-sm text-gray-500 outline-none focus:ring-2 focus:ring-blue-100" type="date" title="Unloading Date" value={tripData.unloading_date} onChange={e => setTripData({...tripData, unloading_date: e.target.value})} />
+          
           <div className="sm:col-span-2 xl:col-span-2"><input className="w-full border p-2.5 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-100 uppercase" placeholder="L/W Details (Optional)" value={tripData.lw} onChange={e => setTripData({...tripData, lw: e.target.value})} /></div>
           
           <button 
@@ -559,6 +575,16 @@ function Trips() {
                       <div className="text-xs text-gray-500 mt-1 flex items-center gap-1">
                         <Calendar className="h-3 w-3"/> Launched: {trip.trip_start_date || '-'}
                       </div>
+                      {trip.reported_date && (
+                        <div className="text-[10px] text-amber-700 font-semibold mt-0.5">
+                          Waiting since: {trip.reported_date}
+                        </div>
+                      )}
+                      {trip.unloading_date && (
+                        <div className="text-[10px] text-emerald-700 font-semibold mt-0.5">
+                          Unloaded: {trip.unloading_date}
+                        </div>
+                      )}
                     </td>
 
                     <td className="p-4">
@@ -680,7 +706,7 @@ function Trips() {
         </div>
       )}
 
-      {/* 🌟 MODAL 2: FINANCE RECEIPT MODAL (CLEANED) */}
+      {/* MODAL 2: FINANCE RECEIPT MODAL */}
       {receiptModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] animate-in fade-in zoom-in-95 duration-200">
@@ -692,7 +718,7 @@ function Trips() {
             <div className="flex-1 overflow-y-auto p-6 bg-gray-100">
                <div ref={receiptRef} className="bg-white p-10 mx-auto shadow-sm border border-gray-200 rounded-xl max-w-3xl">
                   <div className="border-b-2 border-slate-900 pb-6 mb-8 flex justify-between items-end">
-                      <div><h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">JAIN FREIGHT CARRIERS</h1><p className="text-gray-500 mt-1 font-medium text-sm">Logistics & Transportation Services</p></div>
+                      <div><h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">{currentComp.name}</h1><p className="text-gray-500 mt-1 font-medium text-sm">Logistics & Transportation Services</p></div>
                       <div className="text-right"><h2 className="text-xl font-bold text-gray-800">FREIGHT RECEIPT</h2><p className="text-sm font-semibold text-gray-500 mt-1">TRK: {receiptModal.trip.tracking_number}</p>{activeCharges.bill_no && finance.bill_no && (<p className="text-sm font-bold text-blue-700 mt-1 uppercase tracking-wide">BILL NO: {finance.bill_no}</p>)}</div>
                   </div>
                   
@@ -803,7 +829,7 @@ function Trips() {
                       </div>
                   </div>
 
-                  {/* 🌟 FULL DRIVER HISAAB MODULE INSERTED HERE */}
+                  {/* DRIVER HISAAB MODULE */}
                   <div className="mt-8 print:mt-4">
                       <h3 className="font-bold text-base mb-4 text-slate-800 uppercase tracking-wide border-b pb-2 flex justify-between items-center">
                           <span>Driver Settlement (Hisaab) Ledger</span>
@@ -815,7 +841,6 @@ function Trips() {
                           <div className="flex justify-between items-center border-b border-gray-200 pb-2 col-span-2 bg-blue-100 p-2 rounded"><span className="font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span><span className="font-extrabold text-slate-700">₹{receiptModal.trip.driver_total || 0}</span></div>
                       </div>
 
-                      {/* Add Entry Form (Hidden on Print) */}
                       <form onSubmit={handleAddHisaab} className="print:hidden bg-gray-50 border border-gray-200 rounded-xl p-4 mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-3">
                           <div>
                               <label className="block text-[11px] font-bold text-gray-600 mb-1">Amount (₹)</label>
@@ -859,7 +884,6 @@ function Trips() {
                           </div>
                       </form>
 
-                      {/* Hisaab Entries List Table with Delete Button */}
                       <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
                           <table className="w-full text-left text-xs">
                               <thead className="bg-slate-100 text-slate-700 uppercase font-bold border-b border-gray-200">
@@ -928,7 +952,7 @@ function Trips() {
         </div>
       )}
 
-      {/* MODAL 3: COMPLETE TRIP STATUS MODAL */}
+      {/* 🌟 MODAL 3: COMPLETE TRIP STATUS MODAL (WITH REPORTED/WAITING & UNLOADING DATES) */}
       {completeModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col p-6 space-y-5 animate-in fade-in zoom-in-95">
@@ -940,11 +964,36 @@ function Trips() {
              <p className="text-sm text-gray-600">Confirm status for trip <strong>{completeModal.trip?.tracking_number}</strong> before marking as completed:</p>
 
              <div className="space-y-4">
+                {/* 🌟 Reported at Location / Waiting Date */}
+                <div>
+                   <label className="text-xs font-bold text-gray-700 block mb-1">Reported at Destination / Waiting Date</label>
+                   <input 
+                     type="date" 
+                     className="w-full border border-gray-300 rounded-lg p-2.5 text-xs text-gray-700 outline-none focus:ring-2 focus:ring-blue-100" 
+                     value={completeModal.reported_date} 
+                     onChange={e => setCompleteModal({...completeModal, reported_date: e.target.value})} 
+                     title="When the vehicle arrived at destination or entered the waiting line"
+                   />
+                   <span className="text-[10px] text-gray-400 mt-0.5 block">When truck reached destination or waiting queue.</span>
+                </div>
+
+                {/* 🌟 Actual Unloading Date */}
+                <div>
+                   <label className="text-xs font-bold text-gray-700 block mb-1">Actual Unloading Date</label>
+                   <input 
+                     type="date" 
+                     className="w-full border border-gray-300 rounded-lg p-2.5 text-xs text-gray-700 outline-none focus:ring-2 focus:ring-blue-100" 
+                     value={completeModal.unloading_date} 
+                     onChange={e => setCompleteModal({...completeModal, unloading_date: e.target.value})} 
+                   />
+                   <span className="text-[10px] text-gray-400 mt-0.5 block">When the truck completed cargo offloading.</span>
+                </div>
+
                 <label className="flex items-center gap-3 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer hover:border-blue-300 transition">
                    <input type="checkbox" className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer" checked={completeModal.trip_unloaded} onChange={e => setCompleteModal({...completeModal, trip_unloaded: e.target.checked})} />
                    <div>
                       <span className="font-bold text-slate-800 text-sm block">Trip Unloaded</span>
-                      <span className="text-xs text-gray-500">Has the vehicle been unloaded at destination?</span>
+                      <span className="text-xs text-gray-500">Confirm the vehicle has been unloaded at destination.</span>
                    </div>
                 </label>
 
@@ -1008,16 +1057,31 @@ function Trips() {
         </div>
       )}
 
-      {/* MODAL 4: EDIT TRIP MODAL */}
+      {/* 🌟 MODAL 4: EDIT TRIP MODAL (WITH COMPLETE BUTTON IN FOOTER) */}
       {editModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-            <div className="flex justify-between items-center p-5 border-b bg-gray-50"><h3 className="font-bold text-lg text-slate-800">Edit Trip: {editModal.tripData.tracking_number}</h3><button onClick={() => setEditModal({isOpen: false, tripData: null})} className="p-2 hover:bg-gray-200 rounded-lg text-gray-500 cursor-pointer"><X className="h-5 w-5" /></button></div>
+            <div className="flex justify-between items-center p-5 border-b bg-gray-50">
+              <h3 className="font-bold text-lg text-slate-800">Edit Trip: {editModal.tripData.tracking_number}</h3>
+              <button onClick={() => setEditModal({isOpen: false, tripData: null})} className="p-2 hover:bg-gray-200 rounded-lg text-gray-500 cursor-pointer"><X className="h-5 w-5" /></button>
+            </div>
+            
             <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 h-96 overflow-y-auto">
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Vehicle</label><input className="w-full border p-2.5 rounded-lg text-sm bg-gray-100 uppercase" value={editModal.tripData.vehicle_number} disabled /></div>
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Launch Date</label><input type="date" className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.trip_start_date || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, trip_start_date: e.target.value}})} /></div>
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Source</label><input className="w-full border p-2.5 rounded-lg text-sm uppercase" value={editModal.tripData.source_city} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, source_city: e.target.value}})} /></div>
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Destination</label><input className="w-full border p-2.5 rounded-lg text-sm uppercase" value={editModal.tripData.destination_city} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, destination_city: e.target.value}})} /></div>
+                
+                {/* Reported & Unloading Dates in Edit Modal */}
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-amber-800">Reported / Waiting Date</label>
+                  <input type="date" className="w-full border border-amber-300 p-2.5 rounded-lg text-sm bg-amber-50/50" value={editModal.tripData.reported_date || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, reported_date: e.target.value}})} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-emerald-800">Actual Unloading Date</label>
+                  <input type="date" className="w-full border border-emerald-300 p-2.5 rounded-lg text-sm bg-emerald-50/50" value={editModal.tripData.unloading_date || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, unloading_date: e.target.value}})} />
+                </div>
+
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Party Name</label><input className="w-full border p-2.5 rounded-lg text-sm uppercase" value={editModal.tripData.party_name || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, party_name: e.target.value}})} /></div>
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Owner Name</label><input className="w-full border p-2.5 rounded-lg text-sm uppercase" value={editModal.tripData.owner_name || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, owner_name: e.target.value}})} /></div>
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">GTA Name</label><input className="w-full border p-2.5 rounded-lg text-sm uppercase" value={editModal.tripData.gta_name || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, gta_name: e.target.value}})} /></div>
@@ -1026,7 +1090,26 @@ function Trips() {
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Estimated Route KM</label><input type="number" className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.total_km || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, total_km: e.target.value}})} /></div>
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Rough Freight (₹)</label><input type="number" className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.freight_amount || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, freight_amount: e.target.value}})} /></div>
             </div>
-            <div className="p-5 border-t bg-white flex justify-end gap-3"><button onClick={() => setEditModal({isOpen: false, tripData: null})} className="px-5 py-2.5 text-gray-600 hover:bg-gray-100 rounded-lg cursor-pointer">Cancel</button><button onClick={handleUpdateTrip} className="bg-slate-900 text-white px-6 py-2.5 rounded-lg font-bold hover:bg-slate-800 transition cursor-pointer">Save Changes</button></div>
+            
+            {/* 🌟 Footer with embedded Complete Trip action */}
+            <div className="p-5 border-t bg-white flex justify-between items-center">
+              <button 
+                type="button" 
+                onClick={() => {
+                  const currentTrip = editModal.tripData;
+                  setEditModal({ isOpen: false, tripData: null });
+                  handleOpenCompleteModal(currentTrip);
+                }}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg font-bold text-xs shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <CheckSquare className="h-4 w-4" /> Complete Trip Here
+              </button>
+
+              <div className="flex gap-3">
+                <button onClick={() => setEditModal({isOpen: false, tripData: null})} className="px-5 py-2.5 text-gray-600 hover:bg-gray-100 rounded-lg cursor-pointer text-xs font-semibold">Cancel</button>
+                <button onClick={handleUpdateTrip} className="bg-slate-900 text-white px-6 py-2.5 rounded-lg font-bold hover:bg-slate-800 transition cursor-pointer text-xs">Save Changes</button>
+              </div>
+            </div>
           </div>
         </div>
       )}

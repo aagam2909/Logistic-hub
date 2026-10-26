@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import axios from 'axios';
-import { LayoutGrid, Truck, Users, MapPin, Receipt, Banknote, BriefcaseBusiness, Search, Bell } from 'lucide-react';
+import { 
+  LayoutGrid, Truck, Users, MapPin, Receipt, Banknote, 
+  BriefcaseBusiness, Search, Bell, CreditCard 
+} from 'lucide-react';
 
 import Dashboard from './pages/Dashboard';
 import FleetRegistry from './pages/FleetRegistry';
@@ -12,6 +15,7 @@ import PartyHistory from './pages/PartyHistory';
 import DriverHistory from './pages/DriverHistory';
 import TripDetails from './pages/TripDetails';
 import TripHistory from './pages/TripHistory';
+import StaffLedger from './pages/StaffLedger';
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
@@ -25,6 +29,7 @@ const navItems = [
 ];
 
 const bottomNavItems = [
+  { name: 'Staff & Card Accounts', path: '/staff-accounts', icon: CreditCard },
   { name: 'Client Ledger', path: '/party-history', icon: BriefcaseBusiness },
   { name: 'Driver Logs', path: '/driver-history', icon: Users },
 ];
@@ -109,6 +114,7 @@ function App() {
               <Route path="/trip-history" element={<TripHistory />} />
               <Route path="/finance" element={<Finance />} />
               <Route path="/track" element={<Track />} />
+              <Route path="/staff-accounts" element={<StaffLedger />} />
               <Route path="/party-history" element={<PartyHistory />} />
               <Route path="/driver-history" element={<DriverHistory />} />
               <Route path="/trip-details/:trip_id" element={<TripDetails />} />

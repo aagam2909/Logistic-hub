@@ -8,6 +8,17 @@ import ActivityLog from '../utils/ActivityLog';
 const API_BASE = import.meta.env.VITE_API_URL;
 const PRESET_BANKS = ['JTA 0706', 'JTA 0611', 'JFC 7734', 'JFC 1487'];
 
+// 🌟 Date formatter helper for DD-MM-YYYY
+function formatDate(dateStr) {
+    if (!dateStr) return '-';
+    const s = String(dateStr).slice(0, 10);
+    const parts = s.split('-');
+    if (parts.length === 3) {
+        return `${parts[2]}-${parts[1]}-${parts[0]}`;
+    }
+    return s;
+}
+
 function numberToWords(num) {
     if (!num || isNaN(num) || num === 0) return "ZERO ONLY";
     const a = ['', 'ONE ', 'TWO ', 'THREE ', 'FOUR ', 'FIVE ', 'SIX ', 'SEVEN ', 'EIGHT ', 'NINE ', 'TEN ', 'ELEVEN ', 'TWELVE ', 'THIRTEEN ', 'FOURTEEN ', 'FIFTEEN ', 'SIXTEEN ', 'SEVENTEEN ', 'EIGHTEEN ', 'NINETEEN '];
@@ -39,17 +50,15 @@ function TripHistory() {
   const [receiptModal, setReceiptModal] = useState({ isOpen: false, trip: null });
   const [editLogisticsModal, setEditLogisticsModal] = useState({ isOpen: false, tripData: null });
   
-  // 🌟 Update Status Modal State
   const [statusModal, setStatusModal] = useState({ 
     isOpen: false, trip: null, originalTrip: null, trip_unloaded: false, 
-    cleared_amount: '', cleared_date: '',
+    cleared_amount: '', cleared_date: new Date().toISOString().split('T')[0],
     pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: ''
   });
 
   const [viewType, setViewType] = useState('receipt'); 
   const [localBillDate, setLocalBillDate] = useState('');
 
-  // --- EDITABLE FINANCE STATE ---
   const [activeCharges, setActiveCharges] = useState({ loading: false, holding: false, gst: false, bill_no: false });
   const [finance, setFinance] = useState({ 
     freight_amount: 0, tds: 0, finance_remarks: '', loading_charge: 0, gst: 0, holding_charge: 0, extra_deduction: 0,
@@ -58,7 +67,6 @@ function TripHistory() {
     gst_enabled: false, include_loading_in_gst: false, include_holding_in_gst: false
   });
 
-  // --- DRIVER HISAAB STATE ---
   const [hisaabEntries, setHisaabEntries] = useState([]);
   const [hAmount, setHAmount] = useState('');
   const [hDate, setHDate] = useState(new Date().toISOString().split('T')[0]);
@@ -250,8 +258,7 @@ function TripHistory() {
   if (sortBy === 'newest') processedTrips.sort((a, b) => new Date(b.actual_delivery_date || b.trip_start_date) - new Date(a.actual_delivery_date || a.trip_start_date));
   else if (sortBy === 'oldest') processedTrips.sort((a, b) => new Date(a.actual_delivery_date || a.trip_start_date) - new Date(b.actual_delivery_date || b.trip_start_date));
 
-  // --- UNIFIED MATH ---
-  const pendingBalance = parseFloat(statusModal.trip?.balance_payment ?? statusModal.trip?.freight_amount ?? 0);
+  const pendingBalance = statusModal.trip ? parseFloat(statusModal.trip?.balance_payment ?? statusModal.trip?.freight_amount ?? 0) : 0;
   const isCustomBank = finance.bank_account === '' || !PRESET_BANKS.includes(finance.bank_account);
   const totalFastagActual = finance.fastag_details.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
 
@@ -335,7 +342,6 @@ function TripHistory() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {processedTrips.map((trip, index) => {
-                  
                   const balance = parseFloat(trip.balance_payment ?? trip.freight_amount ?? 0);
                   const isFullyPaid = balance <= 0;
                   const isPartiallyPaid = !isFullyPaid && parseFloat(trip.adv_amt || 0) > 0;
@@ -348,13 +354,11 @@ function TripHistory() {
                            <Link to={`/trip-details/${trip.trip_id}`} className="text-blue-600 font-bold hover:text-blue-800 hover:underline transition cursor-pointer text-left">
                              {trip.tracking_number}
                            </Link>
-                           
                            {trip.is_locked ? (
                                <button disabled className="text-gray-300 cursor-not-allowed" title="Trip is Permanently Locked"><Lock className="h-3.5 w-3.5" /></button>
                            ) : (
                                <button onClick={() => setEditLogisticsModal({isOpen: true, tripData: trip})} className="text-amber-500 hover:text-amber-700 transition" title="One-Time Final Edit"><FileSignature className="h-3.5 w-3.5" /></button>
                            )}
-                           
                         </div>
                         <div className="text-xs text-gray-400 mt-0.5">LR: {trip.lr_no || 'N/A'}</div>
                       </td>
@@ -364,7 +368,7 @@ function TripHistory() {
                       </td>
                       <td className="p-4">
                         <div className="font-medium text-gray-700">{trip.source_city} → {trip.destination_city}</div>
-                        <div className="text-xs text-emerald-600 font-bold mt-0.5">Delivered: {trip.actual_delivery_date || '-'}</div>
+                        <div className="text-xs text-emerald-600 font-bold mt-0.5">Delivered: {formatDate(trip.actual_delivery_date)}</div>
                       </td>
                       <td className="p-4">
                         {isFullyComplete ? (
@@ -399,7 +403,7 @@ function TripHistory() {
         )}
       </div>
 
-      {/* 🌟 EDITABLE RECEIPT MODAL FOR COMPLETED TRIPS */}
+      {/* EDITABLE RECEIPT MODAL */}
       {receiptModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[95vh] animate-in fade-in zoom-in-95 duration-200">
@@ -426,7 +430,7 @@ function TripHistory() {
                   
                   <div className="grid grid-cols-2 gap-8 mb-6 text-sm">
                       <div className="space-y-3">
-                        <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Date of Dispatch:</span> <span className="font-bold">{receiptModal.trip.trip_start_date || '-'}</span></div>
+                        <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Date of Dispatch:</span> <span className="font-bold">{formatDate(receiptModal.trip.trip_start_date)}</span></div>
                         <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Vehicle No:</span> <span className="font-bold text-base">{receiptModal.trip.vehicle_number}</span></div>
                         <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Route:</span> <span className="font-bold">{receiptModal.trip.source_city} → {receiptModal.trip.destination_city}</span></div>
                         <div className="flex justify-between border-b pb-2"><span className="text-gray-500 font-medium">Bank Account:</span> <span className="font-bold text-blue-700">{finance.bank_account || 'N/A'}</span></div>
@@ -531,7 +535,6 @@ function TripHistory() {
                       </div>
                   </div>
 
-                  {/* 🌟 FULL DRIVER HISAAB MODULE INSERTED HERE */}
                   <div className="mt-8 print:mt-4">
                       <h3 className="font-bold text-base mb-4 text-slate-800 uppercase tracking-wide border-b pb-2 flex justify-between items-center">
                           <span>Driver Settlement (Hisaab) Ledger</span>
@@ -543,7 +546,6 @@ function TripHistory() {
                           <div className="flex justify-between items-center border-b border-gray-200 pb-2 col-span-2 bg-blue-100 p-2 rounded"><span className="font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span><span className="font-extrabold text-slate-700">₹{receiptModal.trip.driver_total || 0}</span></div>
                       </div>
 
-                      {/* Add Entry Form (Hidden on Print) */}
                       <form onSubmit={handleAddHisaab} className="print:hidden bg-gray-50 border border-gray-200 rounded-xl p-4 mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-3">
                           <div>
                               <label className="block text-[11px] font-bold text-gray-600 mb-1">Amount (₹)</label>
@@ -587,7 +589,6 @@ function TripHistory() {
                           </div>
                       </form>
 
-                      {/* Hisaab Entries List Table with Delete Button */}
                       <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
                           <table className="w-full text-left text-xs">
                               <thead className="bg-slate-100 text-slate-700 uppercase font-bold border-b border-gray-200">
@@ -602,7 +603,7 @@ function TripHistory() {
                               <tbody className="divide-y divide-gray-100">
                                   {hisaabEntries.map((item, idx) => (
                                       <tr key={idx} className="hover:bg-gray-50 font-medium">
-                                          <td className="p-2.5 text-gray-600">{item.date}</td>
+                                          <td className="p-2.5 text-gray-600">{formatDate(item.date)}</td>
                                           <td className="p-2.5 font-bold text-slate-800">{item.category}</td>
                                           <td className="p-2.5 text-gray-600">
                                               {item.category === 'Diesel' ? `${item.liters || 0} Ltrs at ${item.place || 'N/A'}` : (item.reason || item.place || '-')}
@@ -686,19 +687,19 @@ function TripHistory() {
                         {['Received', 'Forwarded', 'Client Received'].includes(statusModal.pod_status) && (
                             <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm">
                                <span className="text-xs font-semibold text-gray-600">Office Arrival:</span>
-                               {statusModal.originalTrip?.pod_arrived_office_date ? <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">✓ {statusModal.originalTrip.pod_arrived_office_date}</span> : <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_arrived_office_date} onChange={e => setStatusModal({...statusModal, pod_arrived_office_date: e.target.value})} />}
+                               {statusModal.originalTrip?.pod_arrived_office_date ? <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">✓ {formatDate(statusModal.originalTrip.pod_arrived_office_date)}</span> : <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_arrived_office_date} onChange={e => setStatusModal({...statusModal, pod_arrived_office_date: e.target.value})} />}
                             </div>
                         )}
                         {['Forwarded', 'Client Received'].includes(statusModal.pod_status) && (
                             <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm">
                                <span className="text-xs font-semibold text-gray-600">Forwarded:</span>
-                               {statusModal.originalTrip?.pod_forwarded_client_date ? <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">✓ {statusModal.originalTrip.pod_forwarded_client_date}</span> : <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_forwarded_client_date} onChange={e => setStatusModal({...statusModal, pod_forwarded_client_date: e.target.value})} />}
+                               {statusModal.originalTrip?.pod_forwarded_client_date ? <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">✓ {formatDate(statusModal.originalTrip.pod_forwarded_client_date)}</span> : <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_forwarded_client_date} onChange={e => setStatusModal({...statusModal, pod_forwarded_client_date: e.target.value})} />}
                             </div>
                         )}
                         {statusModal.pod_status === 'Client Received' && (
                             <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm">
                                <span className="text-xs font-semibold text-gray-600">Client Received:</span>
-                               {statusModal.originalTrip?.pod_received_client_date ? <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">✓ {statusModal.originalTrip.pod_received_client_date}</span> : <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_received_client_date} onChange={e => setStatusModal({...statusModal, pod_received_client_date: e.target.value})} />}
+                               {statusModal.originalTrip?.pod_received_client_date ? <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">✓ {formatDate(statusModal.originalTrip.pod_received_client_date)}</span> : <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_received_client_date} onChange={e => setStatusModal({...statusModal, pod_received_client_date: e.target.value})} />}
                             </div>
                         )}
                     </div>
@@ -726,16 +727,16 @@ function TripHistory() {
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Launch Date</label><input type="date" className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.trip_start_date || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, trip_start_date: e.target.value}})} /></div>
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Source City</label><input className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.source_city} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, source_city: e.target.value}})} /></div>
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Destination City</label><input className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.destination_city} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, destination_city: e.target.value}})} /></div>
-                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Party Name</label><input className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.party_name || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, party_name: e.target.value}})} /></div>
+                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Party Name</label><input className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.party_name || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, trip_start_date: e.target.value}})} /></div>
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Owner Name</label><input className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.owner_name || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, owner_name: e.target.value}})} /></div>
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">GTA Name</label><input className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.gta_name || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, gta_name: e.target.value}})} /></div>
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">LR / Bilty No</label><input className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.lr_no || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, lr_no: e.target.value}})} /></div>
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">E-Way Bill</label><input className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.eway_bill || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, eway_bill: e.target.value}})} /></div>
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Estimated Route KM</label><input type="number" className="w-full border border-blue-300 p-2.5 rounded-lg text-sm bg-blue-50 font-bold" value={editLogisticsModal.tripData.total_km || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, total_km: e.target.value}})} /></div>
-                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Rough Freight (₹)</label><input type="number" className="w-full border border-emerald-300 p-2.5 rounded-lg text-sm bg-emerald-50 font-bold" value={editLogisticsModal.tripData.freight_amount || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, freight_amount: e.target.value}})} /></div>
+                <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Rough Freight (₹) Kabir</label><input type="number" className="w-full border border-emerald-300 p-2.5 rounded-lg text-sm bg-emerald-50 font-bold" value={editLogisticsModal.tripData.freight_amount || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, freight_amount: e.target.value}})} /></div>
                 <div className="space-y-1 md:col-span-3"><label className="text-xs font-semibold text-gray-600">L/W Details</label><input className="w-full border border-gray-300 p-2.5 rounded-lg text-sm bg-white" value={editLogisticsModal.tripData.lw || ''} onChange={e => setEditLogisticsModal({isOpen: true, tripData: {...editLogisticsModal.tripData, lw: e.target.value}})} /></div>
             </div>
-            <div className="p-5 border-t bg-white flex justify-end gap-3"><button onClick={() => setEditLogisticsModal({isOpen: false, tripData: null})} className="px-5 py-2.5 rounded-lg font-semibold text-gray-600 hover:bg-gray-100 transition cursor-pointer">Cancel</button><button onClick={handleUpdateLockedEdit} className="bg-rose-600 hover:bg-rose-700 text-white px-8 py-2.5 rounded-lg font-bold shadow-sm transition cursor-pointer flex items-center gap-2"><AlertCircle className="h-4 w-4"/> Permanently Save & Lock</button></div>
+            <div className="p-5 border-t bg-white flex justify-end gap-3"><button onClick={() => setEditLogisticsModal({isOpen: false, tripData: null})} className="px-5 py-2.5 rounded-lg font-semibold text-gray-600 hover:bg-gray-100 transition cursor-pointer">CancelButton</button><button onClick={handleUpdateLockedEdit} className="bg-rose-600 hover:bg-rose-700 text-white px-8 py-2.5 rounded-lg font-bold shadow-sm transition cursor-pointer flex items-center gap-2"><AlertCircle className="h-4 w-4"/> Permanently Save & Lock</button></div>
           </div>
         </div>
       )}
