@@ -18,11 +18,12 @@ L.Icon.Default.mergeOptions({
 const API_BASE = import.meta.env.VITE_API_URL;
 
 function numberToWords(num) {
-    if (!num || isNaN(num) || num === 0) return "ZERO ONLY";
+    const rounded = Math.round(parseFloat(num || 0));
+    if (!rounded || isNaN(rounded) || rounded === 0) return "ZERO ONLY";
     const a = ['', 'ONE ', 'TWO ', 'THREE ', 'FOUR ', 'FIVE ', 'SIX ', 'SEVEN ', 'EIGHT ', 'NINE ', 'TEN ', 'ELEVEN ', 'TWELVE ', 'THIRTEEN ', 'FOURTEEN ', 'FIFTEEN ', 'SIXTEEN ', 'SEVENTEEN ', 'EIGHTEEN ', 'NINETEEN '];
     const b = ['', '', 'TWENTY', 'THIRTY', 'FORTY', 'FIFTY', 'SIXTY', 'SEVENTY', 'EIGHTY', 'NINETY'];
-    const n = ('000000000' + num).substr(-9).match(/^(\d{2})(\d{2})(\d{2})(\d{1})(\d{2})$/);
-    if (!n) return;
+    const n = ('000000000' + rounded).substr(-9).match(/^(\d{2})(\d{2})(\d{2})(\d{1})(\d{2})$/);
+    if (!n) return "ZERO ONLY";
     let str = '';
     str += (n[1] != 0) ? (a[Number(n[1])] || b[n[1][0]] + ' ' + a[n[1][1]]) + 'CRORE ' : '';
     str += (n[2] != 0) ? (a[Number(n[2])] || b[n[2][0]] + ' ' + a[n[2][1]]) + 'LAKH ' : '';
@@ -53,7 +54,29 @@ function TripDetails() {
 
   const [hisaabEntries, setHisaabEntries] = useState([]);
   const receiptRef = useRef(null);
-  const handlePrint = useReactToPrint({ contentRef: receiptRef });
+
+  const handlePrint = useReactToPrint({ 
+    contentRef: receiptRef,
+    pageStyle: `
+      @page {
+        size: A4 portrait;
+        margin: 12mm 10mm 12mm 14mm !important;
+      }
+      @media print {
+        body {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        .bill-print-container {
+          width: 100% !important;
+          max-width: 100% !important;
+          box-sizing: border-box !important;
+          padding: 0 !important;
+          margin: 0 !important;
+        }
+      }
+    `
+  });
 
   useEffect(() => {
     if (actualId) fetchTripDetails();
@@ -104,11 +127,16 @@ function TripDetails() {
   const holdingCharge = activeCharges.holding ? parseFloat(finance.holding_charge || 0) : 0;
   const gstAmount = parseFloat(finance.gst || 0);
   const totalAdvances = (finance.advance_details || []).reduce((sum, adv) => sum + parseFloat(adv.amount || 0), 0);
+  const tdsAmount = parseFloat(finance.tds || 0);
+  const extraDeduction = parseFloat(finance.extra_deduction || 0);
 
   const exactBillTotalFreight = freight + loadingCharge + holdingCharge; 
   const finalTotalAmount = exactBillTotalFreight + gstAmount;
-  const finalBalancePayable = finalTotalAmount - (totalAdvances + parseFloat(finance.tds || 0) + parseFloat(finance.extra_deduction || 0));
-  const balancePayment = finalBalancePayable; 
+
+  // 🌟 ACCURATE BALANCE PAYMENT SYNC
+  const rawBalance = finalTotalAmount - (totalAdvances + tdsAmount + extraDeduction);
+  const balancePayment = (trip?.amount_cleared || rawBalance <= 0) ? 0.00 : rawBalance;
+
   const gstHalf = (gstAmount / 2).toFixed(2);
   const isIGST = trip?.source_city?.toLowerCase() !== trip?.destination_city?.toLowerCase(); 
   const isGstEnabled = finance.gst_enabled;
@@ -352,8 +380,9 @@ function TripDetails() {
             </div>
           )}
 
+          {/* 🌟 CLIENT BILL VIEW WITH SAFE MARGINS & ACCURATE BALANCE */}
           {viewType === 'bill' && (
-              <div className="w-full max-w-[900px] text-black font-sans leading-snug mx-auto p-2 print:p-0 animate-in fade-in">
+              <div className="bill-print-container w-full max-w-[850px] text-black font-sans leading-snug mx-auto p-4 print:p-0 animate-in fade-in">
                   <div className="text-center mb-2">
                       <h1 className="text-3xl font-extrabold text-black tracking-widest leading-none mb-1">{currentComp.name}</h1>
                       <p className="text-[13px] font-bold whitespace-pre-line leading-tight">{currentComp.address}</p>
@@ -362,19 +391,19 @@ function TripDetails() {
                   </div>
 
                   <div className="border border-black flex justify-between">
-                      <div className="w-[60%] border-r border-black p-2 text-[12px]">
+                      <div className="w-[60%] border-r border-black p-2.5 text-[12px]">
                           <p className="font-bold">TO,</p>
                           <p className="font-bold mt-1 leading-tight">{trip.party_name?.toUpperCase() || 'VELINK INDIA PVT. LTD.'}</p>
-                          <p className="font-bold leading-tight">{(trip.destination_city || 'RAIPUR').toUpperCase()}, RAJ.</p>
+                          <p className="font-bold leading-tight">{(trip.destination_city || 'JAIPUR').toUpperCase()}, RAJ.</p>
                           <p className="font-bold mt-2">GST:- {trip.party_gst || '08AAGCV0492E1ZB'}</p>
                           <p className="font-bold">STATE: RAJASTHAN / STATE CODE: 08</p>
                       </div>
                       <div className="w-[40%] text-[13px] font-bold">
-                          <div className="border-b border-black p-2 flex justify-between">
+                          <div className="border-b border-black p-2.5 flex justify-between">
                               <span>Invoice No.:</span>
                               <span>{localInvoiceNo || finance.bill_no}</span>
                           </div>
-                          <div className="p-2 flex justify-between">
+                          <div className="p-2.5 flex justify-between">
                               <span>Date:</span>
                               <span>{localBillDate || trip.trip_start_date || ''}</span>
                           </div>
@@ -417,7 +446,7 @@ function TripDetails() {
                           <tr className="border-t border-black">
                               <td colSpan="8" rowSpan="7" className="border-r border-black p-2 align-bottom text-left uppercase text-[12px]">
                                   TOTAL INVOICE AMOUNT (IN WORDS):<br/>
-                                  {numberToWords(finalBalancePayable)}
+                                  {numberToWords(finalTotalAmount)}
                               </td>
                               <td colSpan="2" className="border-r border-black p-1 text-left pl-2">TOTAL</td>
                               <td className="p-1 text-right pr-2">{exactBillTotalFreight.toFixed(2)}</td>
@@ -443,8 +472,8 @@ function TripDetails() {
                               <td className="border-t border-black p-1 text-right pr-2">{finalTotalAmount.toFixed(2)}</td>
                           </tr>
                           <tr>
-                              <td colSpan="2" className="border-r border-t border-black p-1 text-left pl-2">ADVANCE</td>
-                              <td className="border-t border-black p-1 text-right pr-2">{totalAdvances > 0 ? totalAdvances.toFixed(2) : ''}</td>
+                              <td colSpan="2" className="border-r border-t border-black p-1 text-left pl-2">ADVANCE {tdsAmount > 0 ? `+ TDS (₹${tdsAmount})` : ''}</td>
+                              <td className="border-t border-black p-1 text-right pr-2">{(totalAdvances + tdsAmount + extraDeduction) > 0 ? (totalAdvances + tdsAmount + extraDeduction).toFixed(2) : ''}</td>
                           </tr>
                           <tr className="border-t border-black">
                               <td colSpan="8" className="border-r border-black p-0 text-left align-top">
@@ -459,7 +488,7 @@ function TripDetails() {
                                   </div>
                               </td>
                               <td colSpan="2" className="border-r border-black p-1 text-left pl-2 text-[12px]">BALANCE</td>
-                              <td className="p-1 text-right pr-2 text-[12px]">{balancePayment.toFixed(2)}</td>
+                              <td className="p-1 text-right pr-2 text-[12px] font-black">{balancePayment.toFixed(2)}</td>
                           </tr>
                       </tbody>
                   </table>

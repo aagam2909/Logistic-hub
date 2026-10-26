@@ -18,11 +18,12 @@ const API_BASE = import.meta.env.VITE_API_URL;
 const PRESET_BANKS = ['JTA 0706', 'JTA 0611', 'JFC 7734', 'JFC 1487'];
 
 function numberToWords(num) {
-    if (!num || isNaN(num) || num === 0) return "ZERO ONLY";
+    const rounded = Math.round(parseFloat(num || 0));
+    if (!rounded || isNaN(rounded) || rounded === 0) return "ZERO ONLY";
     const a = ['', 'ONE ', 'TWO ', 'THREE ', 'FOUR ', 'FIVE ', 'SIX ', 'SEVEN ', 'EIGHT ', 'NINE ', 'TEN ', 'ELEVEN ', 'TWELVE ', 'THIRTEEN ', 'FOURTEEN ', 'FIFTEEN ', 'SIXTEEN ', 'SEVENTEEN ', 'EIGHTEEN ', 'NINETEEN '];
     const b = ['', '', 'TWENTY', 'THIRTY', 'FORTY', 'FIFTY', 'SIXTY', 'SEVENTY', 'EIGHTY', 'NINETY'];
-    const n = ('000000000' + num).substr(-9).match(/^(\d{2})(\d{2})(\d{2})(\d{1})(\d{2})$/);
-    if (!n) return;
+    const n = ('000000000' + rounded).substr(-9).match(/^(\d{2})(\d{2})(\d{2})(\d{1})(\d{2})$/);
+    if (!n) return "ZERO ONLY";
     let str = '';
     str += (n[1] != 0) ? (a[Number(n[1])] || b[n[1][0]] + ' ' + a[n[1][1]]) + 'CRORE ' : '';
     str += (n[2] != 0) ? (a[Number(n[2])] || b[n[2][0]] + ' ' + a[n[2][1]]) + 'LAKH ' : '';
@@ -59,7 +60,28 @@ function Finance() {
   const [hReason, setHReason] = useState('');
 
   const printRef = useRef(null);
-  const handlePrint = useReactToPrint({ contentRef: printRef });
+  const handlePrint = useReactToPrint({ 
+    contentRef: printRef,
+    pageStyle: `
+      @page {
+        size: A4 portrait;
+        margin: 12mm 10mm 12mm 14mm !important;
+      }
+      @media print {
+        body {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        .bill-print-container {
+          width: 100% !important;
+          max-width: 100% !important;
+          box-sizing: border-box !important;
+          padding: 0 !important;
+          margin: 0 !important;
+        }
+      }
+    `
+  });
 
   useEffect(() => {
     axios.get(`${API_BASE}/trips/all`)
@@ -160,11 +182,15 @@ function Finance() {
   const removeArrayRow = (arrayName, index) => setFinance({ ...finance, [arrayName]: finance[arrayName].filter((_, i) => i !== index) });
 
   const calculatePending = () => {
+    if (trip?.amount_cleared) return "0.00";
     const loading = activeCharges.loading ? parseFloat(finance.loading_charge || 0) : 0; 
     const holding = activeCharges.holding ? parseFloat(finance.holding_charge || 0) : 0; 
     const gst = finance.gst_enabled ? parseFloat(finance.gst || 0) : 0;
     const totalAdv = finance.advance_details.reduce((sum, adv) => sum + parseFloat(adv.amount || 0), 0);
-    return ((parseFloat(finance.freight_amount || 0) + loading + gst + holding) - (totalAdv + parseFloat(finance.tds || 0) + parseFloat(finance.extra_deduction || 0))).toFixed(2);
+    const tds = parseFloat(finance.tds || 0);
+    const extra = parseFloat(finance.extra_deduction || 0);
+    const balance = (parseFloat(finance.freight_amount || 0) + loading + gst + holding) - (totalAdv + tds + extra);
+    return Math.max(0, balance).toFixed(2);
   };
 
   const handleKmChange = (e) => {
@@ -175,16 +201,21 @@ function Finance() {
 
   const handleSaveFinance = async () => {
     try {
-      await axios.post(`${API_BASE}/finances/calculate`, { ...finance, loading_charge: activeCharges.loading ? finance.loading_charge : 0, holding_charge: activeCharges.holding ? finance.holding_charge : 0, gst: finance.gst_enabled ? finance.gst : 0, bill_no: activeCharges.bill_no ? finance.bill_no : '', trip_id: trip.trip_id });
+      await axios.post(`${API_BASE}/finances/calculate`, { 
+        ...finance, 
+        loading_charge: activeCharges.loading ? finance.loading_charge : 0, 
+        holding_charge: activeCharges.holding ? finance.holding_charge : 0, 
+        gst: finance.gst_enabled ? finance.gst : 0, 
+        bill_no: activeCharges.bill_no ? finance.bill_no : (finance.bill_no || ''), 
+        trip_id: trip.trip_id 
+      });
       alert("Ledger Saved!"); 
     } catch (err) { alert("Error saving finance."); }
   };
 
-  // --- UNIFIED MATH TO PREVENT CRASHES ---
+  // --- FINANCIAL CALCULATIONS & SYNC ---
   const km = parseFloat(finance.total_km) || 0;
   const mileage = parseFloat(trip?.mileage) || 5.5;
-  const displayDiesel = parseFloat(finance.diesel_liters_needed) || (km > 0 ? (km / mileage).toFixed(2) : 0);
-  const displayFastagEst = parseFloat(finance.fastag_estimate) || (km > 0 ? km * 5.75 : 0);
   const totalFastagActual = (finance.fastag_details || []).reduce((s, f) => s + parseFloat(f.amount || 0), 0);
   const isCustomBank = finance.bank_account === '' || !PRESET_BANKS.includes(finance.bank_account);
 
@@ -193,11 +224,16 @@ function Finance() {
   const holdingCharge = activeCharges.holding ? parseFloat(finance.holding_charge || 0) : 0;
   const gstAmount = parseFloat(finance.gst || 0);
   const totalAdvances = (finance.advance_details || []).reduce((sum, adv) => sum + parseFloat(adv.amount || 0), 0);
+  const tdsAmount = parseFloat(finance.tds || 0);
+  const extraDeduction = parseFloat(finance.extra_deduction || 0);
 
   const exactBillTotalFreight = freight + loadingCharge + holdingCharge; 
   const finalTotalAmount = exactBillTotalFreight + gstAmount;
-  const finalBalancePayable = finalTotalAmount - totalAdvances;
-  const balancePayment = finalBalancePayable; // 🌟 FIXED: Re-added variable
+
+  // 🌟 ACCURATE BALANCE PAYMENT SYNC
+  const rawBalance = finalTotalAmount - (totalAdvances + tdsAmount + extraDeduction);
+  const balancePayment = (trip?.amount_cleared || rawBalance <= 0) ? 0.00 : rawBalance;
+
   const gstHalf = (gstAmount / 2).toFixed(2);
   const isIGST = trip?.source_city?.toLowerCase() !== trip?.destination_city?.toLowerCase(); 
   const isGstEnabled = finance.gst_enabled;
@@ -411,7 +447,6 @@ function Finance() {
                       </div>
                   </div>
 
-                  {/* 🌟 FULL DRIVER HISAAB MODULE INSERTED HERE */}
                   <div className="mt-8 print:mt-4">
                       <h3 className="font-bold text-base mb-4 text-slate-800 uppercase tracking-wide border-b pb-2 flex justify-between items-center">
                           <span>Driver Settlement (Hisaab) Ledger</span>
@@ -423,7 +458,6 @@ function Finance() {
                           <div className="flex justify-between items-center border-b border-gray-200 pb-2 col-span-2 bg-blue-100 p-2 rounded"><span className="font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span><span className="font-extrabold text-slate-700">₹{trip.driver_total || 0}</span></div>
                       </div>
 
-                      {/* Add Entry Form (Hidden on Print) */}
                       <form onSubmit={handleAddHisaab} className="print:hidden bg-gray-50 border border-gray-200 rounded-xl p-4 mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-3">
                           <div>
                               <label className="block text-[11px] font-bold text-gray-600 mb-1">Amount (₹)</label>
@@ -467,7 +501,6 @@ function Finance() {
                           </div>
                       </form>
 
-                      {/* Hisaab Entries List Table with Delete Button */}
                       <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
                           <table className="w-full text-left text-xs">
                               <thead className="bg-slate-100 text-slate-700 uppercase font-bold border-b border-gray-200">
@@ -532,8 +565,9 @@ function Finance() {
                 </div>
               )}
 
+              {/* 🌟 CLIENT BILL VIEW WITH A4 SAFE MARGINS & ACCURATE BALANCE */}
               {viewType === 'bill' && (
-                  <div className="w-full max-w-[900px] text-black font-sans leading-snug mx-auto p-2 print:p-0 animate-in fade-in">
+                  <div className="bill-print-container w-full max-w-[850px] text-black font-sans leading-snug mx-auto p-4 print:p-0 animate-in fade-in">
                       <div className="text-center mb-2">
                           <h1 className="text-3xl font-extrabold text-black tracking-widest leading-none mb-1">{currentComp.name}</h1>
                           <p className="text-[13px] font-bold whitespace-pre-line leading-tight">{currentComp.address}</p>
@@ -542,19 +576,19 @@ function Finance() {
                       </div>
 
                       <div className="border border-black flex justify-between">
-                          <div className="w-[60%] border-r border-black p-2 text-[12px]">
+                          <div className="w-[60%] border-r border-black p-2.5 text-[12px]">
                               <p className="font-bold">TO,</p>
                               <p className="font-bold mt-1 leading-tight">{trip.party_name?.toUpperCase() || 'VELINK INDIA PVT. LTD.'}</p>
-                              <p className="font-bold leading-tight">{(trip.destination_city || 'RAIPUR').toUpperCase()}, RAJ.</p>
+                              <p className="font-bold leading-tight">{(trip.destination_city || 'JAIPUR').toUpperCase()}, RAJ.</p>
                               <p className="font-bold mt-2">GST:- {trip.party_gst || '08AAGCV0492E1ZB'}</p>
                               <p className="font-bold">STATE: RAJASTHAN / STATE CODE: 08</p>
                           </div>
                           <div className="w-[40%] text-[13px] font-bold">
-                              <div className="border-b border-black p-2 flex justify-between">
+                              <div className="border-b border-black p-2.5 flex justify-between">
                                   <span>Invoice No.:</span>
-                                  <span>{finance.bill_no}</span>
+                                  <span>{finance.bill_no || localInvoiceNo}</span>
                               </div>
-                              <div className="p-2 flex justify-between">
+                              <div className="p-2.5 flex justify-between">
                                   <span>Date:</span>
                                   <span>{localBillDate || trip.trip_start_date || ''}</span>
                               </div>
@@ -597,7 +631,7 @@ function Finance() {
                               <tr className="border-t border-black">
                                   <td colSpan="8" rowSpan="7" className="border-r border-black p-2 align-bottom text-left uppercase text-[12px]">
                                       TOTAL INVOICE AMOUNT (IN WORDS):<br/>
-                                      {numberToWords(finalBalancePayable)}
+                                      {numberToWords(finalTotalAmount)}
                                   </td>
                                   <td colSpan="2" className="border-r border-black p-1 text-left pl-2">TOTAL</td>
                                   <td className="p-1 text-right pr-2">{exactBillTotalFreight.toFixed(2)}</td>
@@ -623,8 +657,8 @@ function Finance() {
                                   <td className="border-t border-black p-1 text-right pr-2">{finalTotalAmount.toFixed(2)}</td>
                               </tr>
                               <tr>
-                                  <td colSpan="2" className="border-r border-t border-black p-1 text-left pl-2">ADVANCE</td>
-                                  <td className="border-t border-black p-1 text-right pr-2">{totalAdvances > 0 ? totalAdvances.toFixed(2) : ''}</td>
+                                  <td colSpan="2" className="border-r border-t border-black p-1 text-left pl-2">ADVANCE {tdsAmount > 0 ? `+ TDS (₹${tdsAmount})` : ''}</td>
+                                  <td className="border-t border-black p-1 text-right pr-2">{(totalAdvances + tdsAmount + extraDeduction) > 0 ? (totalAdvances + tdsAmount + extraDeduction).toFixed(2) : ''}</td>
                               </tr>
                               <tr className="border-t border-black">
                                   <td colSpan="8" className="border-r border-black p-0 text-left align-top">
@@ -639,7 +673,7 @@ function Finance() {
                                       </div>
                                   </td>
                                   <td colSpan="2" className="border-r border-black p-1 text-left pl-2 text-[12px]">BALANCE</td>
-                                  <td className="p-1 text-right pr-2 text-[12px]">{balancePayment.toFixed(2)}</td>
+                                  <td className="p-1 text-right pr-2 text-[12px] font-black">{balancePayment.toFixed(2)}</td>
                               </tr>
                           </tbody>
                       </table>
