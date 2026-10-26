@@ -17,6 +17,13 @@ L.Icon.Default.mergeOptions({
 const API_BASE = import.meta.env.VITE_API_URL;
 const PRESET_BANKS = ['JTA 0706', 'JTA 0611', 'JFC 7734', 'JFC 1487'];
 
+function formatDate(dateStr) {
+  if (!dateStr) return '-';
+  const s = String(dateStr).slice(0, 10);
+  const parts = s.split('-');
+  return parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : s;
+}
+
 function numberToWords(num) {
     const rounded = Math.round(parseFloat(num || 0));
     if (!rounded || isNaN(rounded) || rounded === 0) return "ZERO ONLY";
@@ -515,7 +522,7 @@ function Finance() {
                               <tbody className="divide-y divide-gray-100">
                                   {hisaabEntries.map((item, idx) => (
                                       <tr key={idx} className="hover:bg-gray-50 font-medium">
-                                          <td className="p-2.5 text-gray-600">{item.date}</td>
+                                          <td className="p-2.5 text-gray-600">{formatDate(item.date)}</td>
                                           <td className="p-2.5 font-bold text-slate-800">{item.category}</td>
                                           <td className="p-2.5 text-gray-600">
                                               {item.category === 'Diesel' ? `${item.liters || 0} Ltrs at ${item.place || 'N/A'}` : (item.reason || item.place || '-')}
@@ -565,7 +572,7 @@ function Finance() {
                 </div>
               )}
 
-              {/* 🌟 CLIENT BILL VIEW WITH A4 SAFE MARGINS & ACCURATE BALANCE */}
+              {/* 🌟 CLIENT BILL VIEW: 100% SIZING & SAFE PADDING */}
               {viewType === 'bill' && (
                   <div className="bill-print-container w-full max-w-[850px] text-black font-sans leading-snug mx-auto p-4 print:p-0 animate-in fade-in">
                       <div className="text-center mb-2">
@@ -590,48 +597,69 @@ function Finance() {
                               </div>
                               <div className="p-2.5 flex justify-between">
                                   <span>Date:</span>
-                                  <span>{localBillDate || trip.trip_start_date || ''}</span>
+                                  <span>{formatDate(localBillDate || trip.trip_start_date)}</span>
                               </div>
                           </div>
                       </div>
                       
                       <div className="border-x border-b border-black p-1 text-center text-[12px] font-bold">GST PAYABLE UNDER REVERSE CHARGES - YES/NO</div>
 
+                      {/* 🌟 FIXED TABLE COLUMNS: BALANCED PROPORTIONS PREVENT TEXT COLLISION */}
                       <table className="w-full table-fixed border-collapse border border-black text-[10px] font-bold text-center mt-[-1px]">
                           <thead>
                               <tr>
-                                  <th className="border border-black p-1.5 w-[8%] leading-tight">LOADING<br/>DATE</th>
-                                  <th className="border border-black p-1.5 w-[6%] leading-tight break-words">LR.NO.</th>
-                                  <th className="border border-black p-1.5 w-[11%] leading-tight break-words">VEHICLE<br/>NO.</th>
-                                  <th className="border border-black p-1.5 w-[13%] leading-tight break-words">FROM</th>
-                                  <th className="border border-black p-1.5 w-[14%] leading-tight break-words">TO</th>
-                                  <th className="border border-black p-1.5 w-[5%] leading-tight">WT</th>
-                                  <th className="border border-black p-1.5 w-[5%] leading-tight">RATE</th>
-                                  <th className="border border-black p-1.5 w-[9%] leading-tight">FREIGHT</th>
-                                  <th className="border border-black p-1.5 w-[9%] leading-tight break-words">UNLOADING<br/>CHG</th>
-                                  <th className="border border-black p-1.5 w-[9%] leading-tight break-words">RATE<br/>DIFFERENCE</th>
-                                  <th className="border border-black p-1.5 w-[11%] leading-tight">TOTAL<br/>FREIGHT</th>
+                                  <th className="border border-black p-1 w-[11%] leading-tight">LOADING<br/>DATE</th>
+                                  <th className="border border-black p-1 w-[10%] leading-tight">LR.NO.</th>
+                                  <th className="border border-black p-1 w-[13%] leading-tight">VEHICLE<br/>NO.</th>
+                                  <th className="border border-black p-1 w-[12%] leading-tight">FROM</th>
+                                  <th className="border border-black p-1 w-[12%] leading-tight">TO</th>
+                                  <th className="border border-black p-1 w-[5%] leading-tight">WT</th>
+                                  <th className="border border-black p-1 w-[5%] leading-tight">RATE</th>
+                                  <th className="border border-black p-1 w-[10%] leading-tight">FREIGHT</th>
+                                  <th className="border border-black p-1 w-[7%] leading-tight">UNLOAD<br/>CHG</th>
+                                  <th className="border border-black p-1 w-[7%] leading-tight">RATE<br/>DIFF</th>
+                                  <th className="border border-black p-1 w-[8%] leading-tight">TOTAL<br/>FREIGHT</th>
                               </tr>
                           </thead>
                           <tbody>
                               <tr>
-                                  <td className="border-r border-black p-1.5 align-top pt-2 h-16">{trip.trip_start_date || '05/08/2026'}</td>
-                                  <td className="border-r border-black p-1.5 align-top pt-2">{trip.lr_no || '---'}</td>
-                                  <td className="border-r border-black p-1.5 align-top pt-2 break-words">{trip.vehicle_number}</td>
-                                  <td className="border-r border-black p-1.5 align-top pt-2 uppercase break-words">{trip.source_city}</td>
-                                  <td className="border-r border-black p-1.5 align-top pt-2 uppercase break-words">{trip.destination_city}</td>
-                                  <td className="border-r border-black p-1.5 align-top pt-2"></td>
-                                  <td className="border-r border-black p-1.5 align-top pt-2"></td>
-                                  <td className="border-r border-black p-1.5 align-top pt-2 text-right pr-2">{freight.toFixed(2)}</td>
-                                  <td className="border-r border-black p-1.5 align-top pt-2 text-right pr-2">{loadingCharge > 0 ? loadingCharge.toFixed(2) : ''}</td>
-                                  <td className="border-r border-black p-1.5 align-top pt-2 text-right pr-2">{holdingCharge > 0 ? holdingCharge.toFixed(2) : ''}</td>
-                                  <td className="p-1.5 align-top pt-2 text-right pr-2">{exactBillTotalFreight.toFixed(2)}</td>
+                                  <td className="border-r border-black p-1 align-top pt-2 h-16 truncate text-[9.5px]">
+                                      {formatDate(trip.trip_start_date) || '-'}
+                                  </td>
+                                  <td className="border-r border-black p-1 align-top pt-2 break-all text-[9.5px]">
+                                      {trip.lr_no || '-'}
+                                  </td>
+                                  <td className="border-r border-black p-1 align-top pt-2 break-all text-[10px]">
+                                      {trip.vehicle_number}
+                                  </td>
+                                  <td className="border-r border-black p-1 align-top pt-2 uppercase break-words text-[9.5px]">
+                                      {trip.source_city}
+                                  </td>
+                                  <td className="border-r border-black p-1 align-top pt-2 uppercase break-words text-[9.5px]">
+                                      {trip.destination_city}
+                                  </td>
+                                  <td className="border-r border-black p-1 align-top pt-2"></td>
+                                  <td className="border-r border-black p-1 align-top pt-2"></td>
+                                  <td className="border-r border-black p-1 align-top pt-2 text-right pr-1">
+                                      {freight.toFixed(2)}
+                                  </td>
+                                  <td className="border-r border-black p-1 align-top pt-2 text-right pr-1">
+                                      {loadingCharge > 0 ? loadingCharge.toFixed(2) : ''}
+                                  </td>
+                                  <td className="border-r border-black p-1 align-top pt-2 text-right pr-1">
+                                      {holdingCharge > 0 ? holdingCharge.toFixed(2) : ''}
+                                  </td>
+                                  <td className="p-1 align-top pt-2 text-right pr-1">
+                                      {exactBillTotalFreight.toFixed(2)}
+                                  </td>
                               </tr>
                               
                               <tr className="border-t border-black">
-                                  <td colSpan="8" rowSpan="7" className="border-r border-black p-2 align-bottom text-left uppercase text-[12px]">
+                                  <td colSpan="8" rowSpan="7" className="border-r border-black p-2.5 align-bottom text-left uppercase text-[12px] leading-snug">
                                       TOTAL INVOICE AMOUNT (IN WORDS):<br/>
-                                      {numberToWords(finalTotalAmount)}
+                                      <span className="font-extrabold text-[12.5px] mt-1 block">
+                                          {numberToWords(finalTotalAmount)}
+                                      </span>
                                   </td>
                                   <td colSpan="2" className="border-r border-black p-1 text-left pl-2">TOTAL</td>
                                   <td className="p-1 text-right pr-2">{exactBillTotalFreight.toFixed(2)}</td>
@@ -657,17 +685,21 @@ function Finance() {
                                   <td className="border-t border-black p-1 text-right pr-2">{finalTotalAmount.toFixed(2)}</td>
                               </tr>
                               <tr>
-                                  <td colSpan="2" className="border-r border-t border-black p-1 text-left pl-2">ADVANCE {tdsAmount > 0 ? `+ TDS (₹${tdsAmount})` : ''}</td>
-                                  <td className="border-t border-black p-1 text-right pr-2">{(totalAdvances + tdsAmount + extraDeduction) > 0 ? (totalAdvances + tdsAmount + extraDeduction).toFixed(2) : ''}</td>
+                                  <td colSpan="2" className="border-r border-t border-black p-1 text-left pl-2">
+                                      ADVANCE {tdsAmount > 0 ? `+ TDS (₹${tdsAmount})` : ''}
+                                  </td>
+                                  <td className="border-t border-black p-1 text-right pr-2">
+                                      {(totalAdvances + tdsAmount + extraDeduction) > 0 ? (totalAdvances + tdsAmount + extraDeduction).toFixed(2) : ''}
+                                  </td>
                               </tr>
                               <tr className="border-t border-black">
                                   <td colSpan="8" className="border-r border-black p-0 text-left align-top">
                                       <div className="bg-black text-white text-center py-0.5 text-[11px]">BANK DETAILS</div>
                                       <div className="flex text-[10px]">
-                                          <div className="w-1/2 p-1 border-r border-black">
+                                          <div className="w-1/2 p-1.5 border-r border-black">
                                               A/C NO. <br/>510605010060611<br/>IFSC CODE: UBIN0551066<br/>BRANCH: SSI, JAIPUR<br/>UNION BANK OF INDIA
                                           </div>
-                                          <div className="w-1/2 p-1">
+                                          <div className="w-1/2 p-1.5">
                                               A/C NO. <br/>756001010050706<br/>IFSC CODE: UBIN0575607<br/>BRANCH: NEW SANGANER ROAD<br/>UNION BANK OF INDIA
                                           </div>
                                       </div>
