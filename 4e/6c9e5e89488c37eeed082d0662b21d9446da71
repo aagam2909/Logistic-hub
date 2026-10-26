@@ -1,0 +1,18 @@
+frontend/src/pages/TripDetails.jsx
+  h_b6895d6280a977 21-22,25-26,58-79,130-131,135-139,383,385,394,397,402,406,449,475-476,491
+  h_b6895d6280a977 57
+frontend/src/pages/Finance.jsx
+  h_b6895d6280a977 21-22,25-26,64-83,185,190-193,209,216,227-228,232-236,568,570,579,582,587,589,591,634,660-661,676
+  h_b6895d6280a977 63,84,204-208,210-211
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4e6c9e5e89488c37eeed082d0662b21d9446da71",
+  "prompts": {},
+  "humans": {
+    "h_b6895d6280a977": {
+      "author": "aagam2909 <aagamjain1325@gmail.com>"
+    }
+  }
+}
