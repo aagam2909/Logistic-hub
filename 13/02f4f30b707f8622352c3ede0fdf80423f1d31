@@ -1,0 +1,14 @@
+backend/requirements.txt
+  h_b6895d6280a977 21,23,47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1302f4f30b707f8622352c3ede0fdf80423f1d31",
+  "prompts": {},
+  "humans": {
+    "h_b6895d6280a977": {
+      "author": "aagam2909 <aagamjain1325@gmail.com>"
+    }
+  }
+}
