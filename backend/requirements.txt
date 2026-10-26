@@ -18,7 +18,9 @@ networkx==3.2.1
 numba==0.60.0
 numpy==2.0.2
 opencv-python-headless==4.13.0.92
+openpyxl>=3.1.2
 packaging==26.2
+pandas>=2.2.0
 pillow==11.3.0
 platformdirs==4.4.0
 pooch==1.9.0
@@ -42,3 +44,4 @@ typing-inspection==0.4.2
 typing_extensions==4.15.0
 urllib3==2.6.3
 uvicorn==0.39.0
+xlrd>=2.0.1
