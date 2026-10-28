@@ -955,12 +955,13 @@ function Trips() {
       {/* 🌟 MODAL 3: COMPLETE TRIP STATUS MODAL (WITH REPORTED/WAITING & UNLOADING DATES) */}
       {completeModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col p-6 space-y-5 animate-in fade-in zoom-in-95">
-             <div className="flex justify-between items-center border-b pb-4">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95">
+             <div className="flex justify-between items-center border-b p-6 pb-4 shrink-0">
                 <h3 className="font-bold text-lg text-slate-800">Complete Trip Checklist</h3>
                 <button onClick={() => setCompleteModal({isOpen: false, trip: null})} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 cursor-pointer"><X className="h-5 w-5"/></button>
              </div>
              
+             <div className="overflow-y-auto p-6 pt-4 space-y-5">
              <p className="text-sm text-gray-600">Confirm status for trip <strong>{completeModal.trip?.tracking_number}</strong> before marking as completed:</p>
 
              <div className="space-y-4">
@@ -1049,7 +1050,8 @@ function Trips() {
                 </div>
              </div>
 
-             <div className="flex justify-end gap-3 pt-4 border-t">
+             </div>
+             <div className="flex justify-end gap-3 p-6 pt-4 border-t shrink-0">
                 <button onClick={() => setCompleteModal({isOpen: false, trip: null})} className="px-4 py-2 rounded-lg font-semibold text-gray-600 hover:bg-gray-100 text-sm cursor-pointer">Cancel</button>
                 <button onClick={handleConfirmCompleteTrip} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-lg font-bold text-sm shadow-sm transition cursor-pointer">Confirm & Complete</button>
              </div>

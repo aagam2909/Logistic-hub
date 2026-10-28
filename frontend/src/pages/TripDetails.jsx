@@ -50,6 +50,8 @@ function TripDetails() {
   const [viewType, setViewType] = useState('receipt'); 
   const [localInvoiceNo, setLocalInvoiceNo] = useState('');
   const [localBillDate, setLocalBillDate] = useState('');
+  const [billPartyName, setBillPartyName] = useState('');
+  const [billPartyGst, setBillPartyGst] = useState('');
 
   const [activeCharges, setActiveCharges] = useState({ loading: false, holding: false, gst: false, bill_no: false });
   const [finance, setFinance] = useState({ 
@@ -94,6 +96,8 @@ function TripDetails() {
       const res = await axios.get(`${API_BASE}/trips/details/${actualId}`);
       const tripData = res.data;
       setTrip(tripData);
+      setBillPartyName(tripData.party_name || '');
+      setBillPartyGst(tripData.party_gst || '');
       setLocalInvoiceNo(tripData.bill_no || '');
       setLocalBillDate(tripData.trip_start_date || new Date().toISOString().split('T')[0]);
 
@@ -400,9 +404,9 @@ function TripDetails() {
                   <div className="border border-black flex justify-between">
                       <div className="w-[60%] border-r border-black p-2.5 text-[12px]">
                           <p className="font-bold">TO,</p>
-                          <p className="font-bold mt-1 leading-tight">{trip.party_name?.toUpperCase() || 'VELINK INDIA PVT. LTD.'}</p>
+                          <input type="text" value={billPartyName} onChange={(e) => setBillPartyName(e.target.value)} placeholder="ENTER CLIENT / PARTY NAME" className="w-full font-bold uppercase outline-none bg-transparent border-b border-dashed border-gray-300 print:border-none print:appearance-none p-0 mt-1" />
                           <p className="font-bold leading-tight">{(trip.destination_city || 'JAIPUR').toUpperCase()}, RAJ.</p>
-                          <p className="font-bold mt-2">GST:- {trip.party_gst || '08AAGCV0492E1ZB'}</p>
+                          <div className="flex items-center gap-1 mt-2"><span className="font-bold">GST:-</span><input type="text" value={billPartyGst} onChange={(e) => setBillPartyGst(e.target.value)} placeholder="ENTER PARTY GST NUMBER" className="flex-1 font-bold uppercase outline-none bg-transparent border-b border-dashed border-gray-300 print:border-none print:appearance-none p-0 text-[12px]" /></div>
                           <p className="font-bold">STATE: RAJASTHAN / STATE CODE: 08</p>
                       </div>
                       <div className="w-[40%] text-[13px] font-bold">

@@ -1278,7 +1278,7 @@ def get_employee_ledger_entries(employee: Optional[str] = None, month: Optional[
         cursor.close()
         conn.close()
 
-# 🌟 UNIFIED RECONCILER WITH NEAREST-TRIP FALLBACK & WALLET BALANCE
+# 🌟 UNIFIED RECONCILER WITH NEXT-TRIP PRIORITY & PREVIOUS-TRIP FALLBACK
 @app.post("/reconcile/upload-statements")
 async def reconcile_statements(
     request: Request,
@@ -1293,17 +1293,18 @@ async def reconcile_statements(
         "statement_type": statement_type,
         "files_processed": len(files),
         "entries_added": 0,
+        "duplicates_skipped": 0,
         "unmatched_records": 0
     }
 
     try:
+        # Load all trips (both active and completed) so refuels on edge dates are never dropped
         cursor.execute("""
             SELECT t.trip_id, t.vehicle_number, t.trip_start_date, t.actual_delivery_date,
                    tf.fastag_details, tf.driver_hisaab_entries, tf.advance_details
             FROM trips t
             LEFT JOIN trip_finances tf ON t.trip_id = tf.trip_id
-            WHERE t.is_locked = FALSE OR t.is_locked IS NULL
-            ORDER BY t.trip_id DESC;
+            ORDER BY t.trip_id ASC;
         """)
         trip_rows = cursor.fetchall()
 
@@ -1314,12 +1315,14 @@ async def reconcile_statements(
             all_records.extend(parsed)
 
         trip_cache = {}
+        vehicle_trips = {}
         for t in trip_rows:
             t_trip_id, t_veh, t_start, t_deliv, f_tag, d_hisaab, d_adv = t
             fastag_list = json.loads(f_tag) if isinstance(f_tag, str) else (f_tag or [])
             hisaab_list = json.loads(d_hisaab) if isinstance(d_hisaab, str) else (d_hisaab or [])
             adv_list = json.loads(d_adv) if isinstance(d_adv, str) else (d_adv or [])
-            trip_cache[t_trip_id] = {
+            
+            t_data = {
                 "trip_id": t_trip_id,
                 "vehicle": t_veh,
                 "start": str(t_start)[:10] if t_start else "1970-01-01",
@@ -1331,22 +1334,23 @@ async def reconcile_statements(
                 "dirty_hisaab": False,
                 "dirty_adv": False
             }
+            trip_cache[t_trip_id] = t_data
 
-        # Index trips by vehicle and sort ascending by start date
-        vehicle_trips = {}
-        for t_id, t_data in trip_cache.items():
-            veh_clean = clean_vehicle(t_data["vehicle"])
-            if veh_clean not in vehicle_trips:
-                vehicle_trips[veh_clean] = []
-            vehicle_trips[veh_clean].append(t_data)
+            veh_clean = clean_vehicle(t_veh)
+            if veh_clean:
+                if veh_clean not in vehicle_trips:
+                    vehicle_trips[veh_clean] = []
+                vehicle_trips[veh_clean].append(t_data)
 
+        # Sort each vehicle's trips by start date ascending
         for veh_clean in vehicle_trips:
             vehicle_trips[veh_clean].sort(key=lambda x: x["start"])
 
-        # Match each parsed record to its continuous trip window
+        # Match each parsed record to its trip
         for rec in all_records:
             veh = rec.get("vehicle")
             rec_date = rec.get("date")
+            fp = rec.get("fingerprint")
 
             trips_for_v = []
             if veh:
@@ -1358,50 +1362,90 @@ async def reconcile_statements(
 
             target_trip = None
             if trips_for_v:
-                # 🌟 CONTINUOUS TRIP TIMELINE:
-                # 1. Find trip index based on start dates
-                for idx, t_data in enumerate(trips_for_v):
-                    curr_start = t_data["start"]
-                    # Allow 1-day head buffer for loading departure night (e.g. 30 SEP for 01 OCT trip)
-                    buffered_start = (datetime.strptime(curr_start, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d") if idx == 0 else curr_start
-                    next_start = trips_for_v[idx + 1]["start"] if idx + 1 < len(trips_for_v) else "2099-12-31"
+                # 1. Exact match: Check if transaction falls within an active/completed trip window
+                for t_data in trips_for_v:
+                    t_start = t_data["start"]
+                    t_deliv = t_data.get("deliv")
+                    if t_deliv:
+                        if t_start <= rec_date <= t_deliv:
+                            target_trip = t_data
+                            break
+                    else:
+                        if t_start <= rec_date:
+                            target_trip = t_data
+                            break
 
-                    if buffered_start <= rec_date < next_start:
-                        target_trip = t_data
-                        break
-
+                # 🌟 2. Priority 1: Next Trip (the upcoming trip scheduled on or after transaction date)
                 if not target_trip:
-                    # If date is earlier than first trip buffer, assign to first trip; else assign to last trip
-                    target_trip = trips_for_v[0] if rec_date < trips_for_v[0]["start"] else trips_for_v[-1]
+                    future_trips = [t for t in trips_for_v if t["start"] >= rec_date]
+                    if future_trips:
+                        future_trips.sort(key=lambda t: t["start"])
+                        target_trip = future_trips[0]
+
+                # 🌟 3. Priority 2: Previous Trip (if no next trip exists, attach to the most recent trip before the date)
+                if not target_trip:
+                    past_trips = [t for t in trips_for_v if t["start"] <= rec_date]
+                    if past_trips:
+                        past_trips.sort(key=lambda t: t["start"], reverse=True)
+                        target_trip = past_trips[0]
+
+                # 4. Final safety fallback: attach to latest trip in system for this vehicle
+                if not target_trip:
+                    target_trip = trips_for_v[-1]
 
             # 1. FASTAG TOLLS ALLOCATION
             if rec.get("type") == "FASTAG" and target_trip:
                 fl = target_trip["fastag_list"]
-                if not any(x.get('date') == rec['date'] and abs(float(x.get('amount', 0)) - rec['amount']) < 0.01 and x.get('place') == rec['place'] for x in fl):
+                is_duplicate = any(
+                    x.get("fingerprint") == fp or (
+                        x.get("date") == rec["date"] and 
+                        abs(float(x.get("amount", 0)) - rec["amount"]) < 0.01 and 
+                        x.get("place") == rec["place"]
+                    )
+                    for x in fl
+                )
+                if is_duplicate:
+                    summary["duplicates_skipped"] += 1
+                else:
                     fl.append({
                         "date": rec["date"], 
+                        "txn_time": rec.get("txn_time"),
+                        "acct_time": rec.get("acct_time"),
                         "place": rec["place"], 
                         "amount": rec["amount"],
-                        "balance": rec.get("balance")
+                        "balance": rec.get("balance"),
+                        "fingerprint": fp
                     })
-                    # Keep FASTag list chronologically sorted by date
-                    fl.sort(key=lambda x: x.get("date", ""))
+                    fl.sort(key=lambda x: x.get("txn_time") or x.get("date", ""))
                     target_trip["dirty_fastag"] = True
                     summary["entries_added"] += 1
 
             # 2. DIESEL LOGS ALLOCATION
             elif rec.get("type") == "DIESEL" and target_trip:
                 hl = target_trip["hisaab_list"]
-                if not any(x.get('date') == rec['date'] and abs(float(x.get('amount', 0)) - rec['amount']) < 0.01 and x.get('category') == 'Diesel' for x in hl):
+                is_duplicate = any(
+                    x.get("fingerprint") == fp or (
+                        x.get("date") == rec["date"] and 
+                        x.get("category") == "Diesel" and 
+                        abs(float(x.get("amount", 0)) - rec["amount"]) < 0.01 and 
+                        abs(float(x.get("liters", 0)) - rec.get("liters", 0)) < 0.1
+                    )
+                    for x in hl
+                )
+                if is_duplicate:
+                    summary["duplicates_skipped"] += 1
+                else:
                     hl.append({
                         "date": rec["date"], 
+                        "txn_time": rec.get("txn_time"),
                         "category": "Diesel", 
                         "amount": rec["amount"],
                         "liters": rec.get("liters", 0.0), 
                         "place": rec["place"],
-                        "reason": f"Fuel: {rec.get('liters', 0)} Ltrs at {rec['place']}"
+                        "reason": f"Fuel: {rec.get('liters', 0)} Ltrs at {rec['place']}",
+                        "fingerprint": fp
                     })
-                    hl.sort(key=lambda x: x.get("date", ""))
+                    hl.sort(key=lambda x: x.get("txn_time") or x.get("date", ""))
                     target_trip["dirty_hisaab"] = True
                     summary["entries_added"] += 1
 
