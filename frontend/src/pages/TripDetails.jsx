@@ -52,6 +52,8 @@ function TripDetails() {
   const [localBillDate, setLocalBillDate] = useState('');
   const [billPartyName, setBillPartyName] = useState('');
   const [billPartyGst, setBillPartyGst] = useState('');
+  const [billPartyCity, setBillPartyCity] = useState('');
+  const [partyList, setPartyList] = useState([]);
 
   const [activeCharges, setActiveCharges] = useState({ loading: false, holding: false, gst: false, bill_no: false });
   const [finance, setFinance] = useState({ 
@@ -89,6 +91,9 @@ function TripDetails() {
 
   useEffect(() => {
     if (actualId) fetchTripDetails();
+    axios.get(`${API_BASE}/parties`)
+      .then(res => setPartyList(Array.isArray(res.data) ? res.data : []))
+      .catch(() => {});
   }, [actualId]);
 
   const fetchTripDetails = async () => {
@@ -98,6 +103,7 @@ function TripDetails() {
       setTrip(tripData);
       setBillPartyName(tripData.party_name || '');
       setBillPartyGst(tripData.party_gst || '');
+      setBillPartyCity(tripData.destination_city ? `${tripData.destination_city.toUpperCase()}, RAJ.` : 'JAIPUR, RAJ.');
       setLocalInvoiceNo(tripData.bill_no || '');
       setLocalBillDate(tripData.trip_start_date || new Date().toISOString().split('T')[0]);
 
@@ -404,9 +410,47 @@ function TripDetails() {
                   <div className="border border-black flex justify-between">
                       <div className="w-[60%] border-r border-black p-2.5 text-[12px]">
                           <p className="font-bold">TO,</p>
-                          <input type="text" value={billPartyName} onChange={(e) => setBillPartyName(e.target.value)} placeholder="ENTER CLIENT / PARTY NAME" className="w-full font-bold uppercase outline-none bg-transparent border-b border-dashed border-gray-300 print:border-none print:appearance-none p-0 mt-1" />
-                          <p className="font-bold leading-tight">{(trip.destination_city || 'JAIPUR').toUpperCase()}, RAJ.</p>
-                          <div className="flex items-center gap-1 mt-2"><span className="font-bold">GST:-</span><input type="text" value={billPartyGst} onChange={(e) => setBillPartyGst(e.target.value)} placeholder="ENTER PARTY GST NUMBER" className="flex-1 font-bold uppercase outline-none bg-transparent border-b border-dashed border-gray-300 print:border-none print:appearance-none p-0 text-[12px]" /></div>
+                          
+                          {/* 🌟 1. MANUAL OR DROPDOWN PARTY NAME */}
+                          <div className="mt-1">
+                              <input 
+                                type="text" 
+                                list="bill-parties-dropdown-trip"
+                                value={billPartyName} 
+                                onChange={(e) => setBillPartyName(e.target.value.toUpperCase())} 
+                                placeholder="ENTER CLIENT / PARTY NAME" 
+                                className="w-full font-bold uppercase outline-none bg-transparent border-b border-dashed border-gray-300 focus:border-blue-500 print:border-none print:appearance-none p-0 text-[12px] leading-tight" 
+                              />
+                              <datalist id="bill-parties-dropdown-trip">
+                                  {partyList.map((p, idx) => (
+                                      <option key={idx} value={p}>{p}</option>
+                                  ))}
+                              </datalist>
+                          </div>
+
+                          {/* 🌟 2. MANUAL EDITABLE DESTINATION CITY & STATE LINE */}
+                          <div className="mt-0.5">
+                              <input 
+                                type="text" 
+                                value={billPartyCity} 
+                                onChange={(e) => setBillPartyCity(e.target.value.toUpperCase())} 
+                                placeholder="CITY, STATE (e.g. BAHRAICH, RAJ.)" 
+                                className="w-full font-bold uppercase outline-none bg-transparent border-b border-dashed border-gray-300 focus:border-blue-500 print:border-none print:appearance-none p-0 text-[12px] leading-tight" 
+                              />
+                          </div>
+
+                          {/* 🌟 3. MANUAL EDITABLE GST NUMBER */}
+                          <div className="flex items-center gap-1 mt-2">
+                              <span className="font-bold">GST:-</span>
+                              <input 
+                                type="text" 
+                                value={billPartyGst} 
+                                onChange={(e) => setBillPartyGst(e.target.value.toUpperCase())} 
+                                placeholder="ENTER PARTY GST NUMBER" 
+                                className="flex-1 font-bold uppercase outline-none bg-transparent border-b border-dashed border-gray-300 focus:border-blue-500 print:border-none print:appearance-none p-0 text-[12px]" 
+                              />
+                          </div>
+
                           <p className="font-bold">STATE: RAJASTHAN / STATE CODE: 08</p>
                       </div>
                       <div className="w-[40%] text-[13px] font-bold">
