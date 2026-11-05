@@ -1,0 +1,31 @@
+frontend/src/pages/TripDetails.jsx
+  h_b6895d6280a977 585-593
+frontend/src/pages/Finance.jsx
+  h_b6895d6280a977 773-781
+frontend/src/pages/login.jsx
+  h_b6895d6280a977 1-137
+backend/main.py
+  h_b6895d6280a977 61,67-76,572-610,1416-1420,1422,1424,1428,1473
+  h_b6895d6280a977 611
+frontend/src/App.jsx
+  h_b6895d6280a977 2,6,19,45,56-57,59,61-67,75-92,94,105,111,115,122-125,127-129,137-144,161
+  h_b6895d6280a977 93,126,145
+frontend/src/pages/Dashboard.jsx
+  h_b6895d6280a977 11,290,1337-1350
+  h_b6895d6280a977 36,201,1355
+frontend/src/pages/TripHistory.jsx
+  h_b6895d6280a977 5,244-255,397,400,403-412,765-775
+frontend/src/pages/StaffLedger.jsx
+  h_b6895d6280a977 54,159,163,166-175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1b9a859d0f6a7c165bfa7166486ccdc547d3f9f5",
+  "prompts": {},
+  "humans": {
+    "h_b6895d6280a977": {
+      "author": "aagam2909 <aagamjain1325@gmail.com>"
+    }
+  }
+}
