@@ -8,10 +8,10 @@ import {
   Calendar, Wallet, Banknote, Scale
 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
+import ActivityLog from '../utils/ActivityLog';
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
-// Helper: Format date to DD-MM-YYYY
 function formatDate(dateStr) {
   if (!dateStr) return '-';
   const s = String(dateStr).slice(0, 10);
@@ -22,7 +22,6 @@ function formatDate(dateStr) {
   return s;
 }
 
-// Helper: Format date to DD/MM/YY
 function formatDateShort(dateStr) {
   if (!dateStr) return '-';
   const s = String(dateStr).slice(0, 10);
@@ -34,7 +33,7 @@ function formatDateShort(dateStr) {
   return s;
 }
 
-// --- 🌟 4-OPTION STATEMENT RECONCILER MODAL ---
+// --- 4-OPTION STATEMENT RECONCILER MODAL ---
 function MultiOptionReconcileModal({ isOpen, onClose, onSyncComplete }) {
   const [statementType, setStatementType] = useState('DIESEL');
   const [files, setFiles] = useState([]);
@@ -199,7 +198,7 @@ function MultiOptionReconcileModal({ isOpen, onClose, onSyncComplete }) {
   );
 }
 
-// --- 🌟 RUNNING SHEET & DRIVER HISAAB RECEIPT MODAL ---
+// --- RUNNING SHEET RECEIPT MODAL ---
 function ReadOnlyReceiptModal({ isOpen, onClose, tripSummary }) {
   const receiptRef = useRef(null);
   const handlePrint = useReactToPrint({ contentRef: receiptRef });
@@ -288,6 +287,7 @@ function ReadOnlyReceiptModal({ isOpen, onClose, tripSummary }) {
             </div>
           ) : (
             <div ref={receiptRef} className="bg-white p-8 mx-auto shadow-sm border border-gray-200 rounded-xl max-w-4xl text-xs md:text-sm print:p-0 print:border-none print:shadow-none font-sans">
+              
               <div className="border-b-2 border-slate-900 pb-3 mb-4 flex justify-between items-end">
                 <div>
                   <h1 className="text-xl font-black text-slate-900 uppercase tracking-tight">{companyName}</h1>
@@ -824,7 +824,6 @@ function Dashboard() {
     return target;
   };
 
-  // 🌟 ACCURATE 20-COL ORANGE AND 24-COL BLUE EXPORT ENGINE WITH STEP-BY-STEP PROGRESS
   const generateReport = async () => {
     setLoading(true);
     setExportProgress(15);
@@ -871,7 +870,6 @@ function Dashboard() {
       const dateSuffix = dateFilterMode === 'range' ? `${filterStartDate}_to_${filterEndDate}` : (filterSingleDate || filterMonth || 'all');
       let filename = `Report_${exportType}_${dateSuffix}.csv`;
 
-      // 🌟 1. BLUE SHEET: COMPLETE 24-COLUMN OPERATIONAL FLEET SHEET
       if (exportType === 'finance_ledger') {
         filename = `Finance_Ledger_BLUE_${dateSuffix}.csv`;
         csvData = targetTrips.map((trip, idx) => {
@@ -918,11 +916,9 @@ function Dashboard() {
         });
       }
 
-      // 🌟 2. ORANGE SHEET: COMPLETE 20-COLUMN DETAILED FREIGHT BILLING SHEET
       else if (exportType === 'detailed') {
         filename = `Detailed_Ledger_ORANGE_${dateSuffix}.csv`;
         csvData = targetTrips.map(trip => {
-          // Declare all numerical variables explicitly to prevent undefined errors
           const freight = parseFloat(trip.freight_amount) || 0;
           const loading = parseFloat(trip.loading_charge) || 0;
           const holding = parseFloat(trip.holding_charge) || 0;
@@ -1293,14 +1289,12 @@ function Dashboard() {
                   </div>
                 </div>
 
-                {/* Live Preview Sample */}
                 <div className="border border-gray-200 rounded-lg p-2.5 bg-gray-50 text-[10px] font-mono overflow-x-auto">
                   <span className="font-bold text-gray-600 block mb-1">Export Columns ({preview.headers.length} Columns):</span>
                   <div className="text-gray-500 whitespace-nowrap">{preview.headers.join(' | ')}</div>
                 </div>
               </div>
 
-              {/* 🌟 Real-Time Progress Bar & Extraction Status */}
               {exportProgress > 0 && (
                 <div className="pt-3 pb-1 border-t mt-4">
                   <div className="flex justify-between items-center mb-1 text-xs">
@@ -1340,8 +1334,22 @@ function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* 🌟 SCROLLABLE ACTIVITY LOG SECTION */}
+      <div className="print:hidden mt-8 mb-6">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-72">
+           <div className="p-4 bg-gray-50 border-b border-gray-200 font-bold text-slate-800 text-sm flex items-center justify-between">
+             <span>System Activity Logs</span>
+             <span className="text-xs font-medium text-gray-500 bg-white px-2 py-1 rounded border border-gray-200 shadow-sm">Real-time</span>
+           </div>
+           <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50">
+               <ActivityLog />
+           </div>
+        </div>
+      </div>
+
     </div>
   );
 }
 
-export default Dashboard;
+export default Dashboard; 

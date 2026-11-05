@@ -58,12 +58,22 @@ def clean_vehicle(v):
     cleaned = re.sub(r'[^A-Za-z0-9]', '', str(v)).upper()
     return cleaned if len(cleaned) >= 4 else None
 
+# 🌟 STRICT 4-DIGIT MATCHING
 def is_vehicle_match(sheet_veh, db_veh):
     s = clean_vehicle(sheet_veh)
     d = clean_vehicle(db_veh)
     if not s or not d:
         return False
-    return (s == d) or (len(s) >= 4 and d.endswith(s)) or (len(d) >= 4 and s.endswith(d))
+    if s == d:
+        return True
+    
+    digits_s = re.sub(r'\D', '', s)
+    digits_d = re.sub(r'\D', '', d)
+    if len(digits_s) >= 4 and len(digits_d) >= 4:
+        if digits_s[-4:] == digits_d[-4:]:
+            return True
+            
+    return False
 
 class TripCreate(BaseModel):
     vehicle_number: str
@@ -558,6 +568,46 @@ def complete_trip(trip_id: int, data: TripCompleteUpdate, request: Request):
         conn.rollback(); raise HTTPException(status_code=400, detail=str(e))
     finally:
         cursor.close(); conn.close()
+
+# 🌟 NEW ENDPOINT: REVERT COMPLETED TRIP BACK TO ACTIVE
+@app.put("/trips/{trip_id}/revert-active")
+def revert_trip_to_active(trip_id: int, request: Request):
+    current_user = get_current_user(request)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        # Check if permanently locked
+        cursor.execute("SELECT is_locked, tracking_number FROM trips WHERE trip_id = %s", (trip_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Trip not found.")
+        if row[0]:
+            raise HTTPException(status_code=400, detail="Cannot revert a permanently locked trip.")
+            
+        # Revert date
+        cursor.execute("""
+            UPDATE trips 
+            SET actual_delivery_date = NULL 
+            WHERE trip_id = %s RETURNING vehicle_number;
+        """, (trip_id,))
+        v_row = cursor.fetchone()
+        
+        if v_row: 
+            cursor.execute("UPDATE assets SET current_status = 'In-Transit' WHERE vehicle_number = %s;", (v_row[0],))
+            
+        try:
+            cursor.execute("INSERT INTO activity_logs (action, details, username) VALUES (%s, %s, %s)", ("Trip Reverted", f"Trip {row[1]} moved back to Active status", current_user))
+        except Exception:
+            pass
+            
+        conn.commit()
+        return {"status": "Success", "message": "Trip reverted to active fleet."}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
 
 @app.put("/finances/{trip_id}/checklist")
 def update_checklist(trip_id: int, data: ChecklistUpdate, request: Request):
@@ -1363,15 +1413,19 @@ async def reconcile_statements(
             target_trip = None
             if trips_for_v:
                 # 1. Exact match: Check if transaction falls within an active/completed trip window
-                for t_data in trips_for_v:
-                    t_start = t_data["start"]
+                for idx, t_data in enumerate(trips_for_v):
+                    curr_start = t_data["start"]
+                    # Allow 1-day head buffer for loading departure night (e.g. 30 SEP for 01 OCT trip)
+                    buffered_start = (datetime.strptime(curr_start, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d") if idx == 0 else curr_start
+                    
                     t_deliv = t_data.get("deliv")
+                    
                     if t_deliv:
-                        if t_start <= rec_date <= t_deliv:
+                        if buffered_start <= rec_date <= t_deliv:
                             target_trip = t_data
                             break
                     else:
-                        if t_start <= rec_date:
+                        if buffered_start <= rec_date:
                             target_trip = t_data
                             break
 
@@ -1416,6 +1470,7 @@ async def reconcile_statements(
                         "balance": rec.get("balance"),
                         "fingerprint": fp
                     })
+                    # Keep FASTag list chronologically sorted by date
                     fl.sort(key=lambda x: x.get("txn_time") or x.get("date", ""))
                     target_trip["dirty_fastag"] = True
                     summary["entries_added"] += 1

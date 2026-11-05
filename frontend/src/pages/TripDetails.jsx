@@ -582,8 +582,15 @@ function TripDetails() {
         </div>
       </div>
 
-      <div className="print:hidden mt-8">
-          <ActivityLog />
+      <div className="print:hidden mt-8 mb-6">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-72">
+           <div className="p-4 bg-gray-50 border-b border-gray-200 font-bold text-slate-800 text-sm">
+             System Activity Logs
+           </div>
+           <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50">
+               <ActivityLog />
+           </div>
+        </div>
       </div>
 
     </div>

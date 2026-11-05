@@ -2,13 +2,12 @@ import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import { useReactToPrint } from 'react-to-print';
 import { Link } from 'react-router-dom';
-import { Search, Filter, Printer, CheckCircle2, X, Edit, AlertCircle, CheckCircle, FileSignature, Lock, Save, PlusCircle, FileText, Receipt, Plus, Trash2 } from 'lucide-react';
+import { Search, Filter, Printer, CheckCircle2, X, Edit, AlertCircle, CheckCircle, FileSignature, Lock, Save, PlusCircle, FileText, Receipt, Plus, Trash2, Undo2 } from 'lucide-react';
 import ActivityLog from '../utils/ActivityLog';
 
 const API_BASE = import.meta.env.VITE_API_URL;
 const PRESET_BANKS = ['JTA 0706', 'JTA 0611', 'JFC 7734', 'JFC 1487'];
 
-// 🌟 Date formatter helper for DD-MM-YYYY
 function formatDate(dateStr) {
     if (!dateStr) return '-';
     const s = String(dateStr).slice(0, 10);
@@ -242,6 +241,18 @@ function TripHistory() {
     } catch (err) { alert(err.response?.data?.detail || "Failed to update trip info."); }
   };
 
+  // 🌟 REVERT TRIP TO ACTIVE HANDLER
+  const handleRevertTrip = async (trip_id, tracking_no) => {
+    if (!window.confirm(`Are you sure you want to revert trip ${tracking_no} back to the active fleet?`)) return;
+    try {
+      await axios.put(`${API_BASE}/trips/${trip_id}/revert-active`);
+      alert(`Trip ${tracking_no} successfully reverted to Active.`);
+      fetchHistory();
+    } catch (err) {
+      alert(err.response?.data?.detail || "Cannot revert a permanently locked trip.");
+    }
+  };
+
   let processedTrips = trips.filter(trip => 
     (trip.tracking_number || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (trip.vehicle_number || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -383,12 +394,22 @@ function TripHistory() {
                       </td>
                       <td className="p-4">
                         <div className="flex flex-col items-center justify-center gap-2">
-                            <button onClick={() => openReceiptModal(trip)} className="w-32 flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white px-3 py-2 rounded-lg font-bold text-xs shadow-sm transition cursor-pointer">
+                            <button onClick={() => openReceiptModal(trip)} className="w-40 flex items-center justify-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white px-3 py-2 rounded-lg font-bold text-xs shadow-sm transition cursor-pointer">
                               <Edit className="h-3.5 w-3.5" /> Edit Finances
                             </button>
-                            <button onClick={() => openStatusModal(trip)} className="w-32 flex items-center justify-center gap-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg font-bold text-xs shadow-sm transition cursor-pointer">
+                            <button onClick={() => openStatusModal(trip)} className="w-40 flex items-center justify-center gap-1.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-2 rounded-lg font-bold text-xs shadow-sm transition cursor-pointer">
                               <CheckCircle2 className="h-3.5 w-3.5" /> Update Status
                             </button>
+                            
+                            {/* 🌟 UNDO COMPLETED TRIP (REVERT TO ACTIVE) */}
+                            {!trip.is_locked && (
+                                <button 
+                                  onClick={() => handleRevertTrip(trip.trip_id, trip.tracking_number)} 
+                                  className="w-40 flex items-center justify-center gap-1.5 bg-amber-50 border border-amber-200 hover:bg-amber-100 text-amber-700 px-3 py-1.5 rounded-lg font-bold text-xs shadow-sm transition cursor-pointer mt-1"
+                                >
+                                  <Undo2 className="h-3.5 w-3.5" /> Revert to Active
+                                </button>
+                            )}
                         </div>
                       </td>
                     </tr>
@@ -741,8 +762,17 @@ function TripHistory() {
         </div>
       )}
 
-      <div className="print:hidden">
-          <ActivityLog />
+      {/* 🌟 SCROLLABLE ACTIVITY LOG SECTION */}
+      <div className="print:hidden mt-8 mb-6">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-72">
+           <div className="p-4 bg-gray-50 border-b border-gray-200 font-bold text-slate-800 text-sm flex items-center justify-between">
+             <span>System Activity Logs</span>
+             <span className="text-xs font-medium text-gray-500 bg-white px-2 py-1 rounded border border-gray-200 shadow-sm">Real-time</span>
+           </div>
+           <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50">
+               <ActivityLog />
+           </div>
+        </div>
       </div>
 
     </div>

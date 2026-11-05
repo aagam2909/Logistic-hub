@@ -23,7 +23,6 @@ export default function StaffLedger() {
   const [selectedMonth, setSelectedMonth] = useState('2026-10');
   const [loading, setLoading] = useState(true);
 
-  // Add Staff Modal State
   const [showAddModal, setShowAddModal] = useState(false);
   const [newStaff, setNewStaff] = useState({ name: '', role: 'Employee', phone: '' });
   const [savingStaff, setSavingStaff] = useState(false);
@@ -44,7 +43,6 @@ export default function StaffLedger() {
       const empList = Array.isArray(empRes.data) ? empRes.data : [];
       setEmployees(empList);
 
-      // Merge employee list with summary metrics so all 5 always display
       const summaryData = Array.isArray(sumRes.data) ? sumRes.data : [];
       const mergedSummary = empList.map(emp => {
         const found = summaryData.find(s => s.employee_name.toLowerCase() === emp.name.toLowerCase());
@@ -53,6 +51,7 @@ export default function StaffLedger() {
           role: emp.role,
           phone: emp.phone,
           total_loaded: found ? parseFloat(found.total_loaded || 0) : 0,
+          total_returned: found ? parseFloat(found.total_returned || 0) : 0,
           total_disbursed: found ? parseFloat(found.total_disbursed || 0) : 0,
           remaining_float: found ? parseFloat(found.remaining_float || 0) : 0
         };
@@ -87,7 +86,6 @@ export default function StaffLedger() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto p-4 md:p-6">
       
-      {/* Top Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
@@ -118,7 +116,6 @@ export default function StaffLedger() {
         </div>
       </div>
 
-      {/* Staff Account Summary Cards (1 Master + 4 Employees) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {summary.map((emp) => {
           const isMaster = emp.role === 'Master' || emp.employee_name === 'Rohit Jain';
@@ -159,12 +156,23 @@ export default function StaffLedger() {
                     ₹{parseFloat(emp.total_loaded || 0).toLocaleString()}
                   </span>
                 </div>
+                
                 <div className="flex justify-between text-gray-500">
                   <span>Disbursed (Omni):</span>
                   <span className="font-bold text-rose-600">
-                    ₹{parseFloat(emp.total_disbursed || 0).toLocaleString()}
+                    - ₹{parseFloat(emp.total_disbursed || 0).toLocaleString()}
                   </span>
                 </div>
+
+                {parseFloat(emp.total_returned || 0) > 0 || parseFloat(emp.total_returned || 0) < 0 ? (
+                  <div className="flex justify-between text-gray-500">
+                    <span>Refunded/Returned:</span>
+                    <span className="font-bold text-blue-600">
+                      - ₹{parseFloat(emp.total_returned || 0).toLocaleString()}
+                    </span>
+                  </div>
+                ) : null}
+                
                 <div className="flex justify-between pt-2 border-t font-black">
                   <span className="text-slate-900">Float Balance:</span>
                   <span className={(emp.remaining_float || 0) >= 0 ? "text-emerald-600" : "text-rose-600"}>
@@ -177,7 +185,6 @@ export default function StaffLedger() {
         })}
       </div>
 
-      {/* Transactions & Disbursement Ledger */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
           <div className="flex items-center gap-2">
@@ -251,7 +258,6 @@ export default function StaffLedger() {
         )}
       </div>
 
-      {/* Add Team Member Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative animate-in fade-in zoom-in-95">
