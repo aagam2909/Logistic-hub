@@ -1,0 +1,24 @@
+frontend/src/pages/Finance.jsx
+  h_b6895d6280a977 202-214,253-255,426,430,468,470-496,498-501,627,680-681,683,687-688,691-697,820,823-825
+  h_b6895d6280a977 497,698,821
+backend/vendor_reconcile.py
+  h_b6895d6280a977 197-217,243-244
+  h_b6895d6280a977 219-242
+frontend/src/pages/Trips.jsx
+  h_b6895d6280a977 32-38,74,225-226,372-382,442-447,783,787,825,827-853,855-858,934,988,1001,1003,1007,1014,1016,1020
+  h_b6895d6280a977 854,1155
+frontend/src/pages/TripDetails.jsx
+  h_b6895d6280a977 5,141-142,144,178,318-326,333-334,411,467-468,470,472,474-475,478-484,605,608-610
+  h_b6895d6280a977 485
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cef83dac1dc49184457b76112c0f62972d5b7ce1",
+  "prompts": {},
+  "humans": {
+    "h_b6895d6280a977": {
+      "author": "aagam2909 <aagamjain1325@gmail.com>"
+    }
+  }
+}
