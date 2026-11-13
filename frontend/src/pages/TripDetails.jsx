@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useReactToPrint } from 'react-to-print';
-import { Printer, ArrowLeft, Loader2, Receipt, FileText } from 'lucide-react';
+import { Printer, ArrowLeft, Loader2, Receipt, FileText, PlusCircle, X, Trash2 } from 'lucide-react';
 import ActivityLog from '../utils/ActivityLog';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -138,7 +138,10 @@ function TripDetails() {
   if (loading) return <div className="flex h-[80vh] items-center justify-center text-gray-500"><Loader2 className="h-8 w-8 animate-spin mr-2" /> Loading Details...</div>;
   if (!trip) return <div className="flex h-[80vh] items-center justify-center text-rose-500 font-bold">Trip Not Found</div>;
 
+  const manualFastagEntry = (finance.fastag_details || []).find(f => f.place === 'MANUAL_LUMPSUM') || { amount: '' };
+  const excelFastagLogs = (finance.fastag_details || []).filter(f => f.place !== 'MANUAL_LUMPSUM');
   const totalFastagActual = (finance.fastag_details || []).reduce((s, f) => s + parseFloat(f.amount || 0), 0);
+
   const freight = parseFloat(finance.freight_amount || 0);
   const loadingCharge = activeCharges.loading ? parseFloat(finance.loading_charge || 0) : 0;
   const holdingCharge = activeCharges.holding ? parseFloat(finance.holding_charge || 0) : 0;
@@ -150,7 +153,6 @@ function TripDetails() {
   const exactBillTotalFreight = freight + loadingCharge + holdingCharge; 
   const finalTotalAmount = exactBillTotalFreight + gstAmount;
 
-  // Synced Balance Calculation
   const rawBalance = finalTotalAmount - (totalAdvances + tdsAmount + extraDeduction);
   const balancePayment = (trip?.amount_cleared || rawBalance <= 0) ? 0.00 : rawBalance;
 
@@ -173,7 +175,7 @@ function TripDetails() {
       
       <div className="print:hidden flex flex-col lg:flex-row justify-between items-stretch gap-4 bg-white p-4 rounded-xl shadow-sm border border-gray-200">
          <div className="flex items-center gap-3 w-full lg:flex-1">
-             <Link to={trip.actual_delivery_date ? "/completed-trips" : "/trips"} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition text-gray-600 shrink-0">
+             <Link to={trip.actual_delivery_date ? "/trip-history" : "/trips"} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition text-gray-600 shrink-0">
                 <ArrowLeft className="h-5 w-5"/>
              </Link>
              <div className="flex flex-col justify-center">
@@ -313,14 +315,23 @@ function TripDetails() {
                       <div className="flex justify-between items-center mb-3">
                           <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider">Actual Fastag Logs</h4>
                       </div>
-                      {finance.fastag_details.map((f, idx) => (
+
+                      {parseFloat(manualFastagEntry.amount) > 0 && (
+                        <div className="flex justify-between items-center mb-3 bg-white p-2 rounded-lg border border-amber-200 print:bg-transparent print:border-none print:p-0">
+                           <span className="text-xs font-bold text-slate-700">Manual Lumpsum Fastag</span>
+                           <span className="font-bold text-rose-600 text-sm">₹{manualFastagEntry.amount}</span>
+                        </div>
+                      )}
+
+                      {excelFastagLogs.map((f, idx) => (
                           <div key={idx} className="flex justify-between items-center mb-1.5 gap-2 text-sm">
                              <span className="text-gray-500 w-[95px]">{formatDate(f.date)}</span>
                              <span className="text-gray-700 flex-1">{f.place || 'Unknown Location'}</span>
                              <span className="font-bold text-rose-600">₹{f.amount || 0}</span>
                           </div>
                       ))}
-                      {finance.fastag_details.length === 0 && <span className="text-xs text-gray-400 italic">No toll logs added</span>}
+                      {excelFastagLogs.length === 0 && <span className="text-xs text-gray-400 italic">No toll logs added</span>}
+                      
                       <div className="flex justify-between items-center mt-3 pt-2 border-t border-amber-300">
                          <span className="text-sm font-extrabold text-amber-900">Total Actual Fastag</span>
                          <span className="font-extrabold text-rose-600">₹{totalFastagActual}</span>
@@ -397,7 +408,7 @@ function TripDetails() {
             </div>
           )}
 
-          {/* 🌟 CLIENT BILL VIEW: FIXED COLUMN WIDTHS PREVENTING DOUBLE-PRINT OVERLAPS */}
+          {/* 🌟 CLIENT BILL VIEW */}
           {viewType === 'bill' && (
               <div className="bill-print-container w-full max-w-[850px] text-black font-sans leading-snug mx-auto p-4 print:p-0 animate-in fade-in">
                   <div className="text-center mb-2">
@@ -453,21 +464,30 @@ function TripDetails() {
 
                           <p className="font-bold">STATE: RAJASTHAN / STATE CODE: 08</p>
                       </div>
+                      
+                      {/* 🌟 INCORPORATING OPTIONAL REPORTED & UNLOADING DATES IN THE BILL TOP RIGHT */}
                       <div className="w-[40%] text-[13px] font-bold">
-                          <div className="border-b border-black p-2.5 flex justify-between">
+                          <div className="border-b border-black p-2 flex justify-between">
                               <span>Invoice No.:</span>
-                              <span>{localInvoiceNo || finance.bill_no}</span>
+                              <span>{finance.bill_no || localInvoiceNo}</span>
                           </div>
-                          <div className="p-2.5 flex justify-between">
-                              <span>Date:</span>
+                          <div className="border-b border-black p-2 flex justify-between">
+                              <span>Billing Date:</span>
                               <span>{formatDate(localBillDate || trip.trip_start_date)}</span>
+                          </div>
+                          <div className="border-b border-black p-2 flex justify-between text-[11px] text-gray-800">
+                              <span>Reported Date:</span>
+                              <span>{trip.reported_date ? formatDate(trip.reported_date) : '-'}</span>
+                          </div>
+                          <div className="p-2 flex justify-between text-[11px] text-gray-800">
+                              <span>Unloading Date:</span>
+                              <span>{trip.unloading_date ? formatDate(trip.unloading_date) : '-'}</span>
                           </div>
                       </div>
                   </div>
                   
                   <div className="border-x border-b border-black p-1 text-center text-[12px] font-bold">GST PAYABLE UNDER REVERSE CHARGES - YES/NO</div>
 
-                  {/* 🌟 100% BALANCED TABLE COLUMNS WITH NO-OVERLAP CELL STYLING */}
                   <table className="w-full table-fixed border-collapse border border-black text-[10px] font-bold text-center mt-[-1px]">
                       <thead>
                           <tr>
@@ -582,10 +602,12 @@ function TripDetails() {
         </div>
       </div>
 
+      {/* 🌟 SCROLLABLE ACTIVITY LOG SECTION */}
       <div className="print:hidden mt-8 mb-6">
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-72">
-           <div className="p-4 bg-gray-50 border-b border-gray-200 font-bold text-slate-800 text-sm">
-             System Activity Logs
+           <div className="p-4 bg-gray-50 border-b border-gray-200 font-bold text-slate-800 text-sm flex items-center justify-between">
+             <span>System Activity Logs</span>
+             <span className="text-xs font-medium text-gray-500 bg-white px-2 py-1 rounded border border-gray-200 shadow-sm">Real-time</span>
            </div>
            <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50">
                <ActivityLog />

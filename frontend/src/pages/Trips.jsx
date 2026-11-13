@@ -29,6 +29,13 @@ const TRACKING_STATUSES = [
   "WAIT FOR LOAD"
 ];
 
+function formatDate(dateStr) {
+  if (!dateStr) return '-';
+  const s = String(dateStr).slice(0, 10);
+  const parts = s.split('-');
+  return parts.length === 3 ? `${parts[2]}-${parts[1]}-${parts[0]}` : s;
+}
+
 const StatusTag = ({ status, deliveryDate }) => {
   if (deliveryDate) return <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-green-100 text-green-700 whitespace-nowrap">Completed</span>;
   if (status === 'Client Received') return <span className="px-2.5 py-1 rounded-full text-[10px] font-bold bg-green-100 text-green-700 whitespace-nowrap">Client Received</span>;
@@ -49,27 +56,22 @@ function Trips() {
   const [loading, setLoading] = useState(true);
   const [isLaunching, setIsLaunching] = useState(false); 
 
-  // Form State
   const [tripData, setTripData] = useState({
     vehicle_number: '', source_city: '', destination_city: '', party_name: '', owner_name: '',
     gta_name: '', lr_no: '', eway_bill: '', eway_bill_expiry: '', trip_start_date: '', lw: '', freight_amount: '', total_km: '',
     reported_date: '', unloading_date: ''
   });
   
-  // POD Quick Update State
   const [podUpdate, setPodUpdate] = useState({ 
     trip_id: '', pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: ''
   });
 
-  // Modal States
   const [receiptModal, setReceiptModal] = useState({ isOpen: false, trip: null });
   const [editModal, setEditModal] = useState({ isOpen: false, tripData: null });
   
-  // 🌟 Complete Modal state now includes reported_date & unloading_date
   const [completeModal, setCompleteModal] = useState({ 
     isOpen: false, trip: null, trip_unloaded: false, cleared_amount: '', cleared_date: '',
-    reported_date: new Date().toISOString().split('T')[0],
-    unloading_date: new Date().toISOString().split('T')[0],
+    reported_date: '', unloading_date: '',
     pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: ''
   });
   
@@ -77,7 +79,6 @@ function Trips() {
     isOpen: false, trip_id: null, vehicle_number: '', tracking_location: '', tracking_status: 'RUNNING'
   });
 
-  // Driver Hisaab State for Modal
   const [hisaabEntries, setHisaabEntries] = useState([]);
   const [hAmount, setHAmount] = useState('');
   const [hDate, setHDate] = useState(new Date().toISOString().split('T')[0]);
@@ -86,7 +87,6 @@ function Trips() {
   const [hPlace, setHPlace] = useState('');
   const [hReason, setHReason] = useState('');
 
-  // Finance State inside Modal
   const [activeCharges, setActiveCharges] = useState({ loading: false, holding: false, gst: false, bill_no: false });
   const [finance, setFinance] = useState({ 
     freight_amount: 0, tds: 0, finance_remarks: '', loading_charge: 0, gst: 0, holding_charge: 0, extra_deduction: 0,
@@ -222,8 +222,8 @@ function Trips() {
       trip_unloaded: trip.trip_unloaded || false, 
       cleared_amount: '', 
       cleared_date: new Date().toISOString().split('T')[0], 
-      reported_date: trip.reported_date || new Date().toISOString().split('T')[0],
-      unloading_date: trip.unloading_date || new Date().toISOString().split('T')[0],
+      reported_date: trip.reported_date || '', 
+      unloading_date: trip.unloading_date || '',
       pod_status: trip.pod_status || 'Pending', 
       pod_arrived_office_date: trip.pod_arrived_office_date || '', 
       pod_forwarded_client_date: trip.pod_forwarded_client_date || '', 
@@ -369,12 +369,17 @@ function Trips() {
   const addArrayRow = (arrayName, emptyObj) => setFinance({ ...finance, [arrayName]: [...finance[arrayName], emptyObj] });
   const removeArrayRow = (arrayName, index) => setFinance({ ...finance, [arrayName]: finance[arrayName].filter((_, i) => i !== index) });
 
-  const calculatePending = () => {
-    const loading = activeCharges.loading ? parseFloat(finance.loading_charge || 0) : 0; 
-    const holding = activeCharges.holding ? parseFloat(finance.holding_charge || 0) : 0; 
-    const gst = finance.gst_enabled ? parseFloat(finance.gst || 0) : 0;
-    const totalAdv = finance.advance_details.reduce((sum, adv) => sum + parseFloat(adv.amount || 0), 0);
-    return ((parseFloat(finance.freight_amount || 0) + loading + gst + holding) - (totalAdv + parseFloat(finance.tds || 0) + parseFloat(finance.extra_deduction || 0))).toFixed(2);
+  // 🌟 MANUAL FASTAG HANDLER
+  const handleManualFastagChange = (val) => {
+    let newArr = [...finance.fastag_details];
+    const existingIdx = newArr.findIndex(f => f.place === 'MANUAL_LUMPSUM');
+    if (existingIdx >= 0) {
+        if (val === '' || val === '0') newArr.splice(existingIdx, 1);
+        else newArr[existingIdx].amount = val;
+    } else if (val !== '' && val !== '0') {
+        newArr.push({ date: formatDate(new Date().toISOString()), place: 'MANUAL_LUMPSUM', amount: val });
+    }
+    setFinance({...finance, fastag_details: newArr});
   };
 
   const handleKmChange = (e) => {
@@ -434,7 +439,12 @@ function Trips() {
   else if (sortBy === 'advance-pending') processedTrips = processedTrips.filter(t => parseFloat(t.freight_amount) > 0 && parseFloat(t.adv_amt || 0) === 0);
 
   const isCustomBank = finance.bank_account === '' || !PRESET_BANKS.includes(finance.bank_account);
-  const totalFastagActual = finance.fastag_details.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
+  
+  // Fastag splitting
+  const manualFastagEntry = (finance.fastag_details || []).find(f => f.place === 'MANUAL_LUMPSUM') || { amount: '' };
+  const excelFastagLogs = (finance.fastag_details || []).filter(f => f.place !== 'MANUAL_LUMPSUM');
+  const totalFastagActual = (finance.fastag_details || []).reduce((s, f) => s + parseFloat(f.amount || 0), 0);
+  
   const currentOwner = receiptModal.trip?.owner_name?.toUpperCase() || '';
   const isJFC = currentOwner === 'JFC'; 
   const activeCompanyCode = isJFC ? 'JFC' : 'JTA';
@@ -475,7 +485,6 @@ function Trips() {
           <input className="w-full border p-2.5 rounded-lg text-sm text-gray-500 outline-none focus:ring-2 focus:ring-blue-100" type="date" title="Launch Date" value={tripData.trip_start_date} onChange={e => setTripData({...tripData, trip_start_date: e.target.value})} />
           <input className="w-full border p-2.5 rounded-lg text-sm text-gray-500 outline-none focus:ring-2 focus:ring-blue-100" type="date" title="E-Way Bill Expiry Date" value={tripData.eway_bill_expiry} onChange={e => setTripData({...tripData, eway_bill_expiry: e.target.value})} />
           
-          {/* Waiting & Unloading dates optional inputs */}
           <input className="w-full border p-2.5 rounded-lg text-sm text-gray-500 outline-none focus:ring-2 focus:ring-blue-100" type="date" title="Reported at Destination / Waiting Date" value={tripData.reported_date} onChange={e => setTripData({...tripData, reported_date: e.target.value})} />
           <input className="w-full border p-2.5 rounded-lg text-sm text-gray-500 outline-none focus:ring-2 focus:ring-blue-100" type="date" title="Unloading Date" value={tripData.unloading_date} onChange={e => setTripData({...tripData, unloading_date: e.target.value})} />
           
@@ -771,11 +780,11 @@ function Trips() {
                       <div>
                         <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Deductions (-)</h4>
                         <div className="border-b border-gray-100 pb-2 mb-2">
-                           <div className="flex justify-between items-center mb-2"><label className="text-sm font-semibold text-gray-700 flex items-center gap-2">Advance Received <button onClick={() => addArrayRow('advance_details', {date:'', amount:''})} className="flex items-center gap-1 text-blue-700 bg-blue-100 px-2 py-0.5 rounded text-xs print:hidden font-bold"><PlusCircle className="h-3 w-3" /> Add</button></label></div>
+                           <div className="flex justify-between items-center mb-2"><label className="text-sm font-semibold text-gray-700 flex items-center gap-2">Advance Received <button onClick={(e) => { e.preventDefault(); addArrayRow('advance_details', {date:'', amount:''}); }} className="flex items-center gap-1 text-blue-700 bg-blue-100 px-2 py-0.5 rounded text-xs print:hidden font-bold"><PlusCircle className="h-3 w-3" /> Add</button></label></div>
                            {finance.advance_details.map((adv, idx) => (
                               <div key={idx} className="flex justify-between items-center mb-1 gap-2 text-sm">
                                  <input type="date" className="border p-1 rounded text-xs text-gray-500 w-[110px]" value={adv.date} onChange={e => handleArrayChange('advance_details', idx, 'date', e.target.value)} />
-                                 <div className="flex items-center gap-1"><input type="number" className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" value={adv.amount || ''} onChange={e => handleArrayChange('advance_details', idx, 'amount', e.target.value)} placeholder="₹" />{idx > 0 && <button onClick={() => removeArrayRow('advance_details', idx)} className="text-rose-400 print:hidden p-1"><X className="h-4 w-4"/></button>}</div>
+                                 <div className="flex items-center gap-1"><input type="number" className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" value={adv.amount || ''} onChange={e => handleArrayChange('advance_details', idx, 'amount', e.target.value)} placeholder="₹" />{idx > 0 && <button onClick={(e) => { e.preventDefault(); removeArrayRow('advance_details', idx); }} className="text-rose-400 print:hidden p-1"><X className="h-4 w-4"/></button>}</div>
                               </div>
                            ))}
                         </div>
@@ -813,15 +822,40 @@ function Trips() {
                       <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 print:p-0 print:border-none">
                           <div className="flex justify-between items-center mb-3">
                               <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider">Actual Fastag Logs</h4>
-                              <button onClick={() => addArrayRow('fastag_details', {date:'', place:'', amount:''})} className="flex items-center gap-1 text-amber-700 bg-amber-200/50 px-2 py-0.5 rounded text-xs print:hidden font-bold"><PlusCircle className="h-3 w-3" /> Add Toll</button>
+                              <button onClick={(e) => { e.preventDefault(); addArrayRow('fastag_details', {date:'', place:'', amount:''}); }} className="flex items-center gap-1 text-amber-700 bg-amber-200/50 px-2 py-0.5 rounded text-xs print:hidden font-bold"><PlusCircle className="h-3 w-3" /> Add Toll</button>
                           </div>
-                          {finance.fastag_details.map((f, idx) => (
-                              <div key={idx} className="flex justify-between items-center mb-1.5 gap-2 text-sm">
-                                 <input type="date" className="border border-amber-200 p-1 rounded text-[10px] text-gray-700 w-[95px] print:border-none" value={f.date || ''} onChange={e => handleArrayChange('fastag_details', idx, 'date', e.target.value)} />
-                                 <input type="text" placeholder="Location (Opt)..." className="border border-amber-200 p-1 rounded text-xs w-[100px] print:border-none" value={f.place || ''} onChange={e => handleArrayChange('fastag_details', idx, 'place', e.target.value)} />
-                                 <div className="flex items-center gap-1"><input type="number" className="border border-amber-200 p-1.5 rounded w-[70px] text-right font-bold text-rose-600 print:border-none print:p-0" value={f.amount || ''} onChange={e => handleArrayChange('fastag_details', idx, 'amount', e.target.value)} placeholder="₹" /><button onClick={() => removeArrayRow('fastag_details', idx)} className="text-rose-400 print:hidden p-0.5"><X className="h-4 w-4"/></button></div>
-                              </div>
-                          ))}
+                          
+                          {/* 🌟 NEW MANUAL FASTAG INPUT */}
+                          <div className="flex justify-between items-center mb-4 bg-white p-2.5 rounded-lg border border-amber-200 shadow-sm print:hidden">
+                              <span className="text-xs font-bold text-slate-700">Manual Lumpsum Fastag (₹)</span>
+                              <input 
+                                 type="number" 
+                                 className="border border-amber-300 p-1.5 rounded w-[100px] text-right font-bold text-rose-600 focus:outline-none focus:ring-2 focus:ring-amber-200" 
+                                 placeholder="₹"
+                                 value={manualFastagEntry.amount} 
+                                 onChange={e => handleManualFastagChange(e.target.value)} 
+                              />
+                          </div>
+
+                          {parseFloat(manualFastagEntry.amount) > 0 && (
+                            <div className="flex justify-between items-center mb-3 bg-white p-2 rounded-lg border border-amber-200 print:bg-transparent print:border-none print:p-0 hidden print:flex">
+                               <span className="text-xs font-bold text-slate-700">Manual Lumpsum Fastag</span>
+                               <span className="font-bold text-rose-600 text-sm">₹{manualFastagEntry.amount}</span>
+                            </div>
+                          )}
+
+                          {excelFastagLogs.map((f, idx) => {
+                              const realIdx = finance.fastag_details.indexOf(f);
+                              return (
+                                <div key={realIdx} className="flex justify-between items-center mb-1.5 gap-2 text-sm">
+                                   <input type="date" className="border border-amber-200 p-1 rounded text-[10px] text-gray-700 w-[95px] print:border-none" value={f.date || ''} onChange={e => handleArrayChange('fastag_details', realIdx, 'date', e.target.value)} />
+                                   <input type="text" placeholder="Location (Opt)..." className="border border-amber-200 p-1 rounded text-xs w-[100px] print:border-none" value={f.place || ''} onChange={e => handleArrayChange('fastag_details', realIdx, 'place', e.target.value)} />
+                                   <div className="flex items-center gap-1"><input type="number" className="border border-amber-200 p-1.5 rounded w-[70px] text-right font-bold text-rose-600 print:border-none print:p-0" value={f.amount || ''} onChange={e => handleArrayChange('fastag_details', realIdx, 'amount', e.target.value)} placeholder="₹" /><button onClick={(e) => { e.preventDefault(); removeArrayRow('fastag_details', realIdx); }} className="text-rose-400 print:hidden p-0.5"><X className="h-4 w-4"/></button></div>
+                                </div>
+                              );
+                          })}
+                          {excelFastagLogs.length === 0 && <span className="text-xs text-gray-400 italic">No Excel toll logs added</span>}
+                          
                           <div className="flex justify-between items-center mt-3 pt-2 border-t border-amber-300">
                              <span className="text-sm font-extrabold text-amber-900">Total Actual Fastag</span>
                              <span className="font-extrabold text-rose-600">₹{totalFastagActual}</span>
@@ -829,7 +863,6 @@ function Trips() {
                       </div>
                   </div>
 
-                  {/* DRIVER HISAAB MODULE */}
                   <div className="mt-8 print:mt-4">
                       <h3 className="font-bold text-base mb-4 text-slate-800 uppercase tracking-wide border-b pb-2 flex justify-between items-center">
                           <span>Driver Settlement (Hisaab) Ledger</span>
@@ -898,7 +931,7 @@ function Trips() {
                               <tbody className="divide-y divide-gray-100">
                                   {hisaabEntries.map((item, idx) => (
                                       <tr key={idx} className="hover:bg-gray-50 font-medium">
-                                          <td className="p-2.5 text-gray-600">{item.date}</td>
+                                          <td className="p-2.5 text-gray-600">{formatDate(item.date)}</td>
                                           <td className="p-2.5 font-bold text-slate-800">{item.category}</td>
                                           <td className="p-2.5 text-gray-600">
                                               {item.category === 'Diesel' ? `${item.liters || 0} Ltrs at ${item.place || 'N/A'}` : (item.reason || item.place || '-')}
@@ -952,7 +985,7 @@ function Trips() {
         </div>
       )}
 
-      {/* 🌟 MODAL 3: COMPLETE TRIP STATUS MODAL (WITH REPORTED/WAITING & UNLOADING DATES) */}
+      {/* 🌟 MODAL 3: COMPLETE TRIP STATUS MODAL */}
       {completeModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95">
@@ -965,26 +998,26 @@ function Trips() {
              <p className="text-sm text-gray-600">Confirm status for trip <strong>{completeModal.trip?.tracking_number}</strong> before marking as completed:</p>
 
              <div className="space-y-4">
-                {/* 🌟 Reported at Location / Waiting Date */}
+                {/* 🌟 Reported at Location / Waiting Date (Fully Optional) */}
                 <div>
-                   <label className="text-xs font-bold text-gray-700 block mb-1">Reported at Destination / Waiting Date</label>
+                   <label className="text-xs font-bold text-gray-700 block mb-1">Reported at Destination / Waiting Date (Optional)</label>
                    <input 
                      type="date" 
                      className="w-full border border-gray-300 rounded-lg p-2.5 text-xs text-gray-700 outline-none focus:ring-2 focus:ring-blue-100" 
-                     value={completeModal.reported_date} 
+                     value={completeModal.reported_date || ''} 
                      onChange={e => setCompleteModal({...completeModal, reported_date: e.target.value})} 
                      title="When the vehicle arrived at destination or entered the waiting line"
                    />
                    <span className="text-[10px] text-gray-400 mt-0.5 block">When truck reached destination or waiting queue.</span>
                 </div>
 
-                {/* 🌟 Actual Unloading Date */}
+                {/* 🌟 Actual Unloading Date (Fully Optional) */}
                 <div>
-                   <label className="text-xs font-bold text-gray-700 block mb-1">Actual Unloading Date</label>
+                   <label className="text-xs font-bold text-gray-700 block mb-1">Actual Unloading Date (Optional)</label>
                    <input 
                      type="date" 
                      className="w-full border border-gray-300 rounded-lg p-2.5 text-xs text-gray-700 outline-none focus:ring-2 focus:ring-blue-100" 
-                     value={completeModal.unloading_date} 
+                     value={completeModal.unloading_date || ''} 
                      onChange={e => setCompleteModal({...completeModal, unloading_date: e.target.value})} 
                    />
                    <span className="text-[10px] text-gray-400 mt-0.5 block">When the truck completed cargo offloading.</span>
@@ -1093,7 +1126,6 @@ function Trips() {
                 <div className="space-y-1"><label className="text-xs font-semibold text-gray-600">Rough Freight (₹)</label><input type="number" className="w-full border p-2.5 rounded-lg text-sm" value={editModal.tripData.freight_amount || ''} onChange={e => setEditModal({isOpen: true, tripData: {...editModal.tripData, freight_amount: e.target.value}})} /></div>
             </div>
             
-            {/* 🌟 Footer with embedded Complete Trip action */}
             <div className="p-5 border-t bg-white flex justify-between items-center">
               <button 
                 type="button" 

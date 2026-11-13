@@ -199,6 +199,19 @@ function Finance() {
   const addArrayRow = (arrayName, emptyObj) => setFinance({ ...finance, [arrayName]: [...finance[arrayName], emptyObj] });
   const removeArrayRow = (arrayName, index) => setFinance({ ...finance, [arrayName]: finance[arrayName].filter((_, i) => i !== index) });
 
+  // 🌟 MANUAL FASTAG HANDLER
+  const handleManualFastagChange = (val) => {
+    let newArr = [...finance.fastag_details];
+    const existingIdx = newArr.findIndex(f => f.place === 'MANUAL_LUMPSUM');
+    if (existingIdx >= 0) {
+        if (val === '' || val === '0') newArr.splice(existingIdx, 1);
+        else newArr[existingIdx].amount = val;
+    } else if (val !== '' && val !== '0') {
+        newArr.push({ date: formatDate(new Date().toISOString()), place: 'MANUAL_LUMPSUM', amount: val });
+    }
+    setFinance({...finance, fastag_details: newArr});
+  };
+
   const calculatePending = () => {
     if (trip?.amount_cleared) return "0.00";
     const loading = activeCharges.loading ? parseFloat(finance.loading_charge || 0) : 0; 
@@ -236,6 +249,9 @@ function Finance() {
   const mileage = parseFloat(trip?.mileage) || 5.5;
   const totalFastagActual = (finance.fastag_details || []).reduce((s, f) => s + parseFloat(f.amount || 0), 0);
   const isCustomBank = finance.bank_account === '' || !PRESET_BANKS.includes(finance.bank_account);
+
+  const manualFastagEntry = (finance.fastag_details || []).find(f => f.place === 'MANUAL_LUMPSUM') || { amount: '' };
+  const excelFastagLogs = (finance.fastag_details || []).filter(f => f.place !== 'MANUAL_LUMPSUM');
 
   const freight = parseFloat(finance.freight_amount || 0);
   const loadingCharge = activeCharges.loading ? parseFloat(finance.loading_charge || 0) : 0;
@@ -407,11 +423,11 @@ function Finance() {
                       <div>
                         <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Deductions (-)</h4>
                         <div className="border-b border-gray-100 pb-2 mb-2">
-                           <div className="flex justify-between items-center mb-2"><label className="text-sm font-semibold text-gray-700 flex items-center gap-2">Advance Received <button onClick={(e) => { e.preventDefault(); addArrayRow('advance_details', {date:'', amount:''}); }} className="flex items-center gap-1 text-blue-700 bg-blue-100 px-2 py-0.5 rounded text-xs print:hidden font-bold"><PlusCircle className="h-3 w-3" /> Add</button></label></div>
+                           <div className="flex justify-between items-center mb-2"><label className="text-sm font-semibold text-gray-700 flex items-center gap-2">Advance Received <button onClick={() => addArrayRow('advance_details', {date:'', amount:''})} className="flex items-center gap-1 text-blue-700 bg-blue-100 px-2 py-0.5 rounded text-xs print:hidden font-bold"><PlusCircle className="h-3 w-3" /> Add</button></label></div>
                            {finance.advance_details.map((adv, idx) => (
                               <div key={idx} className="flex justify-between items-center mb-1 gap-2 text-sm">
                                  <input type="date" className="border p-1 rounded text-xs text-gray-500 w-[110px]" value={adv.date} onChange={e => handleArrayChange('advance_details', idx, 'date', e.target.value)} />
-                                 <div className="flex items-center gap-1"><input type="number" className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" value={adv.amount || ''} onChange={e => handleArrayChange('advance_details', idx, 'amount', e.target.value)} placeholder="₹" />{idx > 0 && <button onClick={(e) => { e.preventDefault(); removeArrayRow('advance_details', idx); }} className="text-rose-400 print:hidden p-1"><X className="h-4 w-4"/></button>}</div>
+                                 <div className="flex items-center gap-1"><input type="number" className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" value={adv.amount || ''} onChange={e => handleArrayChange('advance_details', idx, 'amount', e.target.value)} placeholder="₹" />{idx > 0 && <button onClick={() => removeArrayRow('advance_details', idx)} className="text-rose-400 print:hidden p-1"><X className="h-4 w-4"/></button>}</div>
                               </div>
                            ))}
                         </div>
@@ -449,15 +465,40 @@ function Finance() {
                       <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 print:p-0 print:border-none">
                           <div className="flex justify-between items-center mb-3">
                               <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider">Actual Fastag Logs</h4>
-                              <button onClick={(e) => { e.preventDefault(); addArrayRow('fastag_details', {date:'', place:'', amount:''}); }} className="flex items-center gap-1 text-amber-700 bg-amber-200/50 px-2 py-0.5 rounded text-xs print:hidden font-bold"><PlusCircle className="h-3 w-3" /> Add Toll</button>
+                              <button onClick={() => addArrayRow('fastag_details', {date:'', place:'', amount:''})} className="flex items-center gap-1 text-amber-700 bg-amber-200/50 px-2 py-0.5 rounded text-xs print:hidden font-bold"><PlusCircle className="h-3 w-3" /> Add Toll</button>
                           </div>
-                          {finance.fastag_details.map((f, idx) => (
-                              <div key={idx} className="flex justify-between items-center mb-1.5 gap-2 text-sm">
-                                 <input type="date" className="border border-amber-200 p-1 rounded text-[10px] text-gray-700 w-[95px] print:border-none" value={f.date || ''} onChange={e => handleArrayChange('fastag_details', idx, 'date', e.target.value)} />
-                                 <input type="text" placeholder="Location (Opt)..." className="border border-amber-200 p-1 rounded text-xs w-[100px] print:border-none" value={f.place || ''} onChange={e => handleArrayChange('fastag_details', idx, 'place', e.target.value)} />
-                                 <div className="flex items-center gap-1"><input type="number" className="border border-amber-200 p-1.5 rounded w-[70px] text-right font-bold text-rose-600 print:border-none print:p-0" value={f.amount || ''} onChange={e => handleArrayChange('fastag_details', idx, 'amount', e.target.value)} placeholder="₹" /><button onClick={(e) => { e.preventDefault(); removeArrayRow('fastag_details', idx); }} className="text-rose-400 print:hidden p-0.5"><X className="h-4 w-4"/></button></div>
-                              </div>
-                          ))}
+                          
+                          {/* 🌟 NEW MANUAL FASTAG INPUT */}
+                          <div className="flex justify-between items-center mb-4 bg-white p-2.5 rounded-lg border border-amber-200 shadow-sm print:hidden">
+                              <span className="text-xs font-bold text-slate-700">Manual Lumpsum Fastag (₹)</span>
+                              <input 
+                                 type="number" 
+                                 className="border border-amber-300 p-1.5 rounded w-[100px] text-right font-bold text-rose-600 focus:outline-none focus:ring-2 focus:ring-amber-200" 
+                                 placeholder="₹"
+                                 value={manualFastagEntry.amount} 
+                                 onChange={e => handleManualFastagChange(e.target.value)} 
+                              />
+                          </div>
+
+                          {parseFloat(manualFastagEntry.amount) > 0 && (
+                            <div className="flex justify-between items-center mb-3 bg-white p-2 rounded-lg border border-amber-200 print:bg-transparent print:border-none print:p-0 hidden print:flex">
+                               <span className="text-xs font-bold text-slate-700">Manual Lumpsum Fastag</span>
+                               <span className="font-bold text-rose-600 text-sm">₹{manualFastagEntry.amount}</span>
+                            </div>
+                          )}
+
+                          {excelFastagLogs.map((f, i) => {
+                              const realIdx = finance.fastag_details.indexOf(f);
+                              return (
+                                <div key={realIdx} className="flex justify-between items-center mb-1.5 gap-2 text-sm">
+                                   <input type="date" className="border border-amber-200 p-1 rounded text-[10px] text-gray-700 w-[95px] print:border-none" value={f.date || ''} onChange={e => handleArrayChange('fastag_details', realIdx, 'date', e.target.value)} />
+                                   <input type="text" placeholder="Location (Opt)..." className="border border-amber-200 p-1 rounded text-xs w-[100px] print:border-none" value={f.place || ''} onChange={e => handleArrayChange('fastag_details', realIdx, 'place', e.target.value)} />
+                                   <div className="flex items-center gap-1"><input type="number" className="border border-amber-200 p-1.5 rounded w-[70px] text-right font-bold text-rose-600 print:border-none print:p-0" value={f.amount || ''} onChange={e => handleArrayChange('fastag_details', realIdx, 'amount', e.target.value)} placeholder="₹" /><button onClick={() => removeArrayRow('fastag_details', realIdx)} className="text-rose-400 print:hidden p-0.5"><X className="h-4 w-4"/></button></div>
+                                </div>
+                              );
+                          })}
+                          {excelFastagLogs.length === 0 && <span className="text-xs text-gray-400 italic">No Excel toll logs added</span>}
+                          
                           <div className="flex justify-between items-center mt-3 pt-2 border-t border-amber-300">
                              <span className="text-sm font-extrabold text-amber-900">Total Actual Fastag</span>
                              <span className="font-extrabold text-rose-600">₹{totalFastagActual}</span>
@@ -583,7 +624,7 @@ function Finance() {
                 </div>
               )}
 
-              {/* 🌟 CLIENT BILL VIEW: 100% SIZING & SAFE PADDING */}
+              {/* 🌟 CLIENT BILL VIEW */}
               {viewType === 'bill' && (
                   <div className="bill-print-container w-full max-w-[850px] text-black font-sans leading-snug mx-auto p-4 print:p-0 animate-in fade-in">
                       <div className="text-center mb-2">
@@ -597,7 +638,6 @@ function Finance() {
                           <div className="w-[60%] border-r border-black p-2.5 text-[12px]">
                               <p className="font-bold">TO,</p>
                               
-                              {/* 🌟 1. MANUAL OR DROPDOWN PARTY NAME */}
                               <div className="mt-1">
                                   <input 
                                     type="text" 
@@ -614,7 +654,6 @@ function Finance() {
                                   </datalist>
                               </div>
 
-                              {/* 🌟 2. MANUAL EDITABLE DESTINATION CITY & STATE LINE */}
                               <div className="mt-0.5">
                                   <input 
                                     type="text" 
@@ -625,7 +664,6 @@ function Finance() {
                                   />
                               </div>
 
-                              {/* 🌟 3. MANUAL EDITABLE GST NUMBER */}
                               <div className="flex items-center gap-1 mt-2">
                                   <span className="font-bold">GST:-</span>
                                   <input 
@@ -639,21 +677,30 @@ function Finance() {
 
                               <p className="font-bold">STATE: RAJASTHAN / STATE CODE: 08</p>
                           </div>
+                          
+                          {/* 🌟 INCORPORATING OPTIONAL REPORTED & UNLOADING DATES IN THE BILL TOP RIGHT */}
                           <div className="w-[40%] text-[13px] font-bold">
-                              <div className="border-b border-black p-2.5 flex justify-between">
+                              <div className="border-b border-black p-2 flex justify-between">
                                   <span>Invoice No.:</span>
                                   <span>{finance.bill_no || localInvoiceNo}</span>
                               </div>
-                              <div className="p-2.5 flex justify-between">
-                                  <span>Date:</span>
+                              <div className="border-b border-black p-2 flex justify-between">
+                                  <span>Billing Date:</span>
                                   <span>{formatDate(localBillDate || trip.trip_start_date)}</span>
+                              </div>
+                              <div className="border-b border-black p-2 flex justify-between text-[11px] text-gray-800">
+                                  <span>Reported Date:</span>
+                                  <span>{trip.reported_date ? formatDate(trip.reported_date) : '-'}</span>
+                              </div>
+                              <div className="p-2 flex justify-between text-[11px] text-gray-800">
+                                  <span>Unloading Date:</span>
+                                  <span>{trip.unloading_date ? formatDate(trip.unloading_date) : '-'}</span>
                               </div>
                           </div>
                       </div>
                       
                       <div className="border-x border-b border-black p-1 text-center text-[12px] font-bold">GST PAYABLE UNDER REVERSE CHARGES - YES/NO</div>
 
-                      {/* 🌟 FIXED TABLE COLUMNS: BALANCED PROPORTIONS PREVENT TEXT COLLISION */}
                       <table className="w-full table-fixed border-collapse border border-black text-[10px] font-bold text-center mt-[-1px]">
                           <thead>
                               <tr>
@@ -770,10 +817,12 @@ function Finance() {
         </div>
       )}
 
-    <div className="print:hidden mt-8 mb-6">
+      {/* 🌟 SCROLLABLE ACTIVITY LOG SECTION */}
+      <div className="print:hidden mt-8 mb-6">
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-72">
-           <div className="p-4 bg-gray-50 border-b border-gray-200 font-bold text-slate-800 text-sm">
-             System Activity Logs
+           <div className="p-4 bg-gray-50 border-b border-gray-200 font-bold text-slate-800 text-sm flex items-center justify-between">
+             <span>System Activity Logs</span>
+             <span className="text-xs font-medium text-gray-500 bg-white px-2 py-1 rounded border border-gray-200 shadow-sm">Real-time</span>
            </div>
            <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50">
                <ActivityLog />

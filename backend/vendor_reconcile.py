@@ -194,39 +194,54 @@ def parse_vendor_file(file_bytes: bytes, filename: str):
                     "source_file": filename
                 })
 
-    # 2. DIESEL PORTAL (BPCL / HPCL)
-    elif any(k in fname for k in ["sales transaction", "sale trans", "customertransaction", "hpcl", "bpcl"]):
-        skip = 14 if "customertransaction" in fname else 11
-        df_raw = pd.read_excel(io.BytesIO(file_bytes), skiprows=skip)
-        df = df_raw.copy()
-        if "customertransaction" in fname:
-            df.columns = df_raw.iloc[0]
-            df = df[1:]
+    # 2. DIESEL PORTAL (BPCL / HPCL) - 🌟 FULLY DYNAMIC ROW SCANNER
+    elif any(k in fname for k in ["sales transaction", "sale trans", "customertransaction", "hpcl", "bpcl", "diesel"]):
+        try:
+            # Read first 25 rows blindly to find where the actual column names begin
+            df_full = pd.read_excel(io.BytesIO(file_bytes), header=None, nrows=25)
+            header_idx = None
+            
+            for idx, row in df_full.iterrows():
+                row_str = " ".join([str(v).lower() for v in row.values if pd.notna(v)])
+                if ("veh" in row_str and "no" in row_str) or ("card" in row_str and "identifier" in row_str) or ("volume" in row_str and "amount" in row_str):
+                    header_idx = idx
+                    break
+            
+            # If we couldn't dynamically find it, fall back to the old hardcoded skips
+            skip = header_idx if header_idx is not None else (14 if "customertransaction" in fname else 11)
+            
+            df_raw = pd.read_excel(io.BytesIO(file_bytes), skiprows=skip)
+            df = df_raw.copy()
+            if "customertransaction" in fname and header_idx is None:
+                df.columns = df_raw.iloc[0]
+                df = df[1:]
 
-        for _, row in df.iterrows():
-            raw_veh = row.get('veh.no.') or row.get('veh. No.') or row.get('Vehicle Number') or row.get('Vehicle No./Card Identifier') or row.get('Custom Card Name')
-            veh = clean_vehicle(raw_veh)
-            amt = pd.to_numeric(row.get('Total Transaction Amount (Rs.)') or row.get('Fuel Amount(Rs.)') or row.get('Amount'), errors='coerce')
-            vol = pd.to_numeric(row.get('Product Volume /  Quantity (Litres)') or row.get('Volume(Ltr.)'), errors='coerce') or 0.0
-            d_val = row.get('Transaction Date') or row.get('Txn Date')
-            t_id = str(row.get('Txn Id') or row.get('Transaction ID') or row.get('Invoice No') or '').strip()
+            for _, row in df.iterrows():
+                raw_veh = row.get('veh.no.') or row.get('veh. No.') or row.get('Vehicle Number') or row.get('Vehicle No./Card Identifier') or row.get('Custom Card Name')
+                veh = clean_vehicle(raw_veh)
+                amt = pd.to_numeric(row.get('Total Transaction Amount (Rs.)') or row.get('Fuel Amount(Rs.)') or row.get('Amount'), errors='coerce')
+                vol = pd.to_numeric(row.get('Product Volume /  Quantity (Litres)') or row.get('Volume(Ltr.)'), errors='coerce') or 0.0
+                d_val = row.get('Transaction Date') or row.get('Txn Date')
+                t_id = str(row.get('Txn Id') or row.get('Transaction ID') or row.get('Invoice No') or '').strip()
 
-            if veh and pd.notna(amt) and amt >= 0:
-                station = str(row.get('Fuel Station Name (Retail Outlet Name)') or row.get('Retail Outlet Name') or 'Fuel Pump').strip()
-                fp = t_id if t_id else make_fingerprint(veh, d_val, station, round(float(vol), 2), round(float(amt), 2))
-                records.append({
-                    "vehicle": veh, 
-                    "date": parse_date_str(d_val),
-                    "txn_time": parse_datetime_full(d_val),
-                    "acct_time": parse_datetime_full(d_val),
-                    "type": "DIESEL", 
-                    "amount": float(amt), 
-                    "liters": float(vol),
-                    "place": station, 
-                    "remarks": f"Fuel ({vol} Ltrs)", 
-                    "fingerprint": fp,
-                    "source_file": filename
-                })
+                if veh and pd.notna(amt) and amt >= 0:
+                    station = str(row.get('Fuel Station Name (Retail Outlet Name)') or row.get('Retail Outlet Name') or 'Fuel Pump').strip()
+                    fp = t_id if t_id else make_fingerprint(veh, d_val, station, round(float(vol), 2), round(float(amt), 2))
+                    records.append({
+                        "vehicle": veh, 
+                        "date": parse_date_str(d_val),
+                        "txn_time": parse_datetime_full(d_val),
+                        "acct_time": parse_datetime_full(d_val),
+                        "type": "DIESEL", 
+                        "amount": float(amt), 
+                        "liters": float(vol),
+                        "place": station, 
+                        "remarks": f"Fuel ({vol} Ltrs)", 
+                        "fingerprint": fp,
+                        "source_file": filename
+                    })
+        except Exception as e:
+            print(f"Error parsing Diesel file: {e}")
 
     # 3. OMNI CARD STATEMENTS
     elif "omni" in fname:
