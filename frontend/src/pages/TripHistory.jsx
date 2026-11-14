@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import { useReactToPrint } from 'react-to-print';
 import { Link } from 'react-router-dom';
-import { Search, Filter, Printer, CheckCircle2, X, Edit, AlertCircle, CheckCircle, FileSignature, Lock, Save, PlusCircle, FileText, Receipt, Plus, Trash2, Undo2 } from 'lucide-react';
+import { Search, Filter, Printer, CheckCircle2, X, Edit, AlertCircle, CheckCircle, FileSignature, Lock, Save, PlusCircle, FileText, Receipt, Plus, Trash2 } from 'lucide-react';
 import ActivityLog from '../utils/ActivityLog';
 
 const API_BASE = import.meta.env.VITE_API_URL;
@@ -160,12 +160,17 @@ function TripHistory() {
   const addArrayRow = (arrayName, emptyObj) => setFinance({ ...finance, [arrayName]: [...finance[arrayName], emptyObj] });
   const removeArrayRow = (arrayName, index) => setFinance({ ...finance, [arrayName]: finance[arrayName].filter((_, i) => i !== index) });
 
-  const calculatePending = () => {
-    const loading = activeCharges.loading ? parseFloat(finance.loading_charge || 0) : 0; 
-    const holding = activeCharges.holding ? parseFloat(finance.holding_charge || 0) : 0; 
-    const gst = finance.gst_enabled ? parseFloat(finance.gst || 0) : 0;
-    const totalAdv = finance.advance_details.reduce((sum, adv) => sum + parseFloat(adv.amount || 0), 0);
-    return ((parseFloat(finance.freight_amount || 0) + loading + gst + holding) - (totalAdv + parseFloat(finance.tds || 0) + parseFloat(finance.extra_deduction || 0))).toFixed(2);
+  // 🌟 MANUAL FASTAG HANDLER
+  const handleManualFastagChange = (val) => {
+    let newArr = [...finance.fastag_details];
+    const existingIdx = newArr.findIndex(f => f.place === 'MANUAL_LUMPSUM');
+    if (existingIdx >= 0) {
+        if (val === '' || val === '0') newArr.splice(existingIdx, 1);
+        else newArr[existingIdx].amount = val;
+    } else if (val !== '' && val !== '0') {
+        newArr.push({ date: formatDate(new Date().toISOString()), place: 'MANUAL_LUMPSUM', amount: val });
+    }
+    setFinance({...finance, fastag_details: newArr});
   };
 
   const handleKmChange = (e) => {
@@ -241,18 +246,6 @@ function TripHistory() {
     } catch (err) { alert(err.response?.data?.detail || "Failed to update trip info."); }
   };
 
-  // 🌟 REVERT TRIP TO ACTIVE HANDLER
-  const handleRevertTrip = async (trip_id, tracking_no) => {
-    if (!window.confirm(`Are you sure you want to revert trip ${tracking_no} back to the active fleet?`)) return;
-    try {
-      await axios.put(`${API_BASE}/trips/${trip_id}/revert-active`);
-      alert(`Trip ${tracking_no} successfully reverted to Active.`);
-      fetchHistory();
-    } catch (err) {
-      alert(err.response?.data?.detail || "Cannot revert a permanently locked trip.");
-    }
-  };
-
   let processedTrips = trips.filter(trip => 
     (trip.tracking_number || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (trip.vehicle_number || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -269,22 +262,25 @@ function TripHistory() {
   if (sortBy === 'newest') processedTrips.sort((a, b) => new Date(b.actual_delivery_date || b.trip_start_date) - new Date(a.actual_delivery_date || a.trip_start_date));
   else if (sortBy === 'oldest') processedTrips.sort((a, b) => new Date(a.actual_delivery_date || a.trip_start_date) - new Date(b.actual_delivery_date || b.trip_start_date));
 
-  const pendingBalance = statusModal.trip ? parseFloat(statusModal.trip?.balance_payment ?? statusModal.trip?.freight_amount ?? 0) : 0;
   const isCustomBank = finance.bank_account === '' || !PRESET_BANKS.includes(finance.bank_account);
-  const totalFastagActual = finance.fastag_details.reduce((s, f) => s + parseFloat(f.amount || 0), 0);
+  
+  // Fastag splitting
+  const manualFastagEntry = (finance.fastag_details || []).find(f => f.place === 'MANUAL_LUMPSUM') || { amount: '' };
+  const excelFastagLogs = (finance.fastag_details || []).filter(f => f.place !== 'MANUAL_LUMPSUM');
+  const totalFastagActual = (finance.fastag_details || []).reduce((s, f) => s + parseFloat(f.amount || 0), 0);
 
+  // 🌟 Balance Computation
   const freight = parseFloat(finance.freight_amount || 0);
   const unloading = activeCharges.loading ? parseFloat(finance.loading_charge || 0) : 0; 
   const holdingCharge = activeCharges.holding ? parseFloat(finance.holding_charge || 0) : 0; 
-
   const exactBillTotalFreight = freight + unloading + holdingCharge; 
   const gstAmount = parseFloat(finance.gst || 0);
-  const gstHalf = (gstAmount / 2).toFixed(2);
-  const isIGST = receiptModal.trip?.source_city?.toLowerCase() !== receiptModal.trip?.destination_city?.toLowerCase(); 
-  const isGstEnabled = finance.gst_enabled;
   const finalTotalAmount = exactBillTotalFreight + gstAmount;
   const totalAdvances = finance.advance_details.reduce((sum, adv) => sum + parseFloat(adv.amount || 0), 0);
-  const finalBalancePayable = finalTotalAmount - totalAdvances;
+  const tdsAmount = parseFloat(finance.tds || 0);
+  const extraDeduction = parseFloat(finance.extra_deduction || 0);
+  const rawBalance = finalTotalAmount - (totalAdvances + tdsAmount + extraDeduction);
+  const balancePayment = (receiptModal.trip?.amount_cleared || rawBalance <= 0) ? 0.00 : rawBalance;
 
   const currentOwner = receiptModal.trip?.owner_name?.toUpperCase() || '';
   const isJFC = currentOwner === 'JFC'; 
@@ -401,15 +397,7 @@ function TripHistory() {
                               <CheckCircle2 className="h-3.5 w-3.5" /> Update Status
                             </button>
                             
-                            {/* 🌟 UNDO COMPLETED TRIP (REVERT TO ACTIVE) */}
-                            {!trip.is_locked && (
-                                <button 
-                                  onClick={() => handleRevertTrip(trip.trip_id, trip.tracking_number)} 
-                                  className="w-40 flex items-center justify-center gap-1.5 bg-amber-50 border border-amber-200 hover:bg-amber-100 text-amber-700 px-3 py-1.5 rounded-lg font-bold text-xs shadow-sm transition cursor-pointer mt-1"
-                                >
-                                  <Undo2 className="h-3.5 w-3.5" /> Revert to Active
-                                </button>
-                            )}
+                            {/* UNDO BUTTON REMOVED */}
                         </div>
                       </td>
                     </tr>
@@ -510,7 +498,10 @@ function TripHistory() {
                         <div className="flex justify-between items-center border-b border-gray-100 pb-2"><input className="text-sm font-semibold text-gray-700 border-b border-dashed w-32 bg-transparent outline-none" placeholder="Extra Deduction..." /><input className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" type="number" value={finance.extra_deduction || ''} onChange={e => handleFinanceChange('extra_deduction', e.target.value)} /></div>
                       </div>
                       
-                      <div className="col-span-2 mt-4 p-4 border-2 border-slate-900 rounded-lg flex justify-between items-center bg-emerald-50/30"><span className="font-extrabold text-lg text-slate-900">NET BALANCE PAYABLE</span><span className="font-extrabold text-2xl text-emerald-600">₹{calculatePending()}</span></div>
+                      <div className="col-span-2 mt-4 p-4 border-2 border-slate-900 rounded-lg flex justify-between items-center bg-emerald-50/30">
+                        <span className="font-extrabold text-lg text-slate-900">NET BALANCE PAYABLE</span>
+                        <span className="font-extrabold text-2xl text-emerald-600">₹{balancePayment.toFixed(2)}</span>
+                      </div>
                   </div>
 
                   <h3 className="font-bold text-base mb-4 mt-8 text-slate-800 uppercase tracking-wide border-b pb-2">Operational Tracking (Internal)</h3>
@@ -542,13 +533,37 @@ function TripHistory() {
                               <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider">Actual Fastag Logs</h4>
                               <button onClick={(e) => { e.preventDefault(); addArrayRow('fastag_details', {date:'', place:'', amount:''}); }} className="flex items-center gap-1 text-amber-700 bg-amber-200/50 px-2 py-0.5 rounded text-xs print:hidden font-bold"><PlusCircle className="h-3 w-3" /> Add Toll</button>
                           </div>
-                          {finance.fastag_details.map((f, idx) => (
-                              <div key={idx} className="flex justify-between items-center mb-1.5 gap-2 text-sm">
-                                 <input type="date" className="border border-amber-200 p-1 rounded text-[10px] text-gray-700 w-[95px] print:border-none" value={f.date || ''} onChange={e => handleArrayChange('fastag_details', idx, 'date', e.target.value)} />
-                                 <input type="text" placeholder="Location (Opt)..." className="border border-amber-200 p-1 rounded text-xs w-[100px] print:border-none" value={f.place || ''} onChange={e => handleArrayChange('fastag_details', idx, 'place', e.target.value)} />
-                                 <div className="flex items-center gap-1"><input type="number" className="border border-amber-200 p-1.5 rounded w-[70px] text-right font-bold text-rose-600 print:border-none print:p-0" value={f.amount || ''} onChange={e => handleArrayChange('fastag_details', idx, 'amount', e.target.value)} placeholder="₹" /><button onClick={(e) => { e.preventDefault(); removeArrayRow('fastag_details', idx); }} className="text-rose-400 print:hidden p-0.5"><X className="h-4 w-4"/></button></div>
-                              </div>
-                          ))}
+                          
+                          <div className="flex justify-between items-center mb-4 bg-white p-2.5 rounded-lg border border-amber-200 shadow-sm print:hidden">
+                              <span className="text-xs font-bold text-slate-700">Manual Lumpsum Fastag (₹)</span>
+                              <input 
+                                 type="number" 
+                                 className="border border-amber-300 p-1.5 rounded w-[100px] text-right font-bold text-rose-600 focus:outline-none focus:ring-2 focus:ring-amber-200" 
+                                 placeholder="₹"
+                                 value={manualFastagEntry.amount} 
+                                 onChange={e => handleManualFastagChange(e.target.value)} 
+                              />
+                          </div>
+
+                          {parseFloat(manualFastagEntry.amount) > 0 && (
+                            <div className="flex justify-between items-center mb-3 bg-white p-2 rounded-lg border border-amber-200 print:bg-transparent print:border-none print:p-0 hidden print:flex">
+                               <span className="text-xs font-bold text-slate-700">Manual Lumpsum Fastag</span>
+                               <span className="font-bold text-rose-600 text-sm">₹{manualFastagEntry.amount}</span>
+                            </div>
+                          )}
+
+                          {excelFastagLogs.map((f, i) => {
+                              const realIdx = finance.fastag_details.indexOf(f);
+                              return (
+                                <div key={realIdx} className="flex justify-between items-center mb-1.5 gap-2 text-sm">
+                                   <input type="date" className="border border-amber-200 p-1 rounded text-[10px] text-gray-700 w-[95px] print:border-none" value={f.date || ''} onChange={e => handleArrayChange('fastag_details', realIdx, 'date', e.target.value)} />
+                                   <input type="text" placeholder="Location (Opt)..." className="border border-amber-200 p-1 rounded text-xs w-[100px] print:border-none" value={f.place || ''} onChange={e => handleArrayChange('fastag_details', realIdx, 'place', e.target.value)} />
+                                   <div className="flex items-center gap-1"><input type="number" className="border border-amber-200 p-1.5 rounded w-[70px] text-right font-bold text-rose-600 print:border-none print:p-0" value={f.amount || ''} onChange={e => handleArrayChange('fastag_details', realIdx, 'amount', e.target.value)} placeholder="₹" /><button onClick={(e) => { e.preventDefault(); removeArrayRow('fastag_details', realIdx); }} className="text-rose-400 print:hidden p-0.5"><X className="h-4 w-4"/></button></div>
+                                </div>
+                              );
+                          })}
+                          {excelFastagLogs.length === 0 && <span className="text-xs text-gray-400 italic">No Excel toll logs added</span>}
+                          
                           <div className="flex justify-between items-center mt-3 pt-2 border-t border-amber-300">
                              <span className="text-sm font-extrabold text-amber-900">Total Actual Fastag</span>
                              <span className="font-extrabold text-rose-600">₹{totalFastagActual}</span>
@@ -562,9 +577,9 @@ function TripHistory() {
                       </h3>
 
                       <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-4 grid grid-cols-2 gap-x-8 gap-y-4 mb-6 text-sm">
-                          <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Driver Advance (₹3.5/km)</span><span className="font-bold text-slate-900">₹{receiptModal.trip.driver_advance || 0}</span></div>
-                          <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Remaining Balance (₹1.0/km)</span><span className="font-bold text-slate-900">₹{receiptModal.trip.driver_remaining || 0}</span></div>
-                          <div className="flex justify-between items-center border-b border-gray-200 pb-2 col-span-2 bg-blue-100 p-2 rounded"><span className="font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span><span className="font-extrabold text-slate-700">₹{receiptModal.trip.driver_total || 0}</span></div>
+                          <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Driver Advance (₹3.5/km)</span><span className="font-bold text-slate-900">₹{receiptModal.trip?.driver_advance || 0}</span></div>
+                          <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Remaining Balance (₹1.0/km)</span><span className="font-bold text-slate-900">₹{receiptModal.trip?.driver_remaining || 0}</span></div>
+                          <div className="flex justify-between items-center border-b border-gray-200 pb-2 col-span-2 bg-blue-100 p-2 rounded"><span className="font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span><span className="font-extrabold text-slate-700">₹{receiptModal.trip?.driver_total || 0}</span></div>
                       </div>
 
                       <form onSubmit={handleAddHisaab} className="print:hidden bg-gray-50 border border-gray-200 rounded-xl p-4 mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-3">
@@ -647,10 +662,25 @@ function TripHistory() {
                       </div>
                   </div>
 
-                  <div className="hidden print:flex justify-between mt-20 pt-8">
-                      <div className="border-t border-gray-400 w-48 text-center pt-2 font-semibold text-sm">Receiver's Signature</div>
-                      <div className="border-t border-gray-400 w-48 text-center pt-2 font-semibold text-sm">Authorized Signatory</div>
-                  </div>
+                  {receiptModal.trip?.telemetry?.lat && (
+                    <div className="mt-8 border-2 border-slate-900 rounded-lg p-4 bg-white print:border-2 print:border-slate-900 print:break-inside-avoid">
+                        <h3 className="font-bold text-base mb-3 text-slate-800 uppercase tracking-wide border-b border-slate-200 pb-2">Geospatial Tracking Record</h3>
+                        <div className="flex flex-col sm:flex-row gap-4">
+                            <div className="w-full sm:w-1/2 h-[200px] border border-gray-300 rounded overflow-hidden z-0 relative">
+                                <MapContainer center={[receiptModal.trip.telemetry.lat, receiptModal.trip.telemetry.lng]} zoom={13} style={{ height: "100%", width: "100%", zIndex: 0 }} zoomControl={false} dragging={false} scrollWheelZoom={false}>
+                                   <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                                   <Marker position={[receiptModal.trip.telemetry.lat, receiptModal.trip.telemetry.lng]} />
+                                </MapContainer>
+                            </div>
+                            <div className="w-full sm:w-1/2 space-y-2 text-sm text-slate-700">
+                                <div className="flex justify-between border-b pb-1"><strong>Status:</strong> <span className="font-bold text-emerald-600">{receiptModal.trip.telemetry.status}</span></div>
+                                <div className="flex justify-between border-b pb-1"><strong>Speed:</strong> <span>{receiptModal.trip.telemetry.speed} km/h</span></div>
+                                <div className="flex justify-between border-b pb-1"><strong>Fuel Level:</strong> <span className="font-bold">{receiptModal.trip.telemetry.fuel_level} L</span></div>
+                                <div className="flex justify-between pb-1"><strong>Coordinates:</strong> <span>{receiptModal.trip.telemetry.lat.toFixed(4)}, {receiptModal.trip.telemetry.lng.toFixed(4)}</span></div>
+                            </div>
+                        </div>
+                    </div>
+                  )}
 
                </div>
             </div>
@@ -663,79 +693,114 @@ function TripHistory() {
         </div>
       )}
 
-      {/* UPDATE STATUS MODAL */}
-      {statusModal.isOpen && (
+      {/* 🌟 MODAL 3: COMPLETE TRIP STATUS MODAL */}
+      {completeModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col p-6 space-y-5 animate-in fade-in zoom-in-95">
-             <div className="flex justify-between items-center border-b pb-4">
-                <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                  <AlertCircle className="h-5 w-5 text-blue-600"/> Update Status
-                </h3>
-                <button onClick={() => setStatusModal({isOpen: false, trip: null})} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 cursor-pointer"><X className="h-5 w-5"/></button>
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95">
+             <div className="flex justify-between items-center border-b p-6 pb-4 shrink-0">
+                <h3 className="font-bold text-lg text-slate-800">Complete Trip Checklist</h3>
+                <button onClick={() => setCompleteModal({isOpen: false, trip: null})} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 cursor-pointer"><X className="h-5 w-5"/></button>
              </div>
-             <p className="text-sm text-gray-600">Update checklist for <strong>{statusModal.trip?.tracking_number}</strong>:</p>
-             <div className="space-y-3">
+             
+             <div className="overflow-y-auto p-6 pt-4 space-y-5">
+             <p className="text-sm text-gray-600">Confirm status for trip <strong>{completeModal.trip?.tracking_number}</strong> before marking as completed:</p>
+
+             <div className="space-y-4">
+                {/* 🌟 Reported at Location / Waiting Date (Fully Optional) */}
+                <div>
+                   <label className="text-xs font-bold text-gray-700 block mb-1">Reported at Destination / Waiting Date (Optional)</label>
+                   <input 
+                     type="date" 
+                     className="w-full border border-gray-300 rounded-lg p-2.5 text-xs text-gray-700 outline-none focus:ring-2 focus:ring-blue-100" 
+                     value={completeModal.reported_date || ''} 
+                     onChange={e => setCompleteModal({...completeModal, reported_date: e.target.value})} 
+                     title="When the vehicle arrived at destination or entered the waiting line"
+                   />
+                   <span className="text-[10px] text-gray-400 mt-0.5 block">When truck reached destination or waiting queue.</span>
+                </div>
+
+                {/* 🌟 Actual Unloading Date (Fully Optional) */}
+                <div>
+                   <label className="text-xs font-bold text-gray-700 block mb-1">Actual Unloading Date (Optional)</label>
+                   <input 
+                     type="date" 
+                     className="w-full border border-gray-300 rounded-lg p-2.5 text-xs text-gray-700 outline-none focus:ring-2 focus:ring-blue-100" 
+                     value={completeModal.unloading_date || ''} 
+                     onChange={e => setCompleteModal({...completeModal, unloading_date: e.target.value})} 
+                   />
+                   <span className="text-[10px] text-gray-400 mt-0.5 block">When the truck completed cargo offloading.</span>
+                </div>
+
                 <label className="flex items-center gap-3 p-3 rounded-xl border border-gray-200 bg-gray-50 cursor-pointer hover:border-blue-300 transition">
-                   <input type="checkbox" className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer" checked={statusModal.trip_unloaded} onChange={e => setStatusModal({...statusModal, trip_unloaded: e.target.checked})} />
-                   <span className="font-bold text-slate-800 text-sm">Trip Unloaded</span>
+                   <input type="checkbox" className="h-5 w-5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer" checked={completeModal.trip_unloaded} onChange={e => setCompleteModal({...completeModal, trip_unloaded: e.target.checked})} />
+                   <div>
+                      <span className="font-bold text-slate-800 text-sm block">Trip Unloaded</span>
+                      <span className="text-xs text-gray-500">Confirm the vehicle has been unloaded at destination.</span>
+                   </div>
                 </label>
-                
+
                 <div className="p-3 rounded-xl border border-gray-200 bg-gray-50 flex flex-col gap-2 transition hover:border-blue-300">
-                    <span className="font-bold text-slate-800 text-sm">Log New Payment</span>
+                    <span className="font-bold text-slate-800 text-sm">Log Final Payment</span>
                     <div className="flex flex-col gap-2 mt-1">
-                        <span className="text-xs text-slate-500 font-bold">Current Pending Balance: <span className="text-blue-600">₹{parseFloat(statusModal.trip?.balance_payment ?? statusModal.trip?.freight_amount ?? 0).toFixed(2)}</span></span>
-                        {parseFloat(statusModal.trip?.balance_payment ?? statusModal.trip?.freight_amount ?? 0) <= 0 ? (
-                            <span className="text-xs font-bold text-emerald-700 bg-emerald-100 p-2 rounded-lg text-center block w-full mt-1 border border-emerald-200">✓ Balance is fully paid.</span>
+                        <span className="text-xs text-slate-500 font-bold">Current Pending Balance: <span className="text-blue-600">₹{parseFloat(completeModal.trip?.balance_payment ?? completeModal.trip?.freight_amount ?? 0).toFixed(2)}</span></span>
+                        {parseFloat(completeModal.trip?.balance_payment ?? completeModal.trip?.freight_amount ?? 0) <= 0 ? (
+                            <span className="text-xs font-bold text-emerald-700 bg-emerald-100 p-2 rounded-lg text-center block w-full mt-1 border border-emerald-200">
+                                ✓ Balance is fully paid.
+                            </span>
                         ) : (
-                            <div className="flex gap-2">
-                                <input type="number" placeholder="Amount Received (₹)" className="w-full border border-gray-300 rounded p-2 text-sm text-gray-700 outline-none focus:border-blue-400 font-bold" value={statusModal.cleared_amount} onChange={e => setStatusModal({...statusModal, cleared_amount: e.target.value})} />
-                                <input type="date" className="w-full border border-gray-300 rounded p-2 text-sm text-gray-700 outline-none focus:border-blue-400" value={statusModal.cleared_date} onChange={e => setStatusModal({...statusModal, cleared_date: e.target.value})} />
-                            </div>
+                            <>
+                              <div className="flex gap-2">
+                                  <input type="number" placeholder="Amount Received (₹)" className="w-full border border-gray-300 rounded p-2 text-sm text-gray-700 outline-none focus:border-blue-400 font-bold" value={completeModal.cleared_amount} onChange={e => setCompleteModal({...completeModal, cleared_amount: e.target.value})} />
+                                  <input type="date" className="w-full border border-gray-300 rounded p-2 text-sm text-gray-700 outline-none focus:border-blue-400" value={completeModal.cleared_date} onChange={e => setCompleteModal({...completeModal, cleared_date: e.target.value})} />
+                              </div>
+                              <p className="text-[10px] text-gray-500 leading-tight">Payments added here will automatically update the receipt and deduct from the balance.</p>
+                            </>
                         )}
                     </div>
                 </div>
-
+                
                 <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/50 flex flex-col gap-3 mt-2">
                     <label className="font-bold text-blue-900 text-sm">POD Tracking Stage</label>
-                    <select className="border border-blue-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-400 outline-none w-full bg-white font-semibold text-slate-700 cursor-pointer" value={statusModal.pod_status} onChange={e => setStatusModal({...statusModal, pod_status: e.target.value})}>
+                    <select className="border border-blue-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-400 outline-none w-full bg-white font-semibold text-slate-700 cursor-pointer" value={completeModal.pod_status} onChange={e => setCompleteModal({...completeModal, pod_status: e.target.value})}>
                        <option value="Pending">Pending (Not received yet)</option>
                        <option value="Received">Received at Office</option>
                        <option value="Forwarded">Forwarded to Party</option>
                        <option value="Client Received">Received by Party</option>
                     </select>
-                    
+
                     <div className="space-y-2 mt-1">
-                        {['Received', 'Forwarded', 'Client Received'].includes(statusModal.pod_status) && (
+                        {['Received', 'Forwarded', 'Client Received'].includes(completeModal.pod_status) && (
                             <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm">
                                <span className="text-xs font-semibold text-gray-600">Office Arrival:</span>
-                               {statusModal.originalTrip?.pod_arrived_office_date ? <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">✓ {formatDate(statusModal.originalTrip.pod_arrived_office_date)}</span> : <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_arrived_office_date} onChange={e => setStatusModal({...statusModal, pod_arrived_office_date: e.target.value})} />}
+                               <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={completeModal.pod_arrived_office_date} onChange={e => setCompleteModal({...completeModal, pod_arrived_office_date: e.target.value})} />
                             </div>
                         )}
-                        {['Forwarded', 'Client Received'].includes(statusModal.pod_status) && (
+                        {['Forwarded', 'Client Received'].includes(completeModal.pod_status) && (
                             <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm">
                                <span className="text-xs font-semibold text-gray-600">Forwarded:</span>
-                               {statusModal.originalTrip?.pod_forwarded_client_date ? <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">✓ {formatDate(statusModal.originalTrip.pod_forwarded_client_date)}</span> : <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_forwarded_client_date} onChange={e => setStatusModal({...statusModal, pod_forwarded_client_date: e.target.value})} />}
+                               <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={completeModal.pod_forwarded_client_date} onChange={e => setCompleteModal({...completeModal, pod_forwarded_client_date: e.target.value})} />
                             </div>
                         )}
-                        {statusModal.pod_status === 'Client Received' && (
+                        {completeModal.pod_status === 'Client Received' && (
                             <div className="flex items-center justify-between bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm">
                                <span className="text-xs font-semibold text-gray-600">Client Received:</span>
-                               {statusModal.originalTrip?.pod_received_client_date ? <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100">✓ {formatDate(statusModal.originalTrip.pod_received_client_date)}</span> : <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={statusModal.pod_received_client_date} onChange={e => setStatusModal({...statusModal, pod_received_client_date: e.target.value})} />}
+                               <input type="date" className="border border-gray-300 rounded p-1 text-xs text-gray-700 outline-none focus:border-blue-400" value={completeModal.pod_received_client_date} onChange={e => setCompleteModal({...completeModal, pod_received_client_date: e.target.value})} />
                             </div>
                         )}
                     </div>
                 </div>
              </div>
 
-             <div className="flex justify-end gap-3 pt-4 border-t">
-                <button onClick={() => setStatusModal({isOpen: false, trip: null})} className="px-4 py-2 rounded-lg font-semibold text-gray-600 hover:bg-gray-100 text-sm cursor-pointer">Cancel</button>
-                <button onClick={handleUpdateStatus} className="text-white px-6 py-2 rounded-lg font-bold text-sm shadow-sm transition bg-blue-600 hover:bg-blue-700 cursor-pointer">Save Status</button>
+             </div>
+             <div className="flex justify-end gap-3 p-6 pt-4 border-t shrink-0">
+                <button onClick={() => setCompleteModal({isOpen: false, trip: null})} className="px-4 py-2 rounded-lg font-semibold text-gray-600 hover:bg-gray-100 text-sm cursor-pointer">Cancel</button>
+                <button onClick={handleConfirmCompleteTrip} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-lg font-bold text-sm shadow-sm transition cursor-pointer">Confirm & Complete</button>
              </div>
           </div>
         </div>
       )}
 
-      {/* ONE-TIME FINAL EDIT MODAL */}
+      {/* 🌟 MODAL 4: EDIT TRIP MODAL (WITH COMPLETE BUTTON IN FOOTER) */}
       {editLogisticsModal.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col">

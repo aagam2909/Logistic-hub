@@ -9,6 +9,7 @@ import { useReactToPrint } from 'react-to-print';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import ActivityLog from '../utils/ActivityLog';
 
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -56,22 +57,26 @@ function Trips() {
   const [loading, setLoading] = useState(true);
   const [isLaunching, setIsLaunching] = useState(false); 
 
+  // Form State
   const [tripData, setTripData] = useState({
     vehicle_number: '', source_city: '', destination_city: '', party_name: '', owner_name: '',
     gta_name: '', lr_no: '', eway_bill: '', eway_bill_expiry: '', trip_start_date: '', lw: '', freight_amount: '', total_km: '',
     reported_date: '', unloading_date: ''
   });
   
+  // POD Quick Update State
   const [podUpdate, setPodUpdate] = useState({ 
     trip_id: '', pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: ''
   });
 
+  // Modal States
   const [receiptModal, setReceiptModal] = useState({ isOpen: false, trip: null });
   const [editModal, setEditModal] = useState({ isOpen: false, tripData: null });
   
   const [completeModal, setCompleteModal] = useState({ 
     isOpen: false, trip: null, trip_unloaded: false, cleared_amount: '', cleared_date: '',
-    reported_date: '', unloading_date: '',
+    reported_date: '',
+    unloading_date: '',
     pod_status: 'Pending', pod_arrived_office_date: '', pod_forwarded_client_date: '', pod_received_client_date: ''
   });
   
@@ -79,6 +84,7 @@ function Trips() {
     isOpen: false, trip_id: null, vehicle_number: '', tracking_location: '', tracking_status: 'RUNNING'
   });
 
+  // Driver Hisaab State for Modal
   const [hisaabEntries, setHisaabEntries] = useState([]);
   const [hAmount, setHAmount] = useState('');
   const [hDate, setHDate] = useState(new Date().toISOString().split('T')[0]);
@@ -87,6 +93,7 @@ function Trips() {
   const [hPlace, setHPlace] = useState('');
   const [hReason, setHReason] = useState('');
 
+  // Finance State inside Modal
   const [activeCharges, setActiveCharges] = useState({ loading: false, holding: false, gst: false, bill_no: false });
   const [finance, setFinance] = useState({ 
     freight_amount: 0, tds: 0, finance_remarks: '', loading_charge: 0, gst: 0, holding_charge: 0, extra_deduction: 0,
@@ -444,6 +451,19 @@ function Trips() {
   const manualFastagEntry = (finance.fastag_details || []).find(f => f.place === 'MANUAL_LUMPSUM') || { amount: '' };
   const excelFastagLogs = (finance.fastag_details || []).filter(f => f.place !== 'MANUAL_LUMPSUM');
   const totalFastagActual = (finance.fastag_details || []).reduce((s, f) => s + parseFloat(f.amount || 0), 0);
+
+  // 🌟 FIX FOR CRASH: Correct Balance Calculations mapping explicitly
+  const freight = parseFloat(finance.freight_amount || 0);
+  const unloading = activeCharges.loading ? parseFloat(finance.loading_charge || 0) : 0; 
+  const holdingCharge = activeCharges.holding ? parseFloat(finance.holding_charge || 0) : 0; 
+  const exactBillTotalFreight = freight + unloading + holdingCharge; 
+  const gstAmount = parseFloat(finance.gst || 0);
+  const finalTotalAmount = exactBillTotalFreight + gstAmount;
+  const totalAdvances = finance.advance_details.reduce((sum, adv) => sum + parseFloat(adv.amount || 0), 0);
+  const tdsAmount = parseFloat(finance.tds || 0);
+  const extraDeduction = parseFloat(finance.extra_deduction || 0);
+  const rawBalance = finalTotalAmount - (totalAdvances + tdsAmount + extraDeduction);
+  const balancePayment = (receiptModal.trip?.amount_cleared || rawBalance <= 0) ? 0.00 : rawBalance;
   
   const currentOwner = receiptModal.trip?.owner_name?.toUpperCase() || '';
   const isJFC = currentOwner === 'JFC'; 
@@ -780,11 +800,11 @@ function Trips() {
                       <div>
                         <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Deductions (-)</h4>
                         <div className="border-b border-gray-100 pb-2 mb-2">
-                           <div className="flex justify-between items-center mb-2"><label className="text-sm font-semibold text-gray-700 flex items-center gap-2">Advance Received <button onClick={(e) => { e.preventDefault(); addArrayRow('advance_details', {date:'', amount:''}); }} className="flex items-center gap-1 text-blue-700 bg-blue-100 px-2 py-0.5 rounded text-xs print:hidden font-bold"><PlusCircle className="h-3 w-3" /> Add</button></label></div>
+                           <div className="flex justify-between items-center mb-2"><label className="text-sm font-semibold text-gray-700 flex items-center gap-2">Advance Received <button onClick={() => addArrayRow('advance_details', {date:'', amount:''})} className="flex items-center gap-1 text-blue-700 bg-blue-100 px-2 py-0.5 rounded text-xs print:hidden font-bold"><PlusCircle className="h-3 w-3" /> Add</button></label></div>
                            {finance.advance_details.map((adv, idx) => (
                               <div key={idx} className="flex justify-between items-center mb-1 gap-2 text-sm">
                                  <input type="date" className="border p-1 rounded text-xs text-gray-500 w-[110px]" value={adv.date} onChange={e => handleArrayChange('advance_details', idx, 'date', e.target.value)} />
-                                 <div className="flex items-center gap-1"><input type="number" className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" value={adv.amount || ''} onChange={e => handleArrayChange('advance_details', idx, 'amount', e.target.value)} placeholder="₹" />{idx > 0 && <button onClick={(e) => { e.preventDefault(); removeArrayRow('advance_details', idx); }} className="text-rose-400 print:hidden p-1"><X className="h-4 w-4"/></button>}</div>
+                                 <div className="flex items-center gap-1"><input type="number" className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" value={adv.amount || ''} onChange={e => handleArrayChange('advance_details', idx, 'amount', e.target.value)} placeholder="₹" />{idx > 0 && <button onClick={() => removeArrayRow('advance_details', idx)} className="text-rose-400 print:hidden p-1"><X className="h-4 w-4"/></button>}</div>
                               </div>
                            ))}
                         </div>
@@ -792,7 +812,11 @@ function Trips() {
                         <div className="flex justify-between items-center border-b border-gray-100 pb-2"><input className="text-sm font-semibold text-gray-700 border-b border-dashed w-32 bg-transparent outline-none" placeholder="Extra Deduction..." /><input className="border p-1.5 rounded w-[100px] text-right font-bold text-rose-600" type="number" value={finance.extra_deduction || ''} onChange={e => handleFinanceChange('extra_deduction', e.target.value)} /></div>
                       </div>
                       
-                      <div className="col-span-2 mt-4 p-4 border-2 border-slate-900 rounded-lg flex justify-between items-center bg-emerald-50/30"><span className="font-extrabold text-lg text-slate-900">NET BALANCE PAYABLE</span><span className="font-extrabold text-2xl text-emerald-600">₹{calculatePending()}</span></div>
+                      {/* 🌟 FIXED: Balance correctly calculated without causing ReferenceError */}
+                      <div className="col-span-2 mt-4 p-4 border-2 border-slate-900 rounded-lg flex justify-between items-center bg-emerald-50/30">
+                        <span className="font-extrabold text-lg text-slate-900">NET BALANCE PAYABLE</span>
+                        <span className="font-extrabold text-2xl text-emerald-600">₹{balancePayment.toFixed(2)}</span>
+                      </div>
                   </div>
 
                   <h3 className="font-bold text-base mb-4 mt-8 text-slate-800 uppercase tracking-wide border-b pb-2">Operational Tracking (Internal)</h3>
@@ -822,10 +846,9 @@ function Trips() {
                       <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 print:p-0 print:border-none">
                           <div className="flex justify-between items-center mb-3">
                               <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider">Actual Fastag Logs</h4>
-                              <button onClick={(e) => { e.preventDefault(); addArrayRow('fastag_details', {date:'', place:'', amount:''}); }} className="flex items-center gap-1 text-amber-700 bg-amber-200/50 px-2 py-0.5 rounded text-xs print:hidden font-bold"><PlusCircle className="h-3 w-3" /> Add Toll</button>
+                              <button onClick={() => addArrayRow('fastag_details', {date:'', place:'', amount:''})} className="flex items-center gap-1 text-amber-700 bg-amber-200/50 px-2 py-0.5 rounded text-xs print:hidden font-bold"><PlusCircle className="h-3 w-3" /> Add Toll</button>
                           </div>
                           
-                          {/* 🌟 NEW MANUAL FASTAG INPUT */}
                           <div className="flex justify-between items-center mb-4 bg-white p-2.5 rounded-lg border border-amber-200 shadow-sm print:hidden">
                               <span className="text-xs font-bold text-slate-700">Manual Lumpsum Fastag (₹)</span>
                               <input 
@@ -844,13 +867,13 @@ function Trips() {
                             </div>
                           )}
 
-                          {excelFastagLogs.map((f, idx) => {
+                          {excelFastagLogs.map((f, i) => {
                               const realIdx = finance.fastag_details.indexOf(f);
                               return (
                                 <div key={realIdx} className="flex justify-between items-center mb-1.5 gap-2 text-sm">
                                    <input type="date" className="border border-amber-200 p-1 rounded text-[10px] text-gray-700 w-[95px] print:border-none" value={f.date || ''} onChange={e => handleArrayChange('fastag_details', realIdx, 'date', e.target.value)} />
                                    <input type="text" placeholder="Location (Opt)..." className="border border-amber-200 p-1 rounded text-xs w-[100px] print:border-none" value={f.place || ''} onChange={e => handleArrayChange('fastag_details', realIdx, 'place', e.target.value)} />
-                                   <div className="flex items-center gap-1"><input type="number" className="border border-amber-200 p-1.5 rounded w-[70px] text-right font-bold text-rose-600 print:border-none print:p-0" value={f.amount || ''} onChange={e => handleArrayChange('fastag_details', realIdx, 'amount', e.target.value)} placeholder="₹" /><button onClick={(e) => { e.preventDefault(); removeArrayRow('fastag_details', realIdx); }} className="text-rose-400 print:hidden p-0.5"><X className="h-4 w-4"/></button></div>
+                                   <div className="flex items-center gap-1"><input type="number" className="border border-amber-200 p-1.5 rounded w-[70px] text-right font-bold text-rose-600 print:border-none print:p-0" value={f.amount || ''} onChange={e => handleArrayChange('fastag_details', realIdx, 'amount', e.target.value)} placeholder="₹" /><button onClick={() => removeArrayRow('fastag_details', realIdx)} className="text-rose-400 print:hidden p-0.5"><X className="h-4 w-4"/></button></div>
                                 </div>
                               );
                           })}
@@ -869,9 +892,9 @@ function Trips() {
                       </h3>
 
                       <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-4 grid grid-cols-2 gap-x-8 gap-y-4 mb-6 text-sm">
-                          <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Driver Advance (₹3.5/km)</span><span className="font-bold text-slate-900">₹{receiptModal.trip.driver_advance || 0}</span></div>
-                          <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Remaining Balance (₹1.0/km)</span><span className="font-bold text-slate-900">₹{receiptModal.trip.driver_remaining || 0}</span></div>
-                          <div className="flex justify-between items-center border-b border-gray-200 pb-2 col-span-2 bg-blue-100 p-2 rounded"><span className="font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span><span className="font-extrabold text-slate-700">₹{receiptModal.trip.driver_total || 0}</span></div>
+                          <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Driver Advance (₹3.5/km)</span><span className="font-bold text-slate-900">₹{receiptModal.trip?.driver_advance || 0}</span></div>
+                          <div className="flex justify-between items-center border-b border-gray-200 pb-2"><span className="font-semibold text-gray-700">Remaining Balance (₹1.0/km)</span><span className="font-bold text-slate-900">₹{receiptModal.trip?.driver_remaining || 0}</span></div>
+                          <div className="flex justify-between items-center border-b border-gray-200 pb-2 col-span-2 bg-blue-100 p-2 rounded"><span className="font-extrabold text-gray-900">Total Driver Pay (₹4.5/km)</span><span className="font-extrabold text-slate-700">₹{receiptModal.trip?.driver_total || 0}</span></div>
                       </div>
 
                       <form onSubmit={handleAddHisaab} className="print:hidden bg-gray-50 border border-gray-200 rounded-xl p-4 mb-4 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-3">
@@ -1147,6 +1170,19 @@ function Trips() {
           </div>
         </div>
       )}
+
+      {/* 🌟 SCROLLABLE ACTIVITY LOG SECTION */}
+      <div className="print:hidden mt-8 mb-6">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-72">
+           <div className="p-4 bg-gray-50 border-b border-gray-200 font-bold text-slate-800 text-sm flex items-center justify-between">
+             <span>System Activity Logs</span>
+             <span className="text-xs font-medium text-gray-500 bg-white px-2 py-1 rounded border border-gray-200 shadow-sm">Real-time</span>
+           </div>
+           <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50">
+               <ActivityLog />
+           </div>
+        </div>
+      </div>
 
     </div>
   );
